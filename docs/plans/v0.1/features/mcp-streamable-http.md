@@ -1,6 +1,6 @@
 # Feature plan — MCP Streamable HTTP
 
-Status: implemented locally; production verification pending.
+Status: implemented, deployed, and verified on production.
 
 Requirements: `MCPHTTP-001..006`, `AC-MCPHTTP-REAL-CLIENT`, and `AC-MCPHTTP-AUTH-HOST-ORIGIN`.
 

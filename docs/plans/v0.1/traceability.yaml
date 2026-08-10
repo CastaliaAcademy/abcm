@@ -35,13 +35,13 @@ entries:
     status: passed_for_implemented_slice
   - requirements: [MCPHTTP-001, MCPHTTP-002, MCPHTTP-005]
     tests: [mcp-http-real-client, mcp-rest-shared-runtime]
-    status: passed_locally
+    status: passed
   - requirements: [MCPHTTP-003, MCPHTTP-004]
     tests: [mcp-http-bearer-boundary, mcp-http-host-origin-validation]
-    status: passed_locally
+    status: passed
   - requirements: [MCPHTTP-006]
     tests: [mcp-tool-safety-annotations]
-    status: passed_locally
+    status: passed
 deferred:
   - requirements: [all other requirements in specification 0.5.0]
     status: not_implemented
