@@ -30,7 +30,7 @@ export function requireStaticBearerToken(
   handler: (request: Request) => Promise<Response>,
   token: string,
 ): (request: Request) => Promise<Response> {
-  if (token.length < 16) throw new Error("ABCM REST bearer token must contain at least 16 characters.");
+  if (token.length < 16) throw new Error("ABCM bearer token must contain at least 16 characters.");
   return async request => {
     if (new URL(request.url).pathname === "/health") return handler(request);
     const authorization = request.headers.get("authorization");

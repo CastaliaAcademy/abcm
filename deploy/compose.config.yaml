@@ -9,6 +9,9 @@ services:
       ABCM_PORT: 8787
       ABCM_WORKSPACE_ID: ${ABCM_WORKSPACE_ID:-abcm-development}
       ABCM_WORKSPACE_ROOT: /workspace
+      ABCM_MCP_PATH: /mcp
+      ABCM_MCP_ALLOWED_HOSTNAMES: ${ABCM_MCP_ALLOWED_HOSTNAMES:-localhost,127.0.0.1,[::1]}
+      ABCM_MCP_ALLOWED_ORIGINS: ${ABCM_MCP_ALLOWED_ORIGINS:-localhost,127.0.0.1,[::1]}
     volumes:
       - type: bind
         source: ${ABCM_WORKSPACE_PATH:?required}

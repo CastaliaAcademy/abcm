@@ -33,6 +33,15 @@ entries:
   - requirements: [MAP-001, MAP-002, MAP-003, MAP-005, MAP-006, MAP-008, MAP-011, MAP-013]
     tests: [scope-map-projection, invalid-branch-projection, scope-map-digest]
     status: passed_for_implemented_slice
+  - requirements: [MCPHTTP-001, MCPHTTP-002, MCPHTTP-005]
+    tests: [mcp-http-real-client, mcp-rest-shared-runtime]
+    status: passed_locally
+  - requirements: [MCPHTTP-003, MCPHTTP-004]
+    tests: [mcp-http-bearer-boundary, mcp-http-host-origin-validation]
+    status: passed_locally
+  - requirements: [MCPHTTP-006]
+    tests: [mcp-tool-safety-annotations]
+    status: passed_locally
 deferred:
   - requirements: [all other requirements in specification 0.5.0]
     status: not_implemented

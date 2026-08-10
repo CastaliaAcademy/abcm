@@ -42,6 +42,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     {
       title: "List workspace files",
       description: "List allowed project files without exposing reserved service paths.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.object({ workspaceId, path: path.default(""), recursive: z.boolean().default(false) }),
     },
     async input => toolResult(async () => ({ entries: await dependencies.files.list(input.workspaceId, input.path, input.recursive) })),
@@ -51,6 +52,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     {
       title: "Read workspace file",
       description: "Read one allowed project file and return exact base64 bytes plus metadata.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.object({ workspaceId, path: path.min(1) }),
     },
     async input =>
@@ -69,6 +71,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     {
       title: "Write workspace file",
       description: "Atomically create or replace an allowed project file with checksum preconditions.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       inputSchema: z.object({
         workspaceId,
         path: path.min(1),
@@ -96,6 +99,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     {
       title: "Delete workspace file",
       description: "Delete one regular project file with an optional checksum precondition.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       inputSchema: z.object({ workspaceId, path: path.min(1), ifMatch: z.string().optional() }),
     },
     async input =>
@@ -109,6 +113,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     {
       title: "Move workspace file",
       description: "Move one regular project file without overwriting by default.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       inputSchema: z.object({
         workspaceId,
         from: path.min(1),
@@ -130,6 +135,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     {
       title: "Create workspace directory",
       description: "Create an allowed project directory and missing parent directories.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       inputSchema: z.object({ workspaceId, path: path.min(1) }),
     },
     async input => toolResult(async () => ({ entry: await dependencies.files.createDirectory(input.workspaceId, input.path) })),
@@ -139,6 +145,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     {
       title: "Scan ScopeMap",
       description: "Build an immutable in-memory ScopeMap revision from the registered workspace.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.object({ workspaceId }),
     },
     async input => toolResult(async () => ({ revision: await dependencies.scopeMap.scan(input.workspaceId) })),

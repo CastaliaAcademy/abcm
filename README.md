@@ -1,6 +1,6 @@
 # ABCM MCP Server
 
-TypeScript/Bun library and runnable server for exposing [Agent Build Context Manager](docs/spec/abcm-mvp-agent-spec-v0.5.yaml) workspaces through MCP and an authenticated REST file API.
+TypeScript/Bun library and runnable server for exposing [Agent Build Context Manager](docs/spec/abcm-mvp-agent-spec-v0.5.yaml) workspaces through MCP over stdio and Streamable HTTP, plus an authenticated REST file API.
 
 ## Status
 
@@ -9,7 +9,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 - bounded workflow and scope-map discovery;
 - safe, atomic workspace file list/read/write/delete/move/directory operations;
 - REST access with ETags, stable problem responses, and static Bearer authentication;
-- MCP tools and the `abcm://map` resource backed by the same application services;
+- MCP tools and the `abcm://map` resource over stdio and authenticated Streamable HTTP, backed by the same application services;
 - self-hosting ABCM metadata, feature plans, verification plans, and reusable project skills.
 
 The normative baseline is specification 0.5.0 plus the extensions in [docs/spec/extensions](docs/spec/extensions). The executed plan is [PLAN-0001](docs/plans/v0.1/plan.md).
@@ -26,14 +26,14 @@ bun run check
 bun run build
 ```
 
-## Run REST
+## Run HTTP server
 
 ```bash
 export ABCM_API_TOKEN='replace-with-at-least-16-characters'
 ABCM_WORKSPACE_ID=self ABCM_WORKSPACE_ROOT="$PWD" bun run dev:rest
 ```
 
-`GET /health` is public. All `/v1` routes require `Authorization: Bearer <token>`. See the [REST API](docs/api/rest-file-api.md) and [quickstart](docs/operations/quickstart.md).
+`GET /health` is public. All `/v1` routes and the `/mcp` Streamable HTTP endpoint require `Authorization: Bearer <token>`. See the [REST API](docs/api/rest-file-api.md), [HTTP MCP API](docs/api/mcp-http-api.md), and [quickstart](docs/operations/quickstart.md).
 
 ## Run MCP stdio
 
