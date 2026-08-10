@@ -1,6 +1,6 @@
 # Feature plan — MCP Streamable HTTP
 
-Status: implemented, deployed, and verified on production.
+Status: implemented in the library; disabled on `castalia-prod` by `ABCM_MCP_ENABLED=false`.
 
 Requirements: `MCPHTTP-001..006`, `AC-MCPHTTP-REAL-CLIENT`, and `AC-MCPHTTP-AUTH-HOST-ORIGIN`.
 

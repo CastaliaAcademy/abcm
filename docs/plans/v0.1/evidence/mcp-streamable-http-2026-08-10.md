@@ -24,3 +24,7 @@ Commit under test: `734e15d` (`agent/deploy-castalia-prod`).
 ## Remaining boundary
 
 The MCP endpoint is production-live but loopback-only. Direct ChatGPT connection remains blocked on workspace-side Secure MCP Tunnel or an approved HTTPS reverse proxy and compatible authentication. The static-token alpha service was intentionally not exposed to the public internet.
+
+## Production removal
+
+Later on 2026-08-10, commit `d310ec3` added the explicit `ABCM_MCP_ENABLED` runtime switch and set it to `false` in the production Compose profile. After redeployment, live checks returned `404` for `/mcp`, `200` for `/health`, and `401` for an unauthenticated `/v1` request; `abcm-rest-1` remained healthy. Streamable HTTP MCP remains available in the library and tests but is no longer served by `castalia-prod`.
