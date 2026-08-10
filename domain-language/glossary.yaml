@@ -1,0 +1,9 @@
+apiVersion: abcm/v1
+kind: Glossary
+terms:
+  - id: file-workspace
+    name: FileWorkspace
+    definition: Canonical human-editable project tree.
+  - id: scope-map
+    name: ScopeMap
+    definition: Immutable bounded projection of valid scopes and diagnostics.

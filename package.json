@@ -1,0 +1,47 @@
+{
+  "name": "abcm-mcp-server",
+  "version": "0.1.0-alpha.1",
+  "description": "MCP and REST server library for Agent Build Context Manager workspaces",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "agent-context",
+    "context-management"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit && bun test",
+    "dev:rest": "bun run src/cli/rest-server.ts",
+    "dev:mcp": "bun run src/cli/mcp-stdio.ts",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "yaml": "^2.8.1",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@types/bun": "latest",
+    "typescript": "^6.0.0"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "packageManager": "bun@1.3.14"
+}

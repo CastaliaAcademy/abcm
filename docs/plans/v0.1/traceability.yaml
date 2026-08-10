@@ -1,0 +1,39 @@
+apiVersion: abcm.dev/traceability/v1alpha1
+kind: RequirementTraceability
+milestone: 0.1.0-alpha.1
+status: passed
+entries:
+  - requirements: [RFM-001]
+    tests: [workspace-file-service-crud, rest-file-lifecycle]
+    status: passed
+  - requirements: [RFM-002, RFM-003]
+    tests: [workspace-filesystem-bytes, rest-server-filesystem-parity]
+    status: passed
+  - requirements: [RFM-004, RFM-005]
+    tests: [safe-workspace-path, reserved-listing]
+    status: passed
+  - requirements: [RFM-006]
+    tests: [stale-write, stale-delete, move-collision, rest-etag]
+    status: passed
+  - requirements: [RFM-007]
+    tests: [mutation-callback, runtime-scan-after-mutation]
+    status: passed
+  - requirements: [RFM-008]
+    tests: [rest-stable-problems, rest-payload-limit]
+    status: passed
+  - requirements: [AUTH-001, AUTH-002]
+    tests: [rest-auth-boundary, authenticated-real-http]
+    status: passed
+  - requirements: [AUTH-003]
+    tests: [weak-token-rejection, rest-cli-required-environment]
+    status: passed
+  - requirements: [FS-001, FS-002, FS-003, FS-004, FS-005, SCP-001, SCP-002, SCP-003]
+    tests: [scope-map-scanner, self-migration]
+    status: passed_for_implemented_slice
+  - requirements: [MAP-001, MAP-002, MAP-003, MAP-005, MAP-006, MAP-008, MAP-011, MAP-013]
+    tests: [scope-map-projection, invalid-branch-projection, scope-map-digest]
+    status: passed_for_implemented_slice
+deferred:
+  - requirements: [all other requirements in specification 0.5.0]
+    status: not_implemented
+    reason: Outside PLAN-0001 vertical slice; tracked by the master development plan.

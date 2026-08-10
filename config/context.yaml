@@ -1,0 +1,12 @@
+apiVersion: abcm/v1
+kind: ContextConfig
+fileApi:
+  maxReadBytes: 1048576
+  maxWriteBytes: 1048576
+  deniedDirectories:
+    - .git
+    - .abcm
+    - node_modules
+    - dist
+    - build
+    - coverage

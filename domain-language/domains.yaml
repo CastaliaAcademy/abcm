@@ -1,0 +1,9 @@
+apiVersion: abcm/v1
+kind: DomainCatalog
+domains:
+  - id: workspace
+    name: Workspace management
+  - id: scope-map
+    name: Scope map
+  - id: context
+    name: Context construction
