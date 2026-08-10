@@ -1,0 +1,31 @@
+name: abcm
+
+services:
+  rest:
+    working_dir: /app
+    environment:
+      ABCM_API_TOKEN: ${ABCM_API_TOKEN:?required}
+      ABCM_HOST: 0.0.0.0
+      ABCM_PORT: 8787
+      ABCM_WORKSPACE_ID: ${ABCM_WORKSPACE_ID:-abcm-development}
+      ABCM_WORKSPACE_ROOT: /workspace
+    volumes:
+      - type: bind
+        source: ${ABCM_WORKSPACE_PATH:?required}
+        target: /workspace
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - const response = await fetch('http://127.0.0.1:8787/health'); if (!response.ok) process.exit(1);
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s

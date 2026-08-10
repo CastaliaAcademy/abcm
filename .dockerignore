@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+agents
+artifacts
+config
+coverage
+dist
+docs
+domain-language
+node_modules
+test
+*.log
