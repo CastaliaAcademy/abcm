@@ -23,6 +23,33 @@ async function fixture() {
 }
 
 describe("ABCM Streamable HTTP MCP endpoint", () => {
+  test("can be disabled without disabling REST", async () => {
+    const root = await fixture();
+    const runtime = createAbcmRuntime(
+      { id: "test", root },
+      { bearerToken: token, mcpHttpEnabled: false },
+    );
+
+    try {
+      const mcp = await runtime.httpHandler(
+        new Request("http://localhost/mcp", { headers: { authorization: `Bearer ${token}` } }),
+      );
+      expect(mcp.status).toBe(404);
+
+      const health = await runtime.httpHandler(new Request("http://localhost/health"));
+      expect(health.status).toBe(200);
+
+      const files = await runtime.httpHandler(
+        new Request("http://localhost/v1/workspaces/test/files?path=", {
+          headers: { authorization: `Bearer ${token}` },
+        }),
+      );
+      expect(files.status).toBe(200);
+    } finally {
+      await runtime.close();
+    }
+  });
+
   test("serves authenticated MCP tools through the shared HTTP runtime", async () => {
     const root = await fixture();
     const runtime = createAbcmRuntime({ id: "test", root }, { bearerToken: token });
