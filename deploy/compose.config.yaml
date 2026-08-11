@@ -9,6 +9,7 @@ services:
       ABCM_PORT: 8787
       ABCM_WORKSPACE_ID: ${ABCM_WORKSPACE_ID:-abcm-development}
       ABCM_WORKSPACE_ROOT: /workspace
+      ABCM_WORKSPACE_STORE_ROOT: /workspaces
       ABCM_MCP_ENABLED: "false"
       ABCM_MCP_PATH: /mcp
       ABCM_MCP_ALLOWED_HOSTNAMES: ${ABCM_MCP_ALLOWED_HOSTNAMES:-localhost,127.0.0.1,[::1]}
@@ -17,6 +18,10 @@ services:
       - type: bind
         source: ${ABCM_WORKSPACE_PATH:?required}
         target: /workspace
+        read_only: true
+      - type: volume
+        source: managed-workspaces
+        target: /workspaces
     init: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -33,3 +38,6 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+
+volumes:
+  managed-workspaces:

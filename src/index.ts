@@ -12,6 +12,8 @@ export { requireStaticBearerToken } from "./rest/static-bearer-auth.js";
 export { ScopeMapService } from "./scope-map/scope-map-service.js";
 export type { MapDiagnostic, MapRevision, ScopeMapProjection, ScopeNode } from "./scope-map/types.js";
 export { WorkspaceFileService } from "./workspace/file-service.js";
+export { discoverManagedWorkspaces, WorkspaceProvisioningService } from "./workspace/provisioning-service.js";
+export type { WorkspaceProvisioningDependencies } from "./workspace/provisioning-service.js";
 export { WorkspaceRegistry } from "./workspace/registry.js";
 export { SafeWorkspacePath } from "./workspace/safe-path.js";
 export type {

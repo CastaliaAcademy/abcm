@@ -24,7 +24,9 @@ describe("ABCM MCP adapter", () => {
     await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
     const registry = new WorkspaceRegistry([{ id: "test", root }]);
     const scopeMap = new ScopeMapService(registry);
-    const files = new WorkspaceFileService(registry, { onMutation: async () => void (await scopeMap.scan("test")) });
+    const files = new WorkspaceFileService(registry, {
+      onMutation: async workspaceId => void (await scopeMap.scan(workspaceId)),
+    });
     const server = createAbcmMcpServer({ files, scopeMap, defaultWorkspaceId: "test" });
     const client = new Client({ name: "abcm-test-client", version: "0.1.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

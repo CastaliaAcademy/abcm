@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createAbcmRestHandler } from "../src/rest/create-rest-handler.js";
 import { ScopeMapService } from "../src/scope-map/scope-map-service.js";
 import { WorkspaceFileService } from "../src/workspace/file-service.js";
+import { WorkspaceProvisioningService } from "../src/workspace/provisioning-service.js";
 import { WorkspaceRegistry } from "../src/workspace/registry.js";
 
 let root: string;
@@ -18,7 +19,9 @@ beforeEach(async () => {
   await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
   const registry = new WorkspaceRegistry([{ id: "test", root }]);
   const scopeMap = new ScopeMapService(registry);
-  const files = new WorkspaceFileService(registry, { onMutation: async () => void (await scopeMap.scan("test")) });
+  const files = new WorkspaceFileService(registry, {
+    onMutation: async workspaceId => void (await scopeMap.scan(workspaceId)),
+  });
   fetchHandler = createAbcmRestHandler({ files, scopeMap });
 });
 
@@ -31,6 +34,73 @@ async function call(path: string, init?: RequestInit) {
 }
 
 describe("ABCM REST handler", () => {
+  test("reports managed workspace registration as disabled when no store is configured", async () => {
+    const response = await call("/v1/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "castalia-public" }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual(
+      expect.objectContaining({ code: "WORKSPACE_REGISTRATION_DISABLED", status: 503 }),
+    );
+  });
+
+  test("registers a managed workspace and exposes it through existing file routes", async () => {
+    const registry = new WorkspaceRegistry([{ id: "test", root }]);
+    const scopeMap = new ScopeMapService(registry);
+    const files = new WorkspaceFileService(registry, {
+      onMutation: async workspaceId => void (await scopeMap.scan(workspaceId)),
+    });
+    const managedHandler = createAbcmRestHandler({
+      files,
+      scopeMap,
+      workspaces: new WorkspaceProvisioningService({
+        registry,
+        files,
+        scopeMap,
+        storeRoot: join(root, "managed-workspaces"),
+      }),
+    });
+    const callManaged = (path: string, init?: RequestInit) => managedHandler(new Request(`http://localhost${path}`, init));
+
+    const created = await callManaged("/v1/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "castalia-public", name: "Castalia Public" }),
+    });
+    expect(created.status).toBe(201);
+    expect(await created.json()).toEqual({ id: "castalia-public" });
+
+    const listed = await callManaged("/v1/workspaces/castalia-public/files?recursive=true");
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "scope.yaml" }),
+        expect.objectContaining({ path: "domain-language/DomainLanguageConvention.md" }),
+      ]),
+    );
+
+    const duplicate = await callManaged("/v1/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "castalia-public" }),
+    });
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toEqual(expect.objectContaining({ code: "WORKSPACE_ALREADY_EXISTS", status: 409 }));
+
+    for (const body of [{ id: "../escape" }, { id: "another", root: "/tmp/escape" }]) {
+      const invalid = await callManaged("/v1/workspaces", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toEqual(expect.objectContaining({ code: "REQUEST_INVALID", status: 400 }));
+    }
+  });
+
   test("serves health and complete file lifecycle with ETags", async () => {
     expect((await call("/health")).status).toBe(200);
 

@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 
 import { createAbcmRuntime } from "../app/create-runtime.js";
+import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
 
 const workspaceId = process.env.ABCM_WORKSPACE_ID ?? "default";
 const workspaceRoot = resolve(process.env.ABCM_WORKSPACE_ROOT ?? process.cwd());
@@ -9,6 +10,7 @@ const port = Number(process.env.ABCM_PORT ?? "8787");
 const bearerToken = process.env.ABCM_API_TOKEN;
 const mcpHttpEnabled = process.env.ABCM_MCP_ENABLED !== "false";
 const mcpEndpointPath = process.env.ABCM_MCP_PATH ?? "/mcp";
+const workspaceStoreRoot = process.env.ABCM_WORKSPACE_STORE_ROOT;
 
 function commaSeparated(value: string | undefined): string[] | undefined {
   if (value === undefined) return undefined;
@@ -25,14 +27,19 @@ if (process.env.ABCM_MCP_ENABLED !== undefined && !["true", "false"].includes(pr
 
 const allowedHostnames = commaSeparated(process.env.ABCM_MCP_ALLOWED_HOSTNAMES);
 const allowedOrigins = commaSeparated(process.env.ABCM_MCP_ALLOWED_ORIGINS);
+const discoveredWorkspaces =
+  workspaceStoreRoot === undefined
+    ? []
+    : (await discoverManagedWorkspaces(workspaceStoreRoot)).filter(workspace => workspace.id !== workspaceId);
 const runtime = createAbcmRuntime(
-  { id: workspaceId, root: workspaceRoot },
+  [{ id: workspaceId, root: workspaceRoot }, ...discoveredWorkspaces],
   {
     bearerToken,
     mcpHttpEnabled,
     mcpEndpointPath,
     ...(allowedHostnames === undefined ? {} : { mcpAllowedHostnames: allowedHostnames }),
     ...(allowedOrigins === undefined ? {} : { mcpAllowedOrigins: allowedOrigins }),
+    ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
   },
 );
 await runtime.scopeMap.scan(workspaceId);

@@ -160,7 +160,7 @@ export class WorkspaceFileService {
         throw error;
       }
 
-      await this.#notify([resolved.relativePath]);
+      await this.#notify(workspaceId, [resolved.relativePath]);
       const metadata = await stat(resolved.absolutePath);
       return {
         path: resolved.relativePath,
@@ -183,7 +183,7 @@ export class WorkspaceFileService {
       const checksum = await sha256File(resolved.absolutePath);
       this.#validateMatch(checksum, preconditions.ifMatch);
       await unlink(resolved.absolutePath);
-      await this.#notify([resolved.relativePath]);
+      await this.#notify(workspaceId, [resolved.relativePath]);
     });
   }
 
@@ -206,7 +206,7 @@ export class WorkspaceFileService {
       target = await safePath.resolve(to, { allowMissing: true });
       if (targetChecksum !== undefined && options.overwrite) await unlink(target.absolutePath);
       await rename(source.absolutePath, target.absolutePath);
-      await this.#notify([source.relativePath, target.relativePath]);
+      await this.#notify(workspaceId, [source.relativePath, target.relativePath]);
       const targetStat = await stat(target.absolutePath);
       return {
         path: target.relativePath,
@@ -230,7 +230,7 @@ export class WorkspaceFileService {
       await mkdir(resolved.absolutePath, { recursive: true });
       resolved = await safePath.resolve(path);
       const metadata = await stat(resolved.absolutePath);
-      await this.#notify([resolved.relativePath]);
+      await this.#notify(workspaceId, [resolved.relativePath]);
       return {
         path: resolved.relativePath,
         name: basename(resolved.relativePath),
@@ -286,8 +286,8 @@ export class WorkspaceFileService {
     }
   }
 
-  async #notify(paths: readonly string[]): Promise<void> {
-    if (this.#onMutation) await this.#onMutation(paths);
+  async #notify(workspaceId: string, paths: readonly string[]): Promise<void> {
+    if (this.#onMutation) await this.#onMutation(workspaceId, paths);
   }
 
   #mutate<T>(operation: () => Promise<T>): Promise<T> {

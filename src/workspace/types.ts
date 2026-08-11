@@ -39,4 +39,4 @@ export interface MoveOptions extends DeletePreconditions {
   overwrite?: boolean;
 }
 
-export type MutationReconciler = (changedPaths: readonly string[]) => Promise<void>;
+export type MutationReconciler = (workspaceId: string, changedPaths: readonly string[]) => Promise<void>;

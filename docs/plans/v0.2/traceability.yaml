@@ -1,0 +1,17 @@
+apiVersion: abcm.dev/traceability/v1alpha1
+kind: RequirementTraceability
+milestone: 0.2.0-alpha.1
+status: in_progress
+entries:
+  - requirements: [WSR-001, WSR-004]
+    tests: [rest-workspace-registration, workspace-bootstrap]
+    status: planned
+  - requirements: [WSR-002, WSR-003]
+    tests: [workspace-store-boundary, workspace-duplicate-preservation]
+    status: planned
+  - requirements: [WSR-005]
+    tests: [workspace-restart-discovery]
+    status: planned
+  - requirements: [WSR-006]
+    tests: [rest-workspace-registration-problems]
+    status: planned

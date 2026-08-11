@@ -8,6 +8,11 @@ import type { WorkspaceFileService } from "../workspace/file-service.js";
 export interface AbcmRestDependencies {
   files: WorkspaceFileService;
   scopeMap: ScopeMapService;
+  workspaces?: WorkspaceRegistrationService;
+}
+
+export interface WorkspaceRegistrationService {
+  create(input: { id: string; name?: string }): Promise<{ id: string }>;
 }
 
 export interface AbcmRestOptions {
@@ -21,6 +26,12 @@ const moveSchema = z.object({
   ifMatch: z.string().optional(),
 });
 const directorySchema = z.object({ path: z.string() });
+const workspaceSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+    name: z.string().min(1).max(160).optional(),
+  })
+  .strict();
 
 function json(value: unknown, status = 200, headers?: HeadersInit): Response {
   return Response.json(value, headers === undefined ? { status } : { status, headers });
@@ -112,6 +123,20 @@ export function createAbcmRestHandler(
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
         return json({ status: "ok", server: ABCM_SERVER_INFO, specificationVersion: ABCM_SPEC_VERSION });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/workspaces") {
+        if (dependencies.workspaces === undefined) {
+          throw new AbcmError("WORKSPACE_REGISTRATION_DISABLED", "Managed workspace registration is not configured.");
+        }
+        const workspace = await readJson(request, workspaceSchema, maxRequestBodyBytes);
+        return json(
+          await dependencies.workspaces.create({
+            id: workspace.id,
+            ...(workspace.name === undefined ? {} : { name: workspace.name }),
+          }),
+          201,
+        );
       }
 
       const match = /^\/v1\/workspaces\/([^/]+)(\/.*)$/.exec(url.pathname);

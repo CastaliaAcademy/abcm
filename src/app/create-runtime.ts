@@ -4,6 +4,7 @@ import { createAbcmRestHandler } from "../rest/create-rest-handler.js";
 import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import { WorkspaceFileService } from "../workspace/file-service.js";
+import { WorkspaceProvisioningService } from "../workspace/provisioning-service.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
 import type { WorkspaceDefinition } from "../workspace/types.js";
 
@@ -13,18 +14,35 @@ export interface AbcmRuntimeOptions {
   mcpEndpointPath?: string;
   mcpAllowedHostnames?: string[];
   mcpAllowedOrigins?: string[];
+  workspaceStoreRoot?: string;
 }
 
-export function createAbcmRuntime(workspace: WorkspaceDefinition, options: AbcmRuntimeOptions = {}) {
-  const registry = new WorkspaceRegistry([workspace]);
+export function createAbcmRuntime(
+  workspaceInput: WorkspaceDefinition | readonly WorkspaceDefinition[],
+  options: AbcmRuntimeOptions = {},
+) {
+  const workspaces = Array.isArray(workspaceInput) ? workspaceInput : [workspaceInput];
+  if (workspaces.length === 0) throw new Error("At least one workspace definition is required.");
+  const defaultWorkspace = workspaces[0]!;
+  const registry = new WorkspaceRegistry(workspaces);
   const scopeMap = new ScopeMapService(registry);
-  const files = new WorkspaceFileService(registry, { onMutation: async () => void (await scopeMap.scan(workspace.id)) });
-  const baseRestHandler = createAbcmRestHandler({ files, scopeMap });
+  const files = new WorkspaceFileService(registry, {
+    onMutation: async workspaceId => void (await scopeMap.scan(workspaceId)),
+  });
+  const workspaceProvisioning =
+    options.workspaceStoreRoot === undefined
+      ? undefined
+      : new WorkspaceProvisioningService({ registry, files, scopeMap, storeRoot: options.workspaceStoreRoot });
+  const baseRestHandler = createAbcmRestHandler({
+    files,
+    scopeMap,
+    ...(workspaceProvisioning === undefined ? {} : { workspaces: workspaceProvisioning }),
+  });
   const mcp =
     options.mcpHttpEnabled === false
       ? undefined
       : createAbcmMcpHttpHandler(
-          { files, scopeMap, defaultWorkspaceId: workspace.id },
+          { files, scopeMap, defaultWorkspaceId: defaultWorkspace.id },
           {
             ...(options.mcpEndpointPath === undefined ? {} : { endpointPath: options.mcpEndpointPath }),
             ...(options.mcpAllowedHostnames === undefined ? {} : { allowedHostnames: options.mcpAllowedHostnames }),
@@ -45,11 +63,12 @@ export function createAbcmRuntime(workspace: WorkspaceDefinition, options: AbcmR
     registry,
     files,
     scopeMap,
+    workspaceProvisioning,
     restHandler,
     mcpHandler,
     httpHandler: (request: Request) =>
       new URL(request.url).pathname === mcpEndpointPath ? mcpHandler(request) : restHandler(request),
-    createMcpServer: () => createAbcmMcpServer({ files, scopeMap, defaultWorkspaceId: workspace.id }),
+    createMcpServer: () => createAbcmMcpServer({ files, scopeMap, defaultWorkspaceId: defaultWorkspace.id }),
     close: async () => void (await mcp?.close()),
   };
 }

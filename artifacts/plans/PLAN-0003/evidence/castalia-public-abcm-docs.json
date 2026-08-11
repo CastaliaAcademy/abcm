@@ -1,0 +1,241 @@
+{
+  "apiVersion": "abcm.dev/migration-preview/v1alpha1",
+  "sourceRoot": "/source",
+  "workspaceId": "castalia-public",
+  "projectId": "abcm",
+  "sourcePolicy": "copy-without-source-mutation",
+  "entries": [
+    {
+      "source": "generated:abcm/scope.yaml",
+      "target": "abcm/scope.yaml",
+      "size": 54,
+      "checksum": "sha256:784a35f72a4f013aae373061f43cd368b9eec0e329996bc24cfe537c5f03360a",
+      "operation": "create",
+      "collision": "none"
+    },
+    {
+      "source": "generated:abcm/domain-language/DomainLanguageConvention.md",
+      "target": "abcm/domain-language/DomainLanguageConvention.md",
+      "size": 78,
+      "checksum": "sha256:b46652217c4fccc5aa278d948ce76e629726966db604feae8f81ba8597072d36",
+      "operation": "create",
+      "collision": "none"
+    },
+    {
+      "source": "docs/api/mcp-api.md",
+      "target": "abcm/docs/api/mcp-api.md",
+      "size": 415,
+      "checksum": "sha256:7f5690d50f496222c5ea4b219702ce0c8220e43e02eb585dea3cdd6500bf5622",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/api/mcp-http-api.md",
+      "target": "abcm/docs/api/mcp-http-api.md",
+      "size": 1221,
+      "checksum": "sha256:7e929246eb4bae1c735dad6889170708471ec5eb18e9806446680d1ce7f3b2a4",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/api/rest-file-api.md",
+      "target": "abcm/docs/api/rest-file-api.md",
+      "size": 1627,
+      "checksum": "sha256:d8e9b84a143549a02b27596c7d6a88a63ca960a2744e376c051cb19e6bde3bc0",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/architecture/first-working-version.md",
+      "target": "abcm/docs/architecture/first-working-version.md",
+      "size": 605,
+      "checksum": "sha256:eb55849b7159cf12834fc4053c55fc81f1f96109d615d650f4f8f6dceb92935c",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/development-plan.md",
+      "target": "abcm/docs/development-plan.md",
+      "size": 14400,
+      "checksum": "sha256:6ad0a177c20245df5a8ca5a5dfc50a5e73248e5a89760376a6ab35d08c7d76e0",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/operations/production-deployment.md",
+      "target": "abcm/docs/operations/production-deployment.md",
+      "size": 966,
+      "checksum": "sha256:872e7757c64c52e73e73e4812fd75676d8e6552719ee0eea4f56564148bbc000",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/operations/quickstart.md",
+      "target": "abcm/docs/operations/quickstart.md",
+      "size": 1251,
+      "checksum": "sha256:962e98ec49b856bd8a819fff0ac962fd55b935e84f48f1a273e2ac82443c40d0",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.1/evidence/mcp-streamable-http-2026-08-10.md",
+      "target": "abcm/docs/plans/v0.1/evidence/mcp-streamable-http-2026-08-10.md",
+      "size": 1826,
+      "checksum": "sha256:10f59f94058705d5fc118a77e4e31736fc83b1a7edaca3b14158e66debd98c57",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.1/features/mcp-adapter.md",
+      "target": "abcm/docs/plans/v0.1/features/mcp-adapter.md",
+      "size": 374,
+      "checksum": "sha256:7e30cf001227bd2aa126d1c11c47146fa11c9d0c38b265d1f05b6fcc26a412f8",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.1/features/mcp-streamable-http.md",
+      "target": "abcm/docs/plans/v0.1/features/mcp-streamable-http.md",
+      "size": 1408,
+      "checksum": "sha256:7fdf29223fca012a26708d66fae8e9bdcbf0b7511bf4e8cb45efd243ca954605",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.1/features/rest-file-management.md",
+      "target": "abcm/docs/plans/v0.1/features/rest-file-management.md",
+      "size": 707,
+      "checksum": "sha256:88faa3f8e9e92da7d46b7be8ae2d7a36a39fab91f5e3a513ff1f6cc107655283",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.1/features/scope-map.md",
+      "target": "abcm/docs/plans/v0.1/features/scope-map.md",
+      "size": 435,
+      "checksum": "sha256:0e8c7a18b54722431fc66c30a1400167e1a03685ceff82f6d6338dc727e03d14",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.1/migration-plan.md",
+      "target": "abcm/docs/plans/v0.1/migration-plan.md",
+      "size": 929,
+      "checksum": "sha256:3b7d68c4282e654a358e7a6ad1d400229fed76afcb11230fc7e162eb7e784c40",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.1/plan.md",
+      "target": "abcm/docs/plans/v0.1/plan.md",
+      "size": 1980,
+      "checksum": "sha256:eda37eb474db072d1ab76a1f5427b3229a3b9e15999de77ac5366fe943e35ee6",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.1/production-deployment.md",
+      "target": "abcm/docs/plans/v0.1/production-deployment.md",
+      "size": 2086,
+      "checksum": "sha256:ea3ebbaf69a5f21d343d7255cce9db11fc32b5b3094a3c55eef23998c2e27c58",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.1/traceability.yaml",
+      "target": "abcm/docs/plans/v0.1/traceability.yaml",
+      "size": 1952,
+      "checksum": "sha256:f46f7d3aa8849d7c63edd0374191a42f9506ca678ec5d77f05dc01c8501dc98a",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.1/verification-plan.md",
+      "target": "abcm/docs/plans/v0.1/verification-plan.md",
+      "size": 754,
+      "checksum": "sha256:9df9ce1be700f335ed75aea8e3d7e56b3246486a9f51d6ebd1c9475806c04b0d",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.2/features/workspace-registration.md",
+      "target": "abcm/docs/plans/v0.2/features/workspace-registration.md",
+      "size": 936,
+      "checksum": "sha256:cc4808008279f6bfc81ac77fd00b35001e2ce609c06dec0d85d8a384865f8532",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.2/plan.md",
+      "target": "abcm/docs/plans/v0.2/plan.md",
+      "size": 985,
+      "checksum": "sha256:f95d6d62fb00df3da5647569f138bc2283444971a1730a52567bc93908760c30",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.2/traceability.yaml",
+      "target": "abcm/docs/plans/v0.2/traceability.yaml",
+      "size": 562,
+      "checksum": "sha256:a26acde734e4be275c7e1e31946bfad22408ce42a1f8b302597cd8b24deace5b",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/plans/v0.2/verification-plan.md",
+      "target": "abcm/docs/plans/v0.2/verification-plan.md",
+      "size": 732,
+      "checksum": "sha256:5e1a8c7c60d3177af8218467dc61109b55971f73a593fb4965832a1e57e752d0",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/spec/abcm-mvp-agent-spec-v0.5.yaml",
+      "target": "abcm/docs/spec/abcm-mvp-agent-spec-v0.5.yaml",
+      "size": 165383,
+      "checksum": "sha256:6857a588f4445eb0bae3c72a1bb718499d3f2062365155825869fa792a9afbc4",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/spec/extensions/mcp-streamable-http-v0.1.yaml",
+      "target": "abcm/docs/spec/extensions/mcp-streamable-http-v0.1.yaml",
+      "size": 1747,
+      "checksum": "sha256:4e069591f72ab138fbe4b9d6fa94629455cb6a55d381923f356fc4aefa2aadf3",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/spec/extensions/rest-file-management-v0.1.yaml",
+      "target": "abcm/docs/spec/extensions/rest-file-management-v0.1.yaml",
+      "size": 5014,
+      "checksum": "sha256:7d3b04cf920937c8e5d63b12bf333688512277fee3c1b97a1c8c07852324aea2",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/spec/extensions/rest-static-auth-v0.1.yaml",
+      "target": "abcm/docs/spec/extensions/rest-static-auth-v0.1.yaml",
+      "size": 965,
+      "checksum": "sha256:8cfc779044f86785bb48321b9b3ae2ce42ba17b11618c3d8fd507059724862c7",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "docs/spec/extensions/rest-workspace-registration-v0.1.yaml",
+      "target": "abcm/docs/spec/extensions/rest-workspace-registration-v0.1.yaml",
+      "size": 3471,
+      "checksum": "sha256:36a4d8722a7d98ac9c4c1881872071f36031ee20d1684ef1c678951918166d8d",
+      "operation": "copy",
+      "collision": "none"
+    },
+    {
+      "source": "README.md",
+      "target": "abcm/README.md",
+      "size": 2324,
+      "checksum": "sha256:9168daf70e43dc3d446b30bfa3a2065840790aaf7f1d3bf9bf08f674c26f2344",
+      "operation": "copy",
+      "collision": "none"
+    }
+  ]
+}
