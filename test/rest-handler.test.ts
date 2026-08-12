@@ -176,6 +176,13 @@ describe("ABCM REST handler", () => {
   test("scans and projects ScopeMap", async () => {
     const scan = await call("/v1/workspaces/test/scope-map/scan", { method: "POST" });
     expect(scan.status).toBe(200);
+    const scanBody = (await scan.json()) as Record<string, unknown>;
+    expect(scanBody).toEqual(
+      expect.objectContaining({ digest: expect.stringContaining("sha256:"), resourceSummary: expect.any(Object) }),
+    );
+    expect(scanBody).not.toHaveProperty("files");
+    expect(scanBody).not.toHaveProperty("documents");
+    expect(scanBody).not.toHaveProperty("executableResources");
     const projection = await call("/v1/workspaces/test/scope-map?view=agent");
     expect(projection.status).toBe(200);
     expect(await projection.json()).toEqual(

@@ -172,7 +172,8 @@ REST handlers ----------/          |                    |
 - PLAN-0004 поставил фундамент M2: versioned SQLite schema, rollback journal, scan leases/fencing, atomic active MapRevision и rebuild после удаления БД.
 - PLAN-0005 добавил schema v2, exclusive runtime owner lease, heartbeat, graceful release и crash-expiry recovery.
 - PLAN-0006 добавил heartbeat отдельной scan lease, stale-publication guard и эксплуатационные TTL/renewal настройки.
-- M2 остаётся незавершённым до репозиториев file/document/resource/provenance/sync/tombstone/context state.
+- PLAN-0007 добавил MAP-P4 FileRecord/DocumentRecord/ExecutableResourceRecord indexes и их атомарную публикацию в SQLite schema v3 без хранения тел документов и ordinary source paths.
+- M2 остаётся незавершённым до репозиториев provenance/sync/tombstone/context state и нормализованных relations/diagnostics.
 - M3 остаётся незавершённым до полного MAP-P0..P6 indexing/reconcile pipeline и periodic full reconcile.
 
 ## 5. Риски и открытые решения до M1

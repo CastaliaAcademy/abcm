@@ -22,6 +22,14 @@ describe("ScopeMap SQLite rebuild", () => {
     await mkdir(join(root, "domain-language"));
     await writeFile(join(root, "scope.yaml"), "apiVersion: abcm/v1\nkind: workflow\nid: test\nname: Test\n");
     await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
+    await mkdir(join(root, "artifacts", "adr"), { recursive: true });
+    await writeFile(
+      join(root, "artifacts", "adr", "ADR-0001--decision.md"),
+      "---\nid: ADR-0001\nkind: adr\ntitle: Decision\nstatus: accepted\n---\nAuthored body must not enter SQLite.\n",
+    );
+    await mkdir(join(root, "agents", "skills", "check", "scripts"), { recursive: true });
+    await writeFile(join(root, "agents", "skills", "check", "SKILL.md"), "---\nname: check\ndescription: Check\n---\n");
+    await writeFile(join(root, "agents", "skills", "check", "scripts", "run.js"), "console.log('must not persist');\n");
     const registry = new WorkspaceRegistry([{ id: "test", root }]);
 
     const firstStore = new SqliteWorkspaceMapStore(registry, { ownerId: "first" });
@@ -39,6 +47,9 @@ describe("ScopeMap SQLite rebuild", () => {
     expect(rebuilt.nodes).toEqual(first.nodes);
     expect(rebuilt.relations).toEqual(first.relations);
     expect(rebuilt.diagnostics).toEqual(first.diagnostics);
+    expect(rebuilt.files).toEqual(first.files);
+    expect(rebuilt.documents).toEqual(first.documents);
+    expect(rebuilt.executableResources).toEqual(first.executableResources);
     expect(rebuiltStore.getActive("test")?.digest).toBe(first.digest);
     rebuiltStore.close();
 
@@ -46,6 +57,18 @@ describe("ScopeMap SQLite rebuild", () => {
     const payload = database.query<{ payload_json: string }, []>("SELECT payload_json FROM map_revisions").get()?.payload_json;
     expect(payload).not.toContain("apiVersion: abcm/v1");
     expect(payload).not.toContain("mode: inherit-only");
+    expect(payload).not.toContain("Authored body must not enter SQLite");
+    expect(payload).not.toContain("must not persist");
+    expect(database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM map_files").get()?.count).toBe(5);
+    expect(database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM map_documents").get()?.count).toBe(1);
+    expect(database.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM map_executable_resources").get()?.count).toBe(1);
+    expect(
+      database.query<{ count: number }, []>(
+        `SELECT COUNT(*) AS count FROM map_files AS files
+         JOIN active_map_revisions AS active
+           ON active.workspace_id = files.workspace_id AND active.revision = files.revision`,
+      ).get()?.count,
+    ).toBe(5);
     database.close();
   });
 

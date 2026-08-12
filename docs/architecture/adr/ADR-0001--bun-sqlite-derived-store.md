@@ -13,10 +13,12 @@ Each asynchronous ScopeMap scan also renews its own workspace lease while filesy
 
 SQLite stores serialized derived revisions and their publication metadata, never the only copy of authored content. Deleting the database and scanning the canonical filesystem rebuilds it.
 
+Schema v3 also stores normalized `FileRecord`, `DocumentRecord`, and `ExecutableResourceRecord` metadata bound to an immutable MapRevision. Publication inserts these rows and switches the active pointer in one immediate transaction. File bodies and ordinary source paths are not stored.
+
 ## Consequences
 
 - The initial adapter is supported by the current Bun runtime and package engine contract.
 - A future Node.js runtime must provide an adapter with equivalent transaction and locking semantics before Node is declared supported.
 - WAL is deliberately disabled for portability to network-mounted workspace profiles.
 - A second REST/stdio process cannot enable SQLite for the same workspace; tunneled MCP should share the owning HTTP runtime before persistence is enabled for both adapters.
-- This slice persists map revisions, leases, and scan sessions; the remaining M2 entity repositories stay explicit follow-up work.
+- The current slices persist map revisions, leases, scan sessions, file/document metadata, and executable-resource metadata; provenance, synchronization, tombstone, relation, and context repositories stay explicit follow-up work.

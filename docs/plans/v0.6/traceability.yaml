@@ -1,0 +1,25 @@
+apiVersion: abcm.dev/traceability/v1alpha1
+kind: RequirementTraceability
+milestone: 0.2.0-alpha.5
+status: verified
+entries:
+  - requirements: [IDX-001, IDX-002, MAP-013]
+    tests: [scope-file-classification, ordinary-source-exclusion]
+    status: verified
+    evidence: [test/scope-map-content-index.test.ts, test/scope-map-sqlite-rebuild.test.ts]
+  - requirements: [IDX-003, IDX-004, ART-003, ART-004]
+    tests: [artifact-frontmatter-index, artifact-rename-identity, duplicate-document-id]
+    status: verified
+    evidence: [test/scope-map-content-index.test.ts]
+  - requirements: [IDX-005, IDX-006, MAP-012]
+    tests: [skill-script-resource, source-boundary]
+    status: verified
+    evidence: [test/scope-map-content-index.test.ts]
+  - requirements: [IDX-007]
+    tests: [sqlite-v3-migration, sqlite-content-index-publication, sqlite-content-index-rebuild]
+    status: verified
+    evidence: [test/sqlite-scope-map-store.test.ts, test/scope-map-sqlite-rebuild.test.ts]
+  - requirements: [IDX-008]
+    tests: [scope-projection-index-boundary, rest-mcp-projection-boundary]
+    status: verified
+    evidence: [test/rest-handler.test.ts, test/mcp-adapter.test.ts]

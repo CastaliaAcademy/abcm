@@ -9,7 +9,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 - bounded workflow and scope-map discovery;
 - safe, atomic workspace file list/read/write/delete/move/directory operations;
 - server-owned workspace registration below a configured managed store, including restart discovery;
-- opt-in rebuildable SQLite persistence for ScopeMap revisions, leases, and atomic publication;
+- opt-in rebuildable SQLite persistence for ScopeMap revisions, leases, atomic publication, and metadata-only file/document/executable-resource indexes;
 - REST access with ETags, stable problem responses, and static Bearer authentication;
 - MCP tools and the `abcm://map` resource over stdio and authenticated Streamable HTTP, backed by the same application services;
 - self-hosting ABCM metadata, feature plans, verification plans, and reusable project skills.
@@ -60,7 +60,7 @@ const runtime = createAbcmRuntime(
 
 ## Alpha boundaries
 
-Scope-map revisions are kept in memory; SQLite history, ContextBundle assembly, domain resolution, document synchronization, per-principal authorization, and durable audit records are later milestones.
+Scope-map revisions and MAP-P4 metadata indexes can be persisted in rebuildable SQLite when explicitly enabled. ContextBundle assembly, domain resolution, documentation synchronization/provenance, per-principal authorization, and durable audit records are later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
 
 ## License
 

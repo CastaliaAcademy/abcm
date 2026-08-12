@@ -198,7 +198,7 @@ export function createAbcmRestHandler(
         return json(await dependencies.files.createDirectory(workspaceId, body.path), 201);
       }
       if (endpoint === "/scope-map/scan" && request.method === "POST") {
-        return json(await dependencies.scopeMap.scan(workspaceId));
+        return json(dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(workspaceId)));
       }
       if (endpoint === "/scope-map" && request.method === "GET") {
         const view = url.searchParams.get("view") ?? "agent";

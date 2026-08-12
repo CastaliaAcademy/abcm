@@ -50,6 +50,10 @@ describe("ABCM MCP adapter", () => {
 
       const scan = await client.callTool({ name: "scope_map.scan", arguments: { workspaceId: "test" } });
       expect(scan.structuredContent).toEqual(expect.objectContaining({ revision: expect.objectContaining({ digest: expect.stringContaining("sha256:") }) }));
+      const scanRevision = (scan.structuredContent as { revision: Record<string, unknown> }).revision;
+      expect(scanRevision).not.toHaveProperty("files");
+      expect(scanRevision).not.toHaveProperty("documents");
+      expect(scanRevision).not.toHaveProperty("executableResources");
 
       const resource = await client.readResource({ uri: "abcm://map" });
       expect(resource.contents[0]).toEqual(expect.objectContaining({ uri: "abcm://map", mimeType: "application/json" }));

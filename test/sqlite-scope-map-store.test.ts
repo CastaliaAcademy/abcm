@@ -40,6 +40,9 @@ function revision(id: string): MapRevision {
       },
     ],
     relations: [],
+    files: [],
+    documents: [],
+    executableResources: [],
     diagnostics: [],
   };
 }
@@ -47,12 +50,12 @@ function revision(id: string): MapRevision {
 describe("SqliteScopeMapStore", () => {
   test("creates a versioned rollback-journal database and reopens idempotently", () => {
     const first = new SqliteScopeMapStore(databasePath, { ownerId: "owner-a", clock: () => now });
-    expect(first.schemaVersion()).toBe(2);
+    expect(first.schemaVersion()).toBe(3);
     expect(first.journalMode().toLowerCase()).toBe("delete");
     first.close();
 
     const second = new SqliteScopeMapStore(databasePath, { ownerId: "owner-b", clock: () => now });
-    expect(second.schemaVersion()).toBe(2);
+    expect(second.schemaVersion()).toBe(3);
     second.close();
 
     const database = new Database(databasePath, { readonly: true });
@@ -68,12 +71,15 @@ describe("SqliteScopeMapStore", () => {
         "scan_sessions",
         "map_revisions",
         "active_map_revisions",
+        "map_files",
+        "map_documents",
+        "map_executable_resources",
       ]),
     );
     database.close();
   });
 
-  test("upgrades schema v1 to v2 transactionally", () => {
+  test("upgrades schema v1 to v3 transactionally", () => {
     const initial = new SqliteScopeMapStore(databasePath);
     const lease = initial.beginScan("workspace");
     initial.publish(lease, revision("sha256:before-upgrade"));
@@ -84,7 +90,7 @@ describe("SqliteScopeMapStore", () => {
     legacy.close();
 
     const upgraded = new SqliteScopeMapStore(databasePath);
-    expect(upgraded.schemaVersion()).toBe(2);
+    expect(upgraded.schemaVersion()).toBe(3);
     expect(upgraded.getActive("workspace")).toEqual(revision("sha256:before-upgrade"));
     upgraded.close();
     const check = new Database(databasePath, { readonly: true });
@@ -92,6 +98,24 @@ describe("SqliteScopeMapStore", () => {
       "runtime_owners",
     );
     check.close();
+  });
+
+  test("upgrades schema v2 to v3 without replacing the active revision", () => {
+    const initial = new SqliteScopeMapStore(databasePath);
+    const lease = initial.beginScan("workspace");
+    initial.publish(lease, revision("sha256:before-v3"));
+    initial.close();
+    const legacy = new Database(databasePath);
+    legacy.run("DROP TABLE map_executable_resources");
+    legacy.run("DROP TABLE map_documents");
+    legacy.run("DROP TABLE map_files");
+    legacy.run("UPDATE schema_metadata SET value = '2' WHERE key = 'schema_version'");
+    legacy.close();
+
+    const upgraded = new SqliteScopeMapStore(databasePath);
+    expect(upgraded.schemaVersion()).toBe(3);
+    expect(upgraded.getActive("workspace")).toEqual(revision("sha256:before-v3"));
+    upgraded.close();
   });
 
   test("renews one exclusive runtime owner and recovers with greater fencing after release", () => {
@@ -225,11 +249,27 @@ describe("SqliteScopeMapStore", () => {
     faultConnection.close();
 
     const replacementLease = store.beginScan("workspace");
-    expect(() => store.publish(replacementLease, revision("sha256:replacement"))).toThrow("injected publication failure");
+    const replacement: MapRevision = {
+      ...revision("sha256:replacement"),
+      files: [
+        {
+          scopeId: "workflow",
+          relativePath: "README.md",
+          size: 4,
+          mtime: now,
+          checksum: "sha256:file",
+          parseStatus: "not_applicable",
+          classification: "context_document",
+          storageMode: "managed",
+        },
+      ],
+    };
+    expect(() => store.publish(replacementLease, replacement)).toThrow("injected publication failure");
     expect(store.getActive("workspace")).toEqual(revision("sha256:first"));
 
     const check = new Database(databasePath, { readonly: true });
     expect(check.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM map_revisions").get()?.count).toBe(1);
+    expect(check.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM map_files").get()?.count).toBe(0);
     check.close();
     store.fail(replacementLease);
     store.close();

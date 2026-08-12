@@ -8,7 +8,7 @@ import { AbcmError } from "../core/errors.js";
 import type { MapRevision } from "../scope-map/types.js";
 import type { RuntimeOwnerHandle, ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./types.js";
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 interface LeaseRow {
   owner_id: string;
@@ -149,6 +149,69 @@ export class SqliteScopeMapStore implements ScopeMapStore {
          VALUES (?, ?, ?, ?, ?, ?)`,
         [lease.workspaceId, revision.revision, revision.digest, revision.createdAt, lease.scanId, JSON.stringify(revision)],
       );
+      for (const file of revision.files) {
+        this.#database.run(
+          `INSERT OR IGNORE INTO map_files
+            (workspace_id, revision, relative_path, scope_id, size, mtime, checksum, parse_status, classification, storage_mode, source_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            lease.workspaceId,
+            revision.revision,
+            file.relativePath,
+            file.scopeId,
+            file.size,
+            file.mtime,
+            file.checksum,
+            file.parseStatus,
+            file.classification,
+            file.storageMode,
+            file.sourceId ?? null,
+          ],
+        );
+      }
+      for (const document of revision.documents) {
+        this.#database.run(
+          `INSERT OR IGNORE INTO map_documents
+            (workspace_id, revision, document_id, kind, title, scope_id, relative_path, checksum, lifecycle,
+             required_selectors_json, role_selectors_json, task_selectors_json, links_json, context_policy, storage_mode)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            lease.workspaceId,
+            revision.revision,
+            document.documentId,
+            document.kind,
+            document.title,
+            document.scopeId,
+            document.relativePath,
+            document.checksum,
+            document.lifecycle,
+            JSON.stringify(document.requiredSelectors),
+            JSON.stringify(document.roleSelectors),
+            JSON.stringify(document.taskSelectors),
+            JSON.stringify(document.links),
+            document.contextPolicy,
+            document.storageMode,
+          ],
+        );
+      }
+      for (const resource of revision.executableResources) {
+        this.#database.run(
+          `INSERT OR IGNORE INTO map_executable_resources
+            (workspace_id, revision, resource_id, scope_id, relative_path, language, checksum, activation_status, permissions_profile)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            lease.workspaceId,
+            revision.revision,
+            resource.resourceId,
+            resource.scopeId,
+            resource.relativePath,
+            resource.language,
+            resource.checksum,
+            resource.activationStatus,
+            resource.permissionsProfile,
+          ],
+        );
+      }
       this.#database.run(
         `INSERT INTO active_map_revisions (workspace_id, revision)
          VALUES (?, ?)
@@ -386,6 +449,55 @@ export class SqliteScopeMapStore implements ScopeMapStore {
           owner_id TEXT NOT NULL,
           expires_at INTEGER NOT NULL,
           fencing_token INTEGER NOT NULL CHECK(fencing_token > 0)
+        )`);
+      }
+      if (currentVersion < 3) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS map_files (
+          workspace_id TEXT NOT NULL,
+          revision TEXT NOT NULL,
+          relative_path TEXT NOT NULL,
+          scope_id TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          mtime INTEGER NOT NULL,
+          checksum TEXT NOT NULL,
+          parse_status TEXT NOT NULL,
+          classification TEXT NOT NULL,
+          storage_mode TEXT NOT NULL,
+          source_id TEXT,
+          PRIMARY KEY (workspace_id, revision, relative_path),
+          FOREIGN KEY (workspace_id, revision) REFERENCES map_revisions(workspace_id, revision) ON DELETE CASCADE
+        )`);
+        this.#database.run(`CREATE TABLE IF NOT EXISTS map_documents (
+          workspace_id TEXT NOT NULL,
+          revision TEXT NOT NULL,
+          document_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          title TEXT NOT NULL,
+          scope_id TEXT NOT NULL,
+          relative_path TEXT NOT NULL,
+          checksum TEXT NOT NULL,
+          lifecycle TEXT NOT NULL,
+          required_selectors_json TEXT NOT NULL,
+          role_selectors_json TEXT NOT NULL,
+          task_selectors_json TEXT NOT NULL,
+          links_json TEXT NOT NULL,
+          context_policy TEXT NOT NULL,
+          storage_mode TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, revision, document_id),
+          FOREIGN KEY (workspace_id, revision) REFERENCES map_revisions(workspace_id, revision) ON DELETE CASCADE
+        )`);
+        this.#database.run(`CREATE TABLE IF NOT EXISTS map_executable_resources (
+          workspace_id TEXT NOT NULL,
+          revision TEXT NOT NULL,
+          resource_id TEXT NOT NULL,
+          scope_id TEXT NOT NULL,
+          relative_path TEXT NOT NULL,
+          language TEXT NOT NULL,
+          checksum TEXT NOT NULL,
+          activation_status TEXT NOT NULL,
+          permissions_profile TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, revision, resource_id),
+          FOREIGN KEY (workspace_id, revision) REFERENCES map_revisions(workspace_id, revision) ON DELETE CASCADE
         )`);
       }
       this.#database.run(

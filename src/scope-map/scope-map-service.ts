@@ -9,7 +9,19 @@ import { AbcmError } from "../core/errors.js";
 import type { ScopeMapStore } from "../derived-store/types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
-import type { MapDiagnostic, MapRevision, ScopeKind, ScopeMapProjection, ScopeNode, ScopeRelation } from "./types.js";
+import { indexScopeContent, resolveDocumentCandidates } from "./content-indexer.js";
+import type {
+  DocumentRecord,
+  ExecutableResourceRecord,
+  FileRecord,
+  MapDiagnostic,
+  MapRevision,
+  MapRevisionSummary,
+  ScopeKind,
+  ScopeMapProjection,
+  ScopeNode,
+  ScopeRelation,
+} from "./types.js";
 
 const SCOPE_KINDS = ["workflow", "project", "service", "feature"] as const;
 const RESERVED_SCOPE_DIRECTORIES = new Set([".abcm", "config", "domain-language", "agents", "artifacts", "architecture"]);
@@ -44,8 +56,15 @@ function rankOf(kind: ScopeKind): number {
   return SCOPE_KINDS.indexOf(kind);
 }
 
-function normalizedDigest(nodes: readonly ScopeNode[], relations: readonly ScopeRelation[], diagnostics: readonly MapDiagnostic[]): string {
-  const normalized = JSON.stringify({ nodes, relations, diagnostics });
+function normalizedDigest(
+  nodes: readonly ScopeNode[],
+  relations: readonly ScopeRelation[],
+  files: readonly FileRecord[],
+  documents: readonly DocumentRecord[],
+  executableResources: readonly ExecutableResourceRecord[],
+  diagnostics: readonly MapDiagnostic[],
+): string {
+  const normalized = JSON.stringify({ nodes, relations, files, documents, executableResources, diagnostics });
   return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
@@ -172,14 +191,31 @@ export class ScopeMapService {
     await walk(rootNode, workspace.root);
     nodes.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     relations.sort((left, right) => `${left.fromId}/${left.toId}`.localeCompare(`${right.fromId}/${right.toId}`));
+    const files: FileRecord[] = [];
+    const documentCandidates: DocumentRecord[] = [];
+    const executableResources: ExecutableResourceRecord[] = [];
+    const indexes = await Promise.all(
+      nodes.filter(node => node.status === "valid").map(node => indexScopeContent(workspace, node)),
+    );
+    for (const index of indexes) {
+      files.push(...index.files);
+      documentCandidates.push(...index.documentCandidates);
+      executableResources.push(...index.executableResources);
+    }
+    files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+    executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+    const documents = resolveDocumentCandidates(documentCandidates, diagnostics);
     diagnostics.sort((left, right) => `${left.path}/${left.code}`.localeCompare(`${right.path}/${right.code}`));
-    const digest = normalizedDigest(nodes, relations, diagnostics);
+    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, diagnostics);
     const revision: MapRevision = {
       revision: digest,
       digest,
       createdAt: new Date().toISOString(),
       nodes,
       relations,
+      files,
+      documents,
+      executableResources,
       diagnostics,
     };
     return revision;
@@ -202,7 +238,28 @@ export class ScopeMapService {
       nodes,
       relations,
       warnings,
+      resourceSummary: {
+        indexedFiles: revision.files.length,
+        documents: revision.documents.length,
+        executableResources: revision.executableResources.length,
+      },
       resolverEntrypoints: ["context.get_domain_language", "context.build_task_context"],
+    };
+  }
+
+  summarize(revision: MapRevision): MapRevisionSummary {
+    return {
+      revision: revision.revision,
+      digest: revision.digest,
+      createdAt: revision.createdAt,
+      nodes: revision.nodes,
+      relations: revision.relations,
+      diagnostics: revision.diagnostics,
+      resourceSummary: {
+        indexedFiles: revision.files.length,
+        documents: revision.documents.length,
+        executableResources: revision.executableResources.length,
+      },
     };
   }
 

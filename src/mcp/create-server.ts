@@ -148,7 +148,8 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: z.object({ workspaceId }),
     },
-    async input => toolResult(async () => ({ revision: await dependencies.scopeMap.scan(input.workspaceId) })),
+    async input =>
+      toolResult(async () => ({ revision: dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(input.workspaceId)) })),
   );
   server.registerResource(
     "scope-map",

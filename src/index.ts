@@ -19,7 +19,17 @@ export { createAbcmRestHandler } from "./rest/create-rest-handler.js";
 export type { AbcmRestDependencies, AbcmRestOptions } from "./rest/create-rest-handler.js";
 export { requireStaticBearerToken } from "./rest/static-bearer-auth.js";
 export { ScopeMapService } from "./scope-map/scope-map-service.js";
-export type { MapDiagnostic, MapRevision, ScopeMapProjection, ScopeNode } from "./scope-map/types.js";
+export type {
+  DocumentRecord,
+  ExecutableResourceRecord,
+  FileClassification,
+  FileRecord,
+  MapDiagnostic,
+  MapRevision,
+  MapRevisionSummary,
+  ScopeMapProjection,
+  ScopeNode,
+} from "./scope-map/types.js";
 export { WorkspaceFileService } from "./workspace/file-service.js";
 export { discoverManagedWorkspaces, WorkspaceProvisioningService } from "./workspace/provisioning-service.js";
 export type { WorkspaceProvisioningDependencies } from "./workspace/provisioning-service.js";
