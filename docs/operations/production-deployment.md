@@ -22,6 +22,8 @@ docker compose \
 
 To attach an already mounted Obsidian vault as a read-only source, add `-f app/deploy/compose.obsidian.yaml` and the documentation variables described in the [Obsidian integration guide](../integrations/obsidian.md). The managed target workspace must exist before the source-enabled runtime starts.
 
+The Compose profile enables the default 50 ms mutation debounce and 300000 ms periodic full ScopeMap reconcile. A shorter interval repairs missed SMB/NFS metadata changes sooner but performs more complete filesystem scans. Keep the interval comfortably above the measured full-scan duration; overlapping ticks are coalesced per workspace.
+
 The production profile exposes `127.0.0.1:8787` only. Connect from an operator workstation with an SSH tunnel rather than publishing the static-token alpha API directly:
 
 ```bash

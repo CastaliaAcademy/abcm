@@ -1,7 +1,9 @@
 import { resolve } from "node:path";
 
 import { createAbcmRuntime } from "../app/create-runtime.js";
+import { installGracefulShutdown } from "./graceful-shutdown.js";
 import { parseDocumentationSources } from "../documentation/config.js";
+import { parseScopeMapReconcileEnvironment } from "../scope-map/reconcile-config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
 
 const workspaceId = process.env.ABCM_WORKSPACE_ID ?? "default";
@@ -18,6 +20,7 @@ const scanLeaseRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_S
 const runtimeOwnerTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_TTL_MS");
 const runtimeOwnerRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS");
 const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENTATION_SOURCES);
+const scopeMapReconcile = parseScopeMapReconcileEnvironment(process.env);
 
 function commaSeparated(value: string | undefined): string[] | undefined {
   if (value === undefined) return undefined;
@@ -60,6 +63,11 @@ const runtime = createAbcmRuntime(
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
     sqliteDerivedStoreEnabled,
     ...(documentationSources === undefined ? {} : { documentationSources }),
+    scopeMapReconcile: {
+      ...scopeMapReconcile,
+      onBackgroundError: (error, failedWorkspaceId) =>
+        console.error(`ABCM periodic ScopeMap reconcile failed for workspace '${failedWorkspaceId}':`, error),
+    },
     ...(
       scanLeaseTtlMs === undefined &&
       scanLeaseRenewalIntervalMs === undefined &&
@@ -79,6 +87,10 @@ const runtime = createAbcmRuntime(
 await runtime.scopeMap.scan(workspaceId);
 
 const server = Bun.serve({ hostname, port, fetch: runtime.httpHandler });
+installGracefulShutdown(async () => {
+  await server.stop();
+  await runtime.close();
+});
 console.log(
   `ABCM HTTP server listening on ${server.url} (MCP ${mcpHttpEnabled ? mcpEndpointPath : "disabled"}) for workspace '${workspaceId}' at ${workspaceRoot}`,
 );

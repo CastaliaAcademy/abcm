@@ -10,6 +10,8 @@ ABCM_WORKSPACE_ID=self ABCM_WORKSPACE_ROOT="$PWD" bun run dev:rest
 
 To persist rebuildable ScopeMap revisions in `<workspace>/.abcm/abcm.sqlite`, add `ABCM_DERIVED_STORE_ENABLED=true`. The process takes an exclusive renewable owner lease and renews each scan lease while filesystem construction yields. Optional owner variables are `ABCM_DERIVED_STORE_OWNER_TTL_MS` and `ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS`; scan equivalents are `ABCM_DERIVED_STORE_SCAN_LEASE_TTL_MS` and `ABCM_DERIVED_STORE_SCAN_LEASE_RENEWAL_INTERVAL_MS`. Each pair defaults to 30000/10000 milliseconds, values must be positive integers, and renewal must be shorter than TTL. Keep persistence disabled when a separate stdio MCP process points at the same workspace; the second process will otherwise be rejected as an owner conflict.
 
+The runtime also performs a mandatory full ScopeMap reconcile every 300000 milliseconds, including for workspaces registered after startup. Set `ABCM_SCOPE_MAP_FULL_RECONCILE_INTERVAL_MS` to a positive integer and `ABCM_SCOPE_MAP_RECONCILE_DEBOUNCE_MS` to a non-negative integer when a different network-filesystem recovery interval or mutation debounce is required. SIGINT/SIGTERM stops the timer and waits for pending reconcile work before releasing SQLite ownership.
+
 The same process serves REST and authenticated Streamable HTTP MCP at `/mcp`. Then call:
 
 ```bash

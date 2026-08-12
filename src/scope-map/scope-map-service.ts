@@ -74,6 +74,7 @@ export class ScopeMapService {
   readonly #store: ScopeMapStore | undefined;
   readonly #documentationState: DocumentationStateStore | undefined;
   readonly #active = new Map<string, MapRevision>();
+  readonly #scanTails = new Map<string, Promise<void>>();
 
   constructor(registry: WorkspaceRegistry, store?: ScopeMapStore, documentationState?: DocumentationStateStore) {
     this.#registry = registry;
@@ -81,7 +82,21 @@ export class ScopeMapService {
     this.#documentationState = documentationState;
   }
 
-  async scan(workspaceId: string): Promise<MapRevision> {
+  scan(workspaceId: string): Promise<MapRevision> {
+    const previous = this.#scanTails.get(workspaceId) ?? Promise.resolve();
+    const operation = previous.then(() => this.#scanOnce(workspaceId));
+    const tail = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.#scanTails.set(workspaceId, tail);
+    void tail.then(() => {
+      if (this.#scanTails.get(workspaceId) === tail) this.#scanTails.delete(workspaceId);
+    });
+    return operation;
+  }
+
+  async #scanOnce(workspaceId: string): Promise<MapRevision> {
     const store = this.#store;
     let lease = store?.beginScan(workspaceId);
     let renewalError: unknown;

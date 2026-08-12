@@ -31,6 +31,13 @@ export { createAbcmRestHandler } from "./rest/create-rest-handler.js";
 export type { AbcmRestDependencies, AbcmRestOptions } from "./rest/create-rest-handler.js";
 export { requireStaticBearerToken } from "./rest/static-bearer-auth.js";
 export { ScopeMapService } from "./scope-map/scope-map-service.js";
+export {
+  DEFAULT_SCOPE_MAP_FULL_RECONCILE_INTERVAL_MS,
+  DEFAULT_SCOPE_MAP_RECONCILE_DEBOUNCE_MS,
+  parseScopeMapReconcileEnvironment,
+} from "./scope-map/reconcile-config.js";
+export { ScopeMapReconcileCoordinator } from "./scope-map/reconcile-coordinator.js";
+export type { ScopeMapReconcileOptions, ScopeMapScanner } from "./scope-map/reconcile-coordinator.js";
 export type {
   DocumentRecord,
   ExecutableResourceRecord,

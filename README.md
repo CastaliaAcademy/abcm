@@ -11,6 +11,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 - server-owned workspace registration below a configured managed store, including restart discovery;
 - opt-in rebuildable SQLite persistence for ScopeMap revisions, leases, atomic publication, and metadata-only file/document/executable-resource indexes;
 - one-way Markdown mirroring from server-configured local or mounted network directories, with preview/apply/sync, provenance, tombstones, and read-only mirror protection;
+- runtime-owned periodic full ScopeMap reconciliation, per-workspace scan serialization, and debounced mutation rebuilds for missed network-filesystem events;
 - REST access with ETags, stable problem responses, and static Bearer authentication;
 - MCP tools and the `abcm://map` resource over stdio and authenticated Streamable HTTP, backed by the same application services;
 - self-hosting ABCM metadata, feature plans, verification plans, and reusable project skills.
@@ -37,6 +38,8 @@ ABCM_WORKSPACE_STORE_ROOT="$PWD/.local-workspaces" ABCM_WORKSPACE_ID=self ABCM_W
 ```
 
 Set `ABCM_DERIVED_STORE_ENABLED=true` when the runtime has write access to `<workspace>/.abcm`. The runtime acquires and renews an exclusive owner lease; a second SQLite-enabled process is rejected until graceful release or lease expiry. Long-running ScopeMap scans independently renew their scan lease, and loss of that lease prevents stale publication. Owner and scan TTL/renewal pairs default to 30000/10000 milliseconds and can be configured with `ABCM_DERIVED_STORE_OWNER_TTL_MS`, `ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS`, `ABCM_DERIVED_STORE_SCAN_LEASE_TTL_MS`, and `ABCM_DERIVED_STORE_SCAN_LEASE_RENEWAL_INTERVAL_MS`. The feature remains disabled by default because separate local REST and stdio tunnel processes must not share one workspace database.
+
+Every runtime performs a full reconcile of all currently registered workspaces every 300000 milliseconds by default. Configure `ABCM_SCOPE_MAP_FULL_RECONCILE_INTERVAL_MS` with a positive safe integer and `ABCM_SCOPE_MAP_RECONCILE_DEBOUNCE_MS` with a non-negative safe integer. Reconcile rebuilds and atomically publishes a complete revision; it never patches the active map.
 
 `GET /health` is public. All `/v1` routes and the `/mcp` Streamable HTTP endpoint require `Authorization: Bearer <token>`. See the [REST API](docs/api/rest-file-api.md), [HTTP MCP API](docs/api/mcp-http-api.md), and [quickstart](docs/operations/quickstart.md).
 

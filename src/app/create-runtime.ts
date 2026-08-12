@@ -6,6 +6,7 @@ import { DirectoryDocumentationSyncService } from "../documentation/directory-do
 import type { DirectoryDocumentationSourceDefinition } from "../documentation/types.js";
 import { createAbcmRestHandler } from "../rest/create-rest-handler.js";
 import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
+import { ScopeMapReconcileCoordinator, type ScopeMapReconcileOptions } from "../scope-map/reconcile-coordinator.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import { WorkspaceFileService } from "../workspace/file-service.js";
 import { WorkspaceProvisioningService } from "../workspace/provisioning-service.js";
@@ -23,6 +24,7 @@ export interface AbcmRuntimeOptions {
   sqliteDerivedStoreEnabled?: boolean;
   sqliteDerivedStoreOptions?: SqliteWorkspaceMapStoreOptions;
   documentationSources?: readonly DirectoryDocumentationSourceDefinition[];
+  scopeMapReconcile?: ScopeMapReconcileOptions;
 }
 
 export function createAbcmRuntime(
@@ -46,9 +48,10 @@ export function createAbcmRuntime(
   const scopeMapStore = options.scopeMapStore ?? ownedScopeMapStore;
   const documentationState = (options.documentationSources?.length ?? 0) > 0 ? ownedScopeMapStore : undefined;
   const scopeMap = new ScopeMapService(registry, scopeMapStore, documentationState);
+  const scopeMapReconciler = new ScopeMapReconcileCoordinator(registry, scopeMap, options.scopeMapReconcile);
   let documentation: DirectoryDocumentationSyncService | undefined;
   const files = new WorkspaceFileService(registry, {
-    onMutation: async workspaceId => void (await scopeMap.scan(workspaceId)),
+    onMutation: async workspaceId => void (await scopeMapReconciler.requestMutation(workspaceId)),
     authorizeMutation: async (workspaceId, paths) => documentation?.authorizeMutation(workspaceId, paths),
   });
   if (documentationState !== undefined && options.documentationSources !== undefined) {
@@ -95,6 +98,7 @@ export function createAbcmRuntime(
     registry,
     files,
     scopeMap,
+    scopeMapReconciler,
     workspaceProvisioning,
     documentation,
     restHandler,
@@ -112,7 +116,11 @@ export function createAbcmRuntime(
       try {
         await mcp?.close();
       } finally {
-        ownedScopeMapStore?.close();
+        try {
+          await scopeMapReconciler.close();
+        } finally {
+          ownedScopeMapStore?.close();
+        }
       }
     },
   };

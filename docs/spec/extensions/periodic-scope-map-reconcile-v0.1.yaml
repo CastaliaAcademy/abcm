@@ -1,0 +1,53 @@
+apiVersion: abcm.dev/spec/v1alpha1
+kind: SpecificationExtension
+metadata:
+  name: periodic-scope-map-reconcile
+  version: 0.1.0
+  status: approved-for-alpha
+  extends: abcm-file-workspace-mvp@0.5.0
+  changeReason: Make the mandatory periodic full reconcile observable, configurable, and safe for local and network filesystems.
+
+requirements:
+  - id: PRR-001
+    level: MUST
+    statement: Every ABCM runtime MUST schedule periodic full ScopeMap reconciliation for every currently registered workspace.
+  - id: PRR-002
+    level: MUST
+    statement: Full reconcile and direct scan requests for one workspace MUST be serialized in-process before acquiring a ScanLease.
+  - id: PRR-003
+    level: MUST
+    statement: Duplicate mutation reconcile requests inside the configured debounce window MUST share one complete full-scan result.
+  - id: PRR-004
+    level: MUST
+    statement: A reconcile MUST publish a complete MapRevision through the existing atomic ScopeMap scan path and MUST NOT patch the active revision.
+  - id: PRR-005
+    level: MUST
+    statement: A periodic reconcile failure MUST be reported through the configured background-error boundary and MUST NOT stop later periodic attempts.
+  - id: PRR-006
+    level: MUST
+    statement: Runtime close MUST stop periodic timers, flush pending mutation reconciliation, and wait for in-flight reconciles before closing the derived store.
+  - id: PRR-007
+    level: MUST
+    statement: Reconcile interval configuration MUST be a positive safe integer and debounce configuration MUST be a non-negative safe integer.
+
+acceptanceScenarios:
+  - id: AC-PRR-MISSED-EVENT
+    given: A canonical workspace changes without a filesystem notification.
+    when: The periodic full reconcile interval elapses.
+    then:
+      - a complete new scan runs through ScopeMapService
+      - the active projection reflects the changed canonical bytes
+      - no incremental patch is applied to the active revision
+  - id: AC-PRR-DEBOUNCE
+    given: Several mutation notifications target one workspace inside the debounce window.
+    when: Reconciliation is requested.
+    then:
+      - callers share one reconcile result
+      - only one full scan is executed
+  - id: AC-PRR-SHUTDOWN
+    given: A mutation reconcile is pending and the runtime is closing.
+    when: close runs.
+    then:
+      - the pending reconcile is flushed
+      - in-flight work completes before the store closes
+      - no later periodic timer starts a scan
