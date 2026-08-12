@@ -1,17 +1,21 @@
 apiVersion: abcm.dev/traceability/v1alpha1
 kind: RequirementTraceability
 milestone: 0.2.0-alpha.1
-status: in_progress
+status: passed
 entries:
   - requirements: [WSR-001, WSR-004]
     tests: [rest-workspace-registration, workspace-bootstrap]
-    status: planned
+    status: passed
+    evidence: [test/rest-handler.test.ts, test/workspace-provisioning.test.ts]
   - requirements: [WSR-002, WSR-003]
     tests: [workspace-store-boundary, workspace-duplicate-preservation]
-    status: planned
+    status: passed
+    evidence: [test/workspace-provisioning.test.ts, test/workspace-registry.test.ts]
   - requirements: [WSR-005]
     tests: [workspace-restart-discovery]
-    status: planned
+    status: passed
+    evidence: [test/workspace-provisioning.test.ts, artifacts/plans/PLAN-0003/evidence/first-documentation-import.md]
   - requirements: [WSR-006]
     tests: [rest-workspace-registration-problems]
-    status: planned
+    status: passed
+    evidence: [test/rest-handler.test.ts]
