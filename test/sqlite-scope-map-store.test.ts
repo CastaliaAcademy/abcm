@@ -47,12 +47,12 @@ function revision(id: string): MapRevision {
 describe("SqliteScopeMapStore", () => {
   test("creates a versioned rollback-journal database and reopens idempotently", () => {
     const first = new SqliteScopeMapStore(databasePath, { ownerId: "owner-a", clock: () => now });
-    expect(first.schemaVersion()).toBe(1);
+    expect(first.schemaVersion()).toBe(2);
     expect(first.journalMode().toLowerCase()).toBe("delete");
     first.close();
 
     const second = new SqliteScopeMapStore(databasePath, { ownerId: "owner-b", clock: () => now });
-    expect(second.schemaVersion()).toBe(1);
+    expect(second.schemaVersion()).toBe(2);
     second.close();
 
     const database = new Database(databasePath, { readonly: true });
@@ -61,9 +61,92 @@ describe("SqliteScopeMapStore", () => {
       .all()
       .map(row => row.name);
     expect(tables).toEqual(
-      expect.arrayContaining(["schema_metadata", "scan_leases", "scan_sessions", "map_revisions", "active_map_revisions"]),
+      expect.arrayContaining([
+        "schema_metadata",
+        "runtime_owners",
+        "scan_leases",
+        "scan_sessions",
+        "map_revisions",
+        "active_map_revisions",
+      ]),
     );
     database.close();
+  });
+
+  test("upgrades schema v1 to v2 transactionally", () => {
+    const initial = new SqliteScopeMapStore(databasePath);
+    const lease = initial.beginScan("workspace");
+    initial.publish(lease, revision("sha256:before-upgrade"));
+    initial.close();
+    const legacy = new Database(databasePath);
+    legacy.run("DROP TABLE runtime_owners");
+    legacy.run("UPDATE schema_metadata SET value = '1' WHERE key = 'schema_version'");
+    legacy.close();
+
+    const upgraded = new SqliteScopeMapStore(databasePath);
+    expect(upgraded.schemaVersion()).toBe(2);
+    expect(upgraded.getActive("workspace")).toEqual(revision("sha256:before-upgrade"));
+    upgraded.close();
+    const check = new Database(databasePath, { readonly: true });
+    expect(check.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE name = 'runtime_owners'").get()?.name).toBe(
+      "runtime_owners",
+    );
+    check.close();
+  });
+
+  test("renews one exclusive runtime owner and recovers with greater fencing after release", () => {
+    const first = new SqliteScopeMapStore(databasePath, {
+      ownerId: "runtime-a",
+      runtimeOwnerTtlMs: 1_000,
+      clock: () => now,
+    });
+    const acquired = first.runtimeOwner();
+    expect(acquired).toEqual(expect.objectContaining({ ownerId: "runtime-a", fencingToken: 1 }));
+    if (acquired === undefined) throw new Error("Runtime owner was not acquired.");
+    expect(
+      () =>
+        new SqliteScopeMapStore(databasePath, {
+          ownerId: "runtime-b",
+          runtimeOwnerTtlMs: 1_000,
+          clock: () => now,
+        }),
+    ).toThrow(expect.objectContaining({ code: "DERIVED_STORE_OWNER_BUSY" }));
+
+    now += 400;
+    const renewed = first.renewRuntimeOwner();
+    expect(renewed.fencingToken).toBe(acquired.fencingToken);
+    expect(renewed.expiresAt).toBeGreaterThan(acquired.expiresAt);
+    first.releaseRuntimeOwner();
+
+    const second = new SqliteScopeMapStore(databasePath, {
+      ownerId: "runtime-b",
+      runtimeOwnerTtlMs: 1_000,
+      clock: () => now,
+    });
+    expect(second.runtimeOwner()?.fencingToken).toBeGreaterThan(renewed.fencingToken);
+    second.close();
+    first.close();
+  });
+
+  test("fences an expired runtime owner after takeover", () => {
+    const stale = new SqliteScopeMapStore(databasePath, {
+      ownerId: "runtime-a",
+      runtimeOwnerTtlMs: 1_000,
+      clock: () => now,
+    });
+    const staleToken = stale.runtimeOwner()?.fencingToken ?? 0;
+    now += 1_001;
+    const current = new SqliteScopeMapStore(databasePath, {
+      ownerId: "runtime-b",
+      runtimeOwnerTtlMs: 1_000,
+      clock: () => now,
+    });
+    expect(current.runtimeOwner()?.fencingToken).toBeGreaterThan(staleToken);
+    expect(() => stale.beginScan("workspace")).toThrow(expect.objectContaining({ code: "DERIVED_STORE_OWNER_LOST" }));
+    expect(() => stale.getActive("workspace")).toThrow(expect.objectContaining({ code: "DERIVED_STORE_OWNER_LOST" }));
+    stale.close();
+    expect(current.renewRuntimeOwner().ownerId).toBe("runtime-b");
+    current.close();
   });
 
   test("rejects an unsupported schema version instead of mutating it", () => {

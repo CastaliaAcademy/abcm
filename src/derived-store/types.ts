@@ -9,6 +9,12 @@ export interface ScanLeaseHandle {
   previousMapRevision?: string;
 }
 
+export interface RuntimeOwnerHandle {
+  ownerId: string;
+  fencingToken: number;
+  expiresAt: number;
+}
+
 export interface ScopeMapStore {
   beginScan(workspaceId: string): ScanLeaseHandle;
   publish(lease: ScanLeaseHandle, revision: MapRevision): void;
@@ -20,5 +26,10 @@ export interface ScopeMapStore {
 export interface SqliteScopeMapStoreOptions {
   ownerId?: string;
   leaseTtlMs?: number;
+  runtimeOwnerTtlMs?: number;
   clock?: () => number;
+}
+
+export interface SqliteWorkspaceMapStoreOptions extends SqliteScopeMapStoreOptions {
+  runtimeOwnerRenewalIntervalMs?: number;
 }

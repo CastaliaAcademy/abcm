@@ -1,0 +1,58 @@
+apiVersion: abcm.dev/spec/v1alpha1
+kind: SpecificationExtension
+metadata:
+  name: sqlite-runtime-owner-lease
+  version: 0.1.0
+  status: approved-for-alpha
+  extends: sqlite-derived-map-store@0.1.0
+  changeReason: Enforce the specification single-owner process boundary with recoverable runtime ownership.
+
+productBoundaryDelta:
+  owns:
+    - exclusive runtime ownership per workspace SQLite database
+    - renewable owner lease and owner fencing token
+    - deterministic takeover after owner expiry or graceful release
+  doesNotOwn:
+    - distributed consensus
+    - simultaneous multi-host writers
+    - process supervision outside the reference runtime
+
+requirements:
+  - id: OWN-001
+    level: MUST
+    statement: A SQLite-enabled runtime MUST acquire exclusive ownership before reading or mutating derived workspace state.
+  - id: OWN-002
+    level: MUST
+    statement: An unexpired owner lease MUST reject a different runtime with DERIVED_STORE_OWNER_BUSY.
+  - id: OWN-003
+    level: MUST
+    statement: Ownership renewal MUST retain the fencing token and extend expiry only for the current owner.
+  - id: OWN-004
+    level: MUST
+    statement: A runtime that loses or outlives its owner lease MUST reject further derived-store operations with DERIVED_STORE_OWNER_LOST.
+  - id: OWN-005
+    level: MUST
+    statement: After expiry or graceful release a new runtime MUST acquire ownership with a monotonically greater fencing token.
+  - id: OWN-006
+    level: MUST
+    statement: The reference runtime MUST renew ownership before expiry and stop renewal during close.
+
+acceptanceScenarios:
+  - id: AC-OWN-CONFLICT
+    given: One runtime owns a workspace database with an unexpired lease
+    when: A second runtime opens the same workspace with SQLite enabled
+    then:
+      - the second runtime is rejected
+      - the first active MapRevision remains unchanged
+  - id: AC-OWN-HEARTBEAT
+    given: One runtime owns a workspace database
+    when: Its heartbeat renews before expiry
+    then:
+      - ownership expiry is extended
+      - the fencing token remains unchanged
+  - id: AC-OWN-RECOVERY
+    given: An owner crashes or closes
+    when: Its lease expires or is released and another runtime starts
+    then:
+      - the new runtime acquires a greater fencing token
+      - the stale runtime cannot publish

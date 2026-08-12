@@ -35,7 +35,7 @@ export ABCM_API_TOKEN='replace-with-at-least-16-characters'
 ABCM_WORKSPACE_STORE_ROOT="$PWD/.local-workspaces" ABCM_WORKSPACE_ID=self ABCM_WORKSPACE_ROOT="$PWD" bun run dev:rest
 ```
 
-Set `ABCM_DERIVED_STORE_ENABLED=true` when the runtime has write access to `<workspace>/.abcm` and is the only SQLite-owning process for that workspace. The default remains disabled so separate local REST and stdio tunnel processes cannot accidentally share one database owner.
+Set `ABCM_DERIVED_STORE_ENABLED=true` when the runtime has write access to `<workspace>/.abcm`. The runtime acquires and renews an exclusive owner lease; a second SQLite-enabled process is rejected until graceful release or lease expiry. `ABCM_DERIVED_STORE_OWNER_TTL_MS` and `ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS` default to 30000 and 10000. The feature remains disabled by default because separate local REST and stdio tunnel processes must not share one workspace database.
 
 `GET /health` is public. All `/v1` routes and the `/mcp` Streamable HTTP endpoint require `Authorization: Bearer <token>`. See the [REST API](docs/api/rest-file-api.md), [HTTP MCP API](docs/api/mcp-http-api.md), and [quickstart](docs/operations/quickstart.md).
 

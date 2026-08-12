@@ -12,12 +12,22 @@ const mcpHttpEnabled = process.env.ABCM_MCP_ENABLED !== "false";
 const mcpEndpointPath = process.env.ABCM_MCP_PATH ?? "/mcp";
 const workspaceStoreRoot = process.env.ABCM_WORKSPACE_STORE_ROOT;
 const sqliteDerivedStoreEnabled = process.env.ABCM_DERIVED_STORE_ENABLED === "true";
+const runtimeOwnerTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_TTL_MS");
+const runtimeOwnerRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS");
 
 function commaSeparated(value: string | undefined): string[] | undefined {
   if (value === undefined) return undefined;
   const entries = value.split(",").map(entry => entry.trim()).filter(Boolean);
   if (entries.length === 0) throw new Error("MCP hostname/origin allowlists must not be empty when configured.");
   return entries;
+}
+
+function optionalPositiveInteger(name: string): number | undefined {
+  const value = process.env[name];
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer.`);
+  return parsed;
 }
 
 if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("ABCM_PORT must be an integer from 0 to 65535.");
@@ -45,6 +55,14 @@ const runtime = createAbcmRuntime(
     ...(allowedOrigins === undefined ? {} : { mcpAllowedOrigins: allowedOrigins }),
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
     sqliteDerivedStoreEnabled,
+    ...(runtimeOwnerTtlMs === undefined && runtimeOwnerRenewalIntervalMs === undefined
+      ? {}
+      : {
+          sqliteDerivedStoreOptions: {
+            ...(runtimeOwnerTtlMs === undefined ? {} : { runtimeOwnerTtlMs }),
+            ...(runtimeOwnerRenewalIntervalMs === undefined ? {} : { runtimeOwnerRenewalIntervalMs }),
+          },
+        }),
   },
 );
 await runtime.scopeMap.scan(workspaceId);

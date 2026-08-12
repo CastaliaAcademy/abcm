@@ -62,4 +62,44 @@ describe("ScopeMap SQLite rebuild", () => {
     expect(await Bun.file(join(root, ".abcm", "abcm.sqlite")).exists()).toBe(true);
     await runtime.close();
   });
+
+  test("reference runtime renews ownership and releases it on close", async () => {
+    const root = await mkdtemp(join(tmpdir(), "abcm-sqlite-heartbeat-"));
+    roots.push(root);
+    await mkdir(join(root, "domain-language"));
+    await writeFile(join(root, "scope.yaml"), "apiVersion: abcm/v1\nkind: workflow\nid: test\nname: Test\n");
+    await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
+
+    const first = createAbcmRuntime(
+      { id: "test", root },
+      {
+        sqliteDerivedStoreEnabled: true,
+        sqliteDerivedStoreOptions: { ownerId: "first", runtimeOwnerTtlMs: 240, runtimeOwnerRenewalIntervalMs: 40 },
+      },
+    );
+    await first.scopeMap.scan("test");
+    await Bun.sleep(360);
+    const blocked = createAbcmRuntime(
+      { id: "test", root },
+      {
+        sqliteDerivedStoreEnabled: true,
+        sqliteDerivedStoreOptions: { ownerId: "second", runtimeOwnerTtlMs: 240, runtimeOwnerRenewalIntervalMs: 40 },
+      },
+    );
+    await expect(blocked.scopeMap.scan("test")).rejects.toEqual(
+      expect.objectContaining({ code: "DERIVED_STORE_OWNER_BUSY" }),
+    );
+    await blocked.close();
+
+    await first.close();
+    const second = createAbcmRuntime(
+      { id: "test", root },
+      {
+        sqliteDerivedStoreEnabled: true,
+        sqliteDerivedStoreOptions: { ownerId: "second", runtimeOwnerTtlMs: 240, runtimeOwnerRenewalIntervalMs: 40 },
+      },
+    );
+    await expect(second.scopeMap.scan("test")).resolves.toEqual(expect.objectContaining({ digest: expect.any(String) }));
+    await second.close();
+  });
 });

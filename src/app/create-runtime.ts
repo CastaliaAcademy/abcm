@@ -1,7 +1,7 @@
 import { createAbcmMcpHttpHandler } from "../mcp/create-http-handler.js";
 import { createAbcmMcpServer } from "../mcp/create-server.js";
 import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-store.js";
-import type { ScopeMapStore } from "../derived-store/types.js";
+import type { ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "../derived-store/types.js";
 import { createAbcmRestHandler } from "../rest/create-rest-handler.js";
 import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
@@ -19,6 +19,7 @@ export interface AbcmRuntimeOptions {
   workspaceStoreRoot?: string;
   scopeMapStore?: ScopeMapStore;
   sqliteDerivedStoreEnabled?: boolean;
+  sqliteDerivedStoreOptions?: SqliteWorkspaceMapStoreOptions;
 }
 
 export function createAbcmRuntime(
@@ -32,7 +33,10 @@ export function createAbcmRuntime(
   if (options.scopeMapStore !== undefined && options.sqliteDerivedStoreEnabled === true) {
     throw new Error("scopeMapStore and sqliteDerivedStoreEnabled cannot be configured together.");
   }
-  const ownedScopeMapStore = options.sqliteDerivedStoreEnabled === true ? new SqliteWorkspaceMapStore(registry) : undefined;
+  const ownedScopeMapStore =
+    options.sqliteDerivedStoreEnabled === true
+      ? new SqliteWorkspaceMapStore(registry, options.sqliteDerivedStoreOptions)
+      : undefined;
   const scopeMapStore = options.scopeMapStore ?? ownedScopeMapStore;
   const scopeMap = new ScopeMapService(registry, scopeMapStore);
   const files = new WorkspaceFileService(registry, {
