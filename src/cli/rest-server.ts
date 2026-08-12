@@ -12,6 +12,8 @@ const mcpHttpEnabled = process.env.ABCM_MCP_ENABLED !== "false";
 const mcpEndpointPath = process.env.ABCM_MCP_PATH ?? "/mcp";
 const workspaceStoreRoot = process.env.ABCM_WORKSPACE_STORE_ROOT;
 const sqliteDerivedStoreEnabled = process.env.ABCM_DERIVED_STORE_ENABLED === "true";
+const scanLeaseTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_TTL_MS");
+const scanLeaseRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_RENEWAL_INTERVAL_MS");
 const runtimeOwnerTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_TTL_MS");
 const runtimeOwnerRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS");
 
@@ -55,10 +57,16 @@ const runtime = createAbcmRuntime(
     ...(allowedOrigins === undefined ? {} : { mcpAllowedOrigins: allowedOrigins }),
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
     sqliteDerivedStoreEnabled,
-    ...(runtimeOwnerTtlMs === undefined && runtimeOwnerRenewalIntervalMs === undefined
+    ...(
+      scanLeaseTtlMs === undefined &&
+      scanLeaseRenewalIntervalMs === undefined &&
+      runtimeOwnerTtlMs === undefined &&
+      runtimeOwnerRenewalIntervalMs === undefined
       ? {}
       : {
           sqliteDerivedStoreOptions: {
+            ...(scanLeaseTtlMs === undefined ? {} : { leaseTtlMs: scanLeaseTtlMs }),
+            ...(scanLeaseRenewalIntervalMs === undefined ? {} : { scanLeaseRenewalIntervalMs }),
             ...(runtimeOwnerTtlMs === undefined ? {} : { runtimeOwnerTtlMs }),
             ...(runtimeOwnerRenewalIntervalMs === undefined ? {} : { runtimeOwnerRenewalIntervalMs }),
           },

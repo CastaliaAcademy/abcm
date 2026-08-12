@@ -60,21 +60,38 @@ export class ScopeMapService {
   }
 
   async scan(workspaceId: string): Promise<MapRevision> {
-    const lease = this.#store?.beginScan(workspaceId);
+    const store = this.#store;
+    let lease = store?.beginScan(workspaceId);
+    let renewalError: unknown;
+    const heartbeat =
+      lease === undefined || store === undefined
+        ? undefined
+        : setInterval(() => {
+            if (renewalError !== undefined || lease === undefined) return;
+            try {
+              lease = store.renew(lease);
+            } catch (error) {
+              renewalError = error;
+            }
+          }, store.scanLeaseRenewalIntervalMs);
+    heartbeat?.unref();
     try {
       const revision = await this.#build(workspaceId);
-      if (lease !== undefined) this.#store?.publish(lease, revision);
+      if (renewalError !== undefined) throw renewalError;
+      if (lease !== undefined) store?.publish(lease, revision);
       this.#active.set(workspaceId, revision);
       return revision;
     } catch (error) {
       if (lease !== undefined) {
         try {
-          this.#store?.fail(lease);
+          store?.fail(lease);
         } catch {
           // Preserve the scan/publication failure; the lease expires and remains fenced.
         }
       }
       throw error;
+    } finally {
+      if (heartbeat !== undefined) clearInterval(heartbeat);
     }
   }
 

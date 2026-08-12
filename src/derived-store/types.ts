@@ -16,7 +16,9 @@ export interface RuntimeOwnerHandle {
 }
 
 export interface ScopeMapStore {
+  readonly scanLeaseRenewalIntervalMs: number;
   beginScan(workspaceId: string): ScanLeaseHandle;
+  renew(lease: ScanLeaseHandle): ScanLeaseHandle;
   publish(lease: ScanLeaseHandle, revision: MapRevision): void;
   fail(lease: ScanLeaseHandle): void;
   getActive(workspaceId: string): MapRevision | undefined;
@@ -26,6 +28,7 @@ export interface ScopeMapStore {
 export interface SqliteScopeMapStoreOptions {
   ownerId?: string;
   leaseTtlMs?: number;
+  scanLeaseRenewalIntervalMs?: number;
   runtimeOwnerTtlMs?: number;
   clock?: () => number;
 }

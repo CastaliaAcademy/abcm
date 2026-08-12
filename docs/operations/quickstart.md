@@ -8,7 +8,7 @@ export ABCM_WORKSPACE_STORE_ROOT="$PWD/.local-workspaces"
 ABCM_WORKSPACE_ID=self ABCM_WORKSPACE_ROOT="$PWD" bun run dev:rest
 ```
 
-To persist rebuildable ScopeMap revisions in `<workspace>/.abcm/abcm.sqlite`, add `ABCM_DERIVED_STORE_ENABLED=true`. The process takes an exclusive renewable owner lease. Optional `ABCM_DERIVED_STORE_OWNER_TTL_MS` and `ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS` values must be positive integers and renewal must be shorter than TTL. Keep the feature disabled when a separate stdio MCP process points at the same workspace; the second process will otherwise be rejected as an owner conflict.
+To persist rebuildable ScopeMap revisions in `<workspace>/.abcm/abcm.sqlite`, add `ABCM_DERIVED_STORE_ENABLED=true`. The process takes an exclusive renewable owner lease and renews each scan lease while filesystem construction yields. Optional owner variables are `ABCM_DERIVED_STORE_OWNER_TTL_MS` and `ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS`; scan equivalents are `ABCM_DERIVED_STORE_SCAN_LEASE_TTL_MS` and `ABCM_DERIVED_STORE_SCAN_LEASE_RENEWAL_INTERVAL_MS`. Each pair defaults to 30000/10000 milliseconds, values must be positive integers, and renewal must be shorter than TTL. Keep persistence disabled when a separate stdio MCP process points at the same workspace; the second process will otherwise be rejected as an owner conflict.
 
 The same process serves REST and authenticated Streamable HTTP MCP at `/mcp`. Then call:
 

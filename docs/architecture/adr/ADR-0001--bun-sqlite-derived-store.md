@@ -9,6 +9,8 @@ The domain-facing map repository is transport- and database-independent. The ref
 
 Each SQLite-enabled process uses a unique owner id, a renewable per-database owner lease, and an owner fencing token. Heartbeat loss fences subsequent reads and writes through that adapter; graceful close releases only the matching owner/token tuple.
 
+Each asynchronous ScopeMap scan also renews its own workspace lease while filesystem construction is in progress. Renewal preserves the scan fencing token. An expired, replaced, or otherwise failed renewal is retained as the scan result and checked before publication, so the previous active revision remains authoritative.
+
 SQLite stores serialized derived revisions and their publication metadata, never the only copy of authored content. Deleting the database and scanning the canonical filesystem rebuilds it.
 
 ## Consequences

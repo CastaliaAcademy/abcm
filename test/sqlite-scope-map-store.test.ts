@@ -194,6 +194,25 @@ describe("SqliteScopeMapStore", () => {
     second.close();
   });
 
+  test("renews a live scan lease without changing its fencing token", () => {
+    const store = new SqliteScopeMapStore(databasePath, {
+      ownerId: "owner",
+      leaseTtlMs: 1_000,
+      scanLeaseRenewalIntervalMs: 200,
+      clock: () => now,
+    });
+    const acquired = store.beginScan("workspace");
+    now += 400;
+    const renewed = store.renew(acquired);
+    expect(renewed.fencingToken).toBe(acquired.fencingToken);
+    expect(renewed.scanId).toBe(acquired.scanId);
+    expect(renewed.expiresAt).toBeGreaterThan(acquired.expiresAt);
+
+    now = renewed.expiresAt + 1;
+    expect(() => store.renew(renewed)).toThrow(expect.objectContaining({ code: "SCAN_FENCING_STALE" }));
+    store.close();
+  });
+
   test("rolls back a staged revision when active-pointer publication fails", () => {
     const store = new SqliteScopeMapStore(databasePath, { ownerId: "owner", clock: () => now });
     const firstLease = store.beginScan("workspace");

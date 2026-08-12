@@ -27,6 +27,7 @@ interface RuntimeOwnerRow {
 }
 
 export class SqliteScopeMapStore implements ScopeMapStore {
+  readonly scanLeaseRenewalIntervalMs: number;
   readonly #database: Database;
   readonly #ownerId: string;
   readonly #leaseTtlMs: number;
@@ -39,11 +40,20 @@ export class SqliteScopeMapStore implements ScopeMapStore {
     this.#database = new Database(databasePath, { create: true, readwrite: true });
     this.#ownerId = options.ownerId ?? randomUUID();
     this.#leaseTtlMs = options.leaseTtlMs ?? 30_000;
+    this.scanLeaseRenewalIntervalMs = options.scanLeaseRenewalIntervalMs ?? Math.floor(this.#leaseTtlMs / 3);
     this.#runtimeOwnerTtlMs = options.runtimeOwnerTtlMs;
     this.#clock = options.clock ?? Date.now;
     if (!Number.isSafeInteger(this.#leaseTtlMs) || this.#leaseTtlMs <= 0) {
       this.#database.close();
       throw new Error("leaseTtlMs must be a positive safe integer.");
+    }
+    if (
+      !Number.isSafeInteger(this.scanLeaseRenewalIntervalMs) ||
+      this.scanLeaseRenewalIntervalMs <= 0 ||
+      this.scanLeaseRenewalIntervalMs >= this.#leaseTtlMs
+    ) {
+      this.#database.close();
+      throw new Error("scanLeaseRenewalIntervalMs must be a positive integer smaller than leaseTtlMs.");
     }
     if (
       this.#runtimeOwnerTtlMs !== undefined &&
@@ -150,6 +160,26 @@ export class SqliteScopeMapStore implements ScopeMapStore {
         "UPDATE scan_leases SET expires_at = 0 WHERE workspace_id = ? AND owner_id = ? AND fencing_token = ?",
         [lease.workspaceId, lease.ownerId, lease.fencingToken],
       );
+    }).immediate();
+  }
+
+  renew(lease: ScanLeaseHandle): ScanLeaseHandle {
+    const now = this.#clock();
+    const expiresAt = now + this.#leaseTtlMs;
+    return this.#database.transaction(() => {
+      this.#assertRuntimeOwner(now);
+      const result = this.#database.run(
+        `UPDATE scan_leases SET expires_at = ?
+          WHERE workspace_id = ? AND owner_id = ? AND fencing_token = ? AND expires_at > ?`,
+        [expiresAt, lease.workspaceId, lease.ownerId, lease.fencingToken, now],
+      );
+      if (result.changes !== 1) {
+        throw new AbcmError("SCAN_FENCING_STALE", "Scan lease renewal was rejected because its fencing token is stale.", {
+          workspaceId: lease.workspaceId,
+          fencingToken: lease.fencingToken,
+        });
+      }
+      return { ...lease, expiresAt };
     }).immediate();
   }
 

@@ -6,6 +6,7 @@ import { SqliteScopeMapStore } from "./sqlite-scope-map-store.js";
 import type { ScanLeaseHandle, ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "./types.js";
 
 export class SqliteWorkspaceMapStore implements ScopeMapStore {
+  readonly scanLeaseRenewalIntervalMs: number;
   readonly #registry: WorkspaceRegistry;
   readonly #options: SqliteWorkspaceMapStoreOptions;
   readonly #stores = new Map<string, SqliteScopeMapStore>();
@@ -17,6 +18,15 @@ export class SqliteWorkspaceMapStore implements ScopeMapStore {
     this.#registry = registry;
     this.#options = options;
     this.#runtimeOwnerTtlMs = options.runtimeOwnerTtlMs ?? 30_000;
+    const scanLeaseTtlMs = options.leaseTtlMs ?? 30_000;
+    this.scanLeaseRenewalIntervalMs = options.scanLeaseRenewalIntervalMs ?? Math.floor(scanLeaseTtlMs / 3);
+    if (
+      !Number.isSafeInteger(this.scanLeaseRenewalIntervalMs) ||
+      this.scanLeaseRenewalIntervalMs <= 0 ||
+      this.scanLeaseRenewalIntervalMs >= scanLeaseTtlMs
+    ) {
+      throw new Error("scanLeaseRenewalIntervalMs must be a positive integer smaller than leaseTtlMs.");
+    }
     const renewalIntervalMs = options.runtimeOwnerRenewalIntervalMs ?? Math.floor(this.#runtimeOwnerTtlMs / 3);
     if (!Number.isSafeInteger(renewalIntervalMs) || renewalIntervalMs <= 0 || renewalIntervalMs >= this.#runtimeOwnerTtlMs) {
       throw new Error("runtimeOwnerRenewalIntervalMs must be a positive integer smaller than runtimeOwnerTtlMs.");
@@ -39,6 +49,11 @@ export class SqliteWorkspaceMapStore implements ScopeMapStore {
   publish(lease: ScanLeaseHandle, revision: MapRevision): void {
     this.#assertHealthy();
     this.#store(lease.workspaceId).publish(lease, revision);
+  }
+
+  renew(lease: ScanLeaseHandle): ScanLeaseHandle {
+    this.#assertHealthy();
+    return this.#store(lease.workspaceId).renew(lease);
   }
 
   fail(lease: ScanLeaseHandle): void {

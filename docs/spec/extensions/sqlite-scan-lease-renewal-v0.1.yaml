@@ -1,0 +1,39 @@
+apiVersion: abcm.dev/spec/v1alpha1
+kind: SpecificationExtension
+metadata:
+  name: sqlite-scan-lease-renewal
+  version: 0.1.0
+  status: approved-for-alpha
+  extends: sqlite-runtime-owner-lease@0.1.0
+  changeReason: Keep a valid long-running MAP-P0..P6 scan fenced until publication.
+
+requirements:
+  - id: SLR-001
+    level: MUST
+    statement: A running scan MUST renew its lease before expiry while map construction is awaiting filesystem work.
+  - id: SLR-002
+    level: MUST
+    statement: Renewal MUST preserve the scan fencing token and extend expiry only for the matching workspace, owner, and token.
+  - id: SLR-003
+    level: MUST
+    statement: Renewal after expiry or takeover MUST fail with SCAN_FENCING_STALE.
+  - id: SLR-004
+    level: MUST
+    statement: A renewal failure MUST prevent publication and preserve the previous active MapRevision.
+  - id: SLR-005
+    level: MUST
+    statement: Heartbeat scheduling MUST stop after publish or failure and MUST NOT keep the process alive by itself.
+
+acceptanceScenarios:
+  - id: AC-SLR-LONG-SCAN
+    given: Map construction lasts longer than the original scan lease TTL but continues yielding to the runtime
+    when: heartbeat renewal succeeds
+    then:
+      - the fencing token is unchanged
+      - the complete revision is published
+  - id: AC-SLR-STALE
+    given: A scan lease expired or was replaced
+    when: its heartbeat or publisher continues
+    then:
+      - renewal or publication fails with SCAN_FENCING_STALE
+      - the previous complete revision remains active
