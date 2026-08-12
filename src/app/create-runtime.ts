@@ -1,5 +1,7 @@
 import { createAbcmMcpHttpHandler } from "../mcp/create-http-handler.js";
 import { createAbcmMcpServer } from "../mcp/create-server.js";
+import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-store.js";
+import type { ScopeMapStore } from "../derived-store/types.js";
 import { createAbcmRestHandler } from "../rest/create-rest-handler.js";
 import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
@@ -15,6 +17,8 @@ export interface AbcmRuntimeOptions {
   mcpAllowedHostnames?: string[];
   mcpAllowedOrigins?: string[];
   workspaceStoreRoot?: string;
+  scopeMapStore?: ScopeMapStore;
+  sqliteDerivedStoreEnabled?: boolean;
 }
 
 export function createAbcmRuntime(
@@ -25,7 +29,12 @@ export function createAbcmRuntime(
   if (workspaces.length === 0) throw new Error("At least one workspace definition is required.");
   const defaultWorkspace = workspaces[0]!;
   const registry = new WorkspaceRegistry(workspaces);
-  const scopeMap = new ScopeMapService(registry);
+  if (options.scopeMapStore !== undefined && options.sqliteDerivedStoreEnabled === true) {
+    throw new Error("scopeMapStore and sqliteDerivedStoreEnabled cannot be configured together.");
+  }
+  const ownedScopeMapStore = options.sqliteDerivedStoreEnabled === true ? new SqliteWorkspaceMapStore(registry) : undefined;
+  const scopeMapStore = options.scopeMapStore ?? ownedScopeMapStore;
+  const scopeMap = new ScopeMapService(registry, scopeMapStore);
   const files = new WorkspaceFileService(registry, {
     onMutation: async workspaceId => void (await scopeMap.scan(workspaceId)),
   });
@@ -69,6 +78,12 @@ export function createAbcmRuntime(
     httpHandler: (request: Request) =>
       new URL(request.url).pathname === mcpEndpointPath ? mcpHandler(request) : restHandler(request),
     createMcpServer: () => createAbcmMcpServer({ files, scopeMap, defaultWorkspaceId: defaultWorkspace.id }),
-    close: async () => void (await mcp?.close()),
+    close: async () => {
+      try {
+        await mcp?.close();
+      } finally {
+        ownedScopeMapStore?.close();
+      }
+    },
   };
 }

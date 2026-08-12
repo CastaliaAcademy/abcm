@@ -8,6 +8,8 @@ export ABCM_WORKSPACE_STORE_ROOT="$PWD/.local-workspaces"
 ABCM_WORKSPACE_ID=self ABCM_WORKSPACE_ROOT="$PWD" bun run dev:rest
 ```
 
+To persist rebuildable ScopeMap revisions in `<workspace>/.abcm/abcm.sqlite`, add `ABCM_DERIVED_STORE_ENABLED=true`. Use it only with a writable workspace and one owning process; keep it disabled when a separate stdio MCP process points at the same workspace.
+
 The same process serves REST and authenticated Streamable HTTP MCP at `/mcp`. Then call:
 
 ```bash

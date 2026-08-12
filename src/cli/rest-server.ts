@@ -11,6 +11,7 @@ const bearerToken = process.env.ABCM_API_TOKEN;
 const mcpHttpEnabled = process.env.ABCM_MCP_ENABLED !== "false";
 const mcpEndpointPath = process.env.ABCM_MCP_PATH ?? "/mcp";
 const workspaceStoreRoot = process.env.ABCM_WORKSPACE_STORE_ROOT;
+const sqliteDerivedStoreEnabled = process.env.ABCM_DERIVED_STORE_ENABLED === "true";
 
 function commaSeparated(value: string | undefined): string[] | undefined {
   if (value === undefined) return undefined;
@@ -23,6 +24,9 @@ if (!Number.isInteger(port) || port < 0 || port > 65_535) throw new Error("ABCM_
 if (bearerToken === undefined) throw new Error("ABCM_API_TOKEN is required for the HTTP server.");
 if (process.env.ABCM_MCP_ENABLED !== undefined && !["true", "false"].includes(process.env.ABCM_MCP_ENABLED)) {
   throw new Error("ABCM_MCP_ENABLED must be 'true' or 'false'.");
+}
+if (process.env.ABCM_DERIVED_STORE_ENABLED !== undefined && !["true", "false"].includes(process.env.ABCM_DERIVED_STORE_ENABLED)) {
+  throw new Error("ABCM_DERIVED_STORE_ENABLED must be 'true' or 'false'.");
 }
 
 const allowedHostnames = commaSeparated(process.env.ABCM_MCP_ALLOWED_HOSTNAMES);
@@ -40,6 +44,7 @@ const runtime = createAbcmRuntime(
     ...(allowedHostnames === undefined ? {} : { mcpAllowedHostnames: allowedHostnames }),
     ...(allowedOrigins === undefined ? {} : { mcpAllowedOrigins: allowedOrigins }),
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
+    sqliteDerivedStoreEnabled,
   },
 );
 await runtime.scopeMap.scan(workspaceId);

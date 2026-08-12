@@ -6,6 +6,7 @@ import { z } from "zod/v4";
 import { parse } from "yaml";
 
 import { AbcmError } from "../core/errors.js";
+import type { ScopeMapStore } from "../derived-store/types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
 import type { MapDiagnostic, MapRevision, ScopeKind, ScopeMapProjection, ScopeNode, ScopeRelation } from "./types.js";
@@ -50,13 +51,34 @@ function normalizedDigest(nodes: readonly ScopeNode[], relations: readonly Scope
 
 export class ScopeMapService {
   readonly #registry: WorkspaceRegistry;
+  readonly #store: ScopeMapStore | undefined;
   readonly #active = new Map<string, MapRevision>();
 
-  constructor(registry: WorkspaceRegistry) {
+  constructor(registry: WorkspaceRegistry, store?: ScopeMapStore) {
     this.#registry = registry;
+    this.#store = store;
   }
 
   async scan(workspaceId: string): Promise<MapRevision> {
+    const lease = this.#store?.beginScan(workspaceId);
+    try {
+      const revision = await this.#build(workspaceId);
+      if (lease !== undefined) this.#store?.publish(lease, revision);
+      this.#active.set(workspaceId, revision);
+      return revision;
+    } catch (error) {
+      if (lease !== undefined) {
+        try {
+          this.#store?.fail(lease);
+        } catch {
+          // Preserve the scan/publication failure; the lease expires and remains fenced.
+        }
+      }
+      throw error;
+    }
+  }
+
+  async #build(workspaceId: string): Promise<MapRevision> {
     const workspace = this.#registry.get(workspaceId);
     const rootManifest = await this.#readManifest(workspace.root, "", true);
     if (rootManifest.kind !== "workflow") {
@@ -143,7 +165,6 @@ export class ScopeMapService {
       relations,
       diagnostics,
     };
-    this.#active.set(workspaceId, revision);
     return revision;
   }
 

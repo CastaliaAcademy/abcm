@@ -1,5 +1,8 @@
 export { createAbcmRuntime } from "./app/create-runtime.js";
 export type { AbcmRuntimeOptions } from "./app/create-runtime.js";
+export { SqliteScopeMapStore } from "./derived-store/sqlite-scope-map-store.js";
+export { SqliteWorkspaceMapStore } from "./derived-store/sqlite-workspace-map-store.js";
+export type { ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./derived-store/types.js";
 export { AbcmError } from "./core/errors.js";
 export { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "./core/server-info.js";
 export { createAbcmMcpHttpHandler } from "./mcp/create-http-handler.js";

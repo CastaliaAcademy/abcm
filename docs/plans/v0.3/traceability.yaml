@@ -1,0 +1,17 @@
+apiVersion: abcm.dev/traceability/v1alpha1
+kind: RequirementTraceability
+milestone: 0.2.0-alpha.2
+status: passed
+entries:
+  - requirements: [DST-001, DST-002, DST-003, DST-006]
+    tests: [sqlite-schema-and-journal, sqlite-rebuild]
+    status: passed
+    evidence: [test/sqlite-scope-map-store.test.ts, test/scope-map-sqlite-rebuild.test.ts]
+  - requirements: [DST-004]
+    tests: [sqlite-lease-conflict]
+    status: passed
+    evidence: [test/sqlite-scope-map-store.test.ts]
+  - requirements: [DST-005]
+    tests: [sqlite-stale-fencing, sqlite-atomic-publication]
+    status: passed
+    evidence: [test/sqlite-scope-map-store.test.ts, artifacts/plans/PLAN-0004/evidence/sqlite-derived-map-store.md]

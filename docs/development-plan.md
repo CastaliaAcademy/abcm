@@ -1,6 +1,6 @@
 # План разработки ABCM MVP
 
-Статус: proposed
+Статус: in progress
 Нормативная база: `docs/spec/abcm-mvp-agent-spec-v0.5.yaml`, версия 0.5.0, draft; `docs/spec/extensions/rest-file-management-v0.1.yaml`
 Цель: библиотека MCP-сервера с transport-independent ядром; MCP и REST являются адаптерами одних use case.
 
@@ -164,6 +164,14 @@ REST handlers ----------/          |                    |
 5. `0.1.0`: M11 и полная acceptance/traceability evidence.
 
 Каждый инкремент начинается с RED acceptance/contract tests, заканчивается обновлением traceability manifest и сохраняет evidence отдельно от generated build output.
+
+### Текущая реализация
+
+- PLAN-0001 поставил первый рабочий FileWorkspace/ScopeMap/REST/MCP vertical slice.
+- PLAN-0003 добавил server-owned managed workspaces и безопасный импорт документации.
+- PLAN-0004 поставил фундамент M2: versioned SQLite schema, rollback journal, scan leases/fencing, atomic active MapRevision и rebuild после удаления БД.
+- M2 остаётся незавершённым до репозиториев file/document/resource/provenance/sync/tombstone/context state, lease renewal и явного runtime owner heartbeat.
+- M3 остаётся незавершённым до полного MAP-P0..P6 indexing/reconcile pipeline и periodic full reconcile.
 
 ## 5. Риски и открытые решения до M1
 

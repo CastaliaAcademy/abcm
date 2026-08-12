@@ -1,0 +1,59 @@
+apiVersion: abcm.dev/spec/v1alpha1
+kind: SpecificationExtension
+metadata:
+  name: sqlite-derived-map-store
+  version: 0.1.0
+  status: approved-for-alpha
+  extends: abcm-file-workspace-mvp@0.5.0
+  changeReason: Define the first durable, rebuildable ScopeMap publication slice without making SQLite canonical.
+
+productBoundaryDelta:
+  owns:
+    - versioned SQLite schema for scan leases, sessions, revisions, and atomic active-revision pointers
+    - rebuild of derived map state from the canonical filesystem
+    - single-writer fencing for map publication
+  doesNotOwn:
+    - authored document bodies
+    - ContextBundle cache
+    - documentation synchronization or tombstones
+    - distributed multi-writer coordination
+
+requirements:
+  - id: DST-001
+    level: MUST
+    statement: The derived store MUST be created at .abcm/abcm.sqlite and remain fully rebuildable from the workspace filesystem.
+  - id: DST-002
+    level: MUST
+    statement: Schema migrations MUST be versioned and applied transactionally.
+  - id: DST-003
+    level: MUST_NOT
+    statement: The derived store MUST NOT use WAL journal mode in this alpha profile.
+  - id: DST-004
+    level: MUST
+    statement: A scan MUST acquire a lease with a monotonically increasing fencing token before publication.
+  - id: DST-005
+    level: MUST
+    statement: Publishing a revision and switching the active revision MUST occur in one transaction and reject stale fencing tokens.
+  - id: DST-006
+    level: MUST_NOT
+    statement: The derived store MUST NOT contain the only copy of authored scope, configuration, or document content.
+
+acceptanceScenarios:
+  - id: AC-DST-REBUILD
+    given: A valid workspace whose .abcm/abcm.sqlite has been deleted
+    when: ABCM scans the workspace
+    then:
+      - the database is recreated
+      - the active revision matches the filesystem-derived map
+  - id: AC-DST-FENCING
+    given: Two scan attempts for one workspace
+    when: a stale lease tries to publish after a newer fencing token exists
+    then:
+      - stale publication is rejected
+      - the active revision remains complete and unchanged
+  - id: AC-DST-ATOMIC
+    given: An active revision and a staged replacement
+    when: publication succeeds or fails
+    then:
+      - readers observe one complete active revision
+      - no partial node or relation set is active

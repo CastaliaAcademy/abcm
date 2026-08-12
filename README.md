@@ -9,6 +9,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 - bounded workflow and scope-map discovery;
 - safe, atomic workspace file list/read/write/delete/move/directory operations;
 - server-owned workspace registration below a configured managed store, including restart discovery;
+- opt-in rebuildable SQLite persistence for ScopeMap revisions, leases, and atomic publication;
 - REST access with ETags, stable problem responses, and static Bearer authentication;
 - MCP tools and the `abcm://map` resource over stdio and authenticated Streamable HTTP, backed by the same application services;
 - self-hosting ABCM metadata, feature plans, verification plans, and reusable project skills.
@@ -33,6 +34,8 @@ bun run build
 export ABCM_API_TOKEN='replace-with-at-least-16-characters'
 ABCM_WORKSPACE_STORE_ROOT="$PWD/.local-workspaces" ABCM_WORKSPACE_ID=self ABCM_WORKSPACE_ROOT="$PWD" bun run dev:rest
 ```
+
+Set `ABCM_DERIVED_STORE_ENABLED=true` when the runtime has write access to `<workspace>/.abcm` and is the only SQLite-owning process for that workspace. The default remains disabled so separate local REST and stdio tunnel processes cannot accidentally share one database owner.
 
 `GET /health` is public. All `/v1` routes and the `/mcp` Streamable HTTP endpoint require `Authorization: Bearer <token>`. See the [REST API](docs/api/rest-file-api.md), [HTTP MCP API](docs/api/mcp-http-api.md), and [quickstart](docs/operations/quickstart.md).
 
