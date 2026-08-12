@@ -11,6 +11,7 @@ import type {
   FileEntry,
   MoveOptions,
   MutationReconciler,
+  MutationAuthorizer,
   ReadFileResult,
   ResolvedWorkspace,
   WritePreconditions,
@@ -18,6 +19,7 @@ import type {
 
 interface WorkspaceFileServiceOptions {
   onMutation?: MutationReconciler;
+  authorizeMutation?: MutationAuthorizer;
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -41,11 +43,13 @@ function contentTypeFor(path: string): string {
 export class WorkspaceFileService {
   readonly #registry: WorkspaceRegistry;
   readonly #onMutation: MutationReconciler | undefined;
+  readonly #authorizeMutation: MutationAuthorizer | undefined;
   #mutationTail: Promise<void> = Promise.resolve();
 
   constructor(registry: WorkspaceRegistry, options: WorkspaceFileServiceOptions = {}) {
     this.#registry = registry;
     this.#onMutation = options.onMutation;
+    this.#authorizeMutation = options.authorizeMutation;
   }
 
   async list(workspaceId: string, path = "", recursive = false): Promise<FileEntry[]> {
@@ -125,6 +129,26 @@ export class WorkspaceFileService {
   }
 
   async write(workspaceId: string, path: string, content: Uint8Array, preconditions: WritePreconditions = {}): Promise<FileEntry & { checksum: string }> {
+    return this.#write(workspaceId, path, content, preconditions, true, true);
+  }
+
+  async writeMirror(
+    workspaceId: string,
+    path: string,
+    content: Uint8Array,
+    preconditions: WritePreconditions = {},
+  ): Promise<FileEntry & { checksum: string }> {
+    return this.#write(workspaceId, path, content, preconditions, false, false);
+  }
+
+  async #write(
+    workspaceId: string,
+    path: string,
+    content: Uint8Array,
+    preconditions: WritePreconditions,
+    authorize: boolean,
+    notify: boolean,
+  ): Promise<FileEntry & { checksum: string }> {
     const workspace = this.#registry.get(workspaceId);
     if (content.byteLength > workspace.maxWriteBytes) {
       throw new AbcmError("FILE_TOO_LARGE", "Content exceeds the configured write limit.", {
@@ -133,6 +157,7 @@ export class WorkspaceFileService {
       });
     }
     return this.#mutate(async () => {
+      if (authorize) await this.#authorize(workspaceId, [path]);
       const safePath = await this.#safePath(workspace);
       let resolved = await safePath.resolve(path, { allowMissing: true });
       await mkdir(dirname(resolved.absolutePath), { recursive: true });
@@ -160,7 +185,7 @@ export class WorkspaceFileService {
         throw error;
       }
 
-      await this.#notify(workspaceId, [resolved.relativePath]);
+      if (notify) await this.#notify(workspaceId, [resolved.relativePath]);
       const metadata = await stat(resolved.absolutePath);
       return {
         path: resolved.relativePath,
@@ -174,8 +199,23 @@ export class WorkspaceFileService {
   }
 
   async delete(workspaceId: string, path: string, preconditions: DeletePreconditions = {}): Promise<void> {
+    await this.#delete(workspaceId, path, preconditions, true, true);
+  }
+
+  async deleteMirror(workspaceId: string, path: string, preconditions: DeletePreconditions = {}): Promise<void> {
+    await this.#delete(workspaceId, path, preconditions, false, false);
+  }
+
+  async #delete(
+    workspaceId: string,
+    path: string,
+    preconditions: DeletePreconditions,
+    authorize: boolean,
+    notify: boolean,
+  ): Promise<void> {
     const workspace = this.#registry.get(workspaceId);
     await this.#mutate(async () => {
+      if (authorize) await this.#authorize(workspaceId, [path]);
       const safePath = await this.#safePath(workspace);
       const resolved = await safePath.resolve(path);
       const metadata = await stat(resolved.absolutePath);
@@ -183,13 +223,14 @@ export class WorkspaceFileService {
       const checksum = await sha256File(resolved.absolutePath);
       this.#validateMatch(checksum, preconditions.ifMatch);
       await unlink(resolved.absolutePath);
-      await this.#notify(workspaceId, [resolved.relativePath]);
+      if (notify) await this.#notify(workspaceId, [resolved.relativePath]);
     });
   }
 
   async move(workspaceId: string, from: string, to: string, options: MoveOptions = {}): Promise<FileEntry & { checksum: string }> {
     const workspace = this.#registry.get(workspaceId);
     return this.#mutate(async () => {
+      await this.#authorize(workspaceId, [from, to]);
       const safePath = await this.#safePath(workspace);
       const source = await safePath.resolve(from);
       let target = await safePath.resolve(to, { allowMissing: true });
@@ -288,6 +329,10 @@ export class WorkspaceFileService {
 
   async #notify(workspaceId: string, paths: readonly string[]): Promise<void> {
     if (this.#onMutation) await this.#onMutation(workspaceId, paths);
+  }
+
+  async #authorize(workspaceId: string, paths: readonly string[]): Promise<void> {
+    if (this.#authorizeMutation) await this.#authorizeMutation(workspaceId, paths);
   }
 
   #mutate<T>(operation: () => Promise<T>): Promise<T> {

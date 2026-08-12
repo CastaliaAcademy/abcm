@@ -3,6 +3,7 @@ import { z } from "zod/v4";
 
 import { AbcmError } from "../core/errors.js";
 import { ABCM_SERVER_INFO } from "../core/server-info.js";
+import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
 
@@ -10,6 +11,7 @@ export interface AbcmMcpDependencies {
   files: WorkspaceFileService;
   scopeMap: ScopeMapService;
   defaultWorkspaceId: string;
+  documentation?: DirectoryDocumentationSyncService;
 }
 
 function success(structuredContent: Record<string, unknown>) {
@@ -151,6 +153,38 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     async input =>
       toolResult(async () => ({ revision: dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(input.workspaceId)) })),
   );
+  if (dependencies.documentation !== undefined) {
+    server.registerTool(
+      "documentation_source.preview",
+      {
+        title: "Preview documentation source synchronization",
+        description: "Compare one server-configured documentation directory with its read-only workspace mirror.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: z.object({ workspaceId, sourceId: z.string().min(1) }).strict(),
+      },
+      async input => toolResult(async () => ({ ...(await dependencies.documentation!.preview(input.workspaceId, input.sourceId)) })),
+    );
+    server.registerTool(
+      "documentation_source.apply",
+      {
+        title: "Apply documentation synchronization preview",
+        description: "Apply a checksum-pinned preview to the workspace mirror and rebuild ScopeMap.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+        inputSchema: z.object({ importId: z.string().min(1) }).strict(),
+      },
+      async input => toolResult(async () => ({ ...(await dependencies.documentation!.apply(input.importId)) })),
+    );
+    server.registerTool(
+      "documentation_source.sync",
+      {
+        title: "Synchronize documentation source",
+        description: "Preview and immediately apply one server-configured documentation directory.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+        inputSchema: z.object({ sourceId: z.string().min(1) }).strict(),
+      },
+      async input => toolResult(async () => ({ ...(await dependencies.documentation!.sync(input.sourceId)) })),
+    );
+  }
   server.registerResource(
     "scope-map",
     "abcm://map",

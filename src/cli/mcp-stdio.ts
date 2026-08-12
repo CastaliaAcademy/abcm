@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
 import { createAbcmRuntime } from "../app/create-runtime.js";
+import { parseDocumentationSources } from "../documentation/config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
 
 const workspaceId = process.env.ABCM_WORKSPACE_ID ?? "default";
@@ -13,6 +14,7 @@ const scanLeaseTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_TT
 const scanLeaseRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_RENEWAL_INTERVAL_MS");
 const runtimeOwnerTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_TTL_MS");
 const runtimeOwnerRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS");
+const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENTATION_SOURCES);
 
 function optionalPositiveInteger(name: string): number | undefined {
   const value = process.env[name];
@@ -33,6 +35,7 @@ const runtime = createAbcmRuntime(
   {
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
     sqliteDerivedStoreEnabled,
+    ...(documentationSources === undefined ? {} : { documentationSources }),
     ...(
       scanLeaseTtlMs === undefined &&
       scanLeaseRenewalIntervalMs === undefined &&

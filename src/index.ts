@@ -11,6 +11,18 @@ export type {
 } from "./derived-store/types.js";
 export { AbcmError } from "./core/errors.js";
 export { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "./core/server-info.js";
+export { parseDocumentationSources } from "./documentation/config.js";
+export { DirectoryDocumentationSyncService } from "./documentation/directory-documentation-sync-service.js";
+export type {
+  DirectoryDocumentationSourceDefinition,
+  DocumentationImportOperation,
+  DocumentationImportPlan,
+  DocumentationStateStore,
+  DocumentationSyncResult,
+  DocumentProvenanceRecord,
+  SyncRunRecord,
+  TombstoneRecord,
+} from "./documentation/types.js";
 export { createAbcmMcpHttpHandler } from "./mcp/create-http-handler.js";
 export type { AbcmMcpHttpHandler, AbcmMcpHttpOptions } from "./mcp/create-http-handler.js";
 export { createAbcmMcpServer } from "./mcp/create-server.js";

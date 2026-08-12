@@ -1,11 +1,19 @@
 import { join } from "node:path";
 
+import type {
+  DocumentationStateCommit,
+  DocumentationStateStore,
+  DocumentProvenanceRecord,
+  DocumentStorageResolution,
+  SyncRunRecord,
+  TombstoneRecord,
+} from "../documentation/types.js";
 import type { MapRevision } from "../scope-map/types.js";
 import type { WorkspaceRegistry } from "../workspace/registry.js";
 import { SqliteScopeMapStore } from "./sqlite-scope-map-store.js";
 import type { ScanLeaseHandle, ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "./types.js";
 
-export class SqliteWorkspaceMapStore implements ScopeMapStore {
+export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStateStore {
   readonly scanLeaseRenewalIntervalMs: number;
   readonly #registry: WorkspaceRegistry;
   readonly #options: SqliteWorkspaceMapStoreOptions;
@@ -64,6 +72,31 @@ export class SqliteWorkspaceMapStore implements ScopeMapStore {
   getActive(workspaceId: string): MapRevision | undefined {
     this.#assertHealthy();
     return this.#store(workspaceId).getActive(workspaceId);
+  }
+
+  resolveDocumentStorage(workspaceId: string, targetPath: string): DocumentStorageResolution {
+    this.#assertHealthy();
+    return this.#store(workspaceId).resolveDocumentStorage(workspaceId, targetPath);
+  }
+
+  listDocumentProvenance(workspaceId: string, sourceId: string): DocumentProvenanceRecord[] {
+    this.#assertHealthy();
+    return this.#store(workspaceId).listDocumentProvenance(workspaceId, sourceId);
+  }
+
+  listTombstones(workspaceId: string, sourceId: string): TombstoneRecord[] {
+    this.#assertHealthy();
+    return this.#store(workspaceId).listTombstones(workspaceId, sourceId);
+  }
+
+  listSyncRuns(workspaceId: string, sourceId: string): SyncRunRecord[] {
+    this.#assertHealthy();
+    return this.#store(workspaceId).listSyncRuns(workspaceId, sourceId);
+  }
+
+  commitDocumentationSync(commit: DocumentationStateCommit): void {
+    this.#assertHealthy();
+    this.#store(commit.source.workspaceId).commitDocumentationSync(commit);
   }
 
   close(): void {

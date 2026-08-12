@@ -1,0 +1,66 @@
+apiVersion: abcm.dev/spec/v1alpha1
+kind: SpecificationExtension
+metadata:
+  name: directory-documentation-sync
+  version: 0.1.0
+  status: approved-for-alpha
+  extends: abcm-file-workspace-mvp@0.5.0
+  changeReason: Provide a safe one-way directory connector suitable for mounted network folders and Obsidian vaults.
+
+requirements:
+  - id: DDS-001
+    level: MUST
+    statement: Directory source roots MUST be configured by the server and MUST NOT be accepted as request paths.
+  - id: DDS-002
+    level: MUST
+    statement: Preview MUST be non-mutating and MUST bind every planned operation to source and target checksums.
+  - id: DDS-003
+    level: MUST
+    statement: Apply MUST reject a changed source snapshot and any managed target collision before writing it.
+  - id: DDS-004
+    level: MUST
+    statement: Mirror create and update operations MUST use the WorkspaceFile atomic-write boundary and MUST NOT modify source bytes.
+  - id: DDS-005
+    level: MUST
+    statement: Source deletion MUST remove the active mirror and atomically persist inactive provenance plus a tombstone and SyncRun.
+  - id: DDS-006
+    level: MUST
+    statement: Public file mutations MUST reject active mirror targets as MIRROR_DOCUMENT_READ_ONLY.
+  - id: DDS-007
+    level: MUST
+    statement: SQLite schema v4 MUST persist DocumentationSource, DocumentProvenance, SyncRun, and Tombstone metadata without document bodies.
+  - id: DDS-008
+    level: MUST
+    statement: REST and MCP preview, apply, and sync operations MUST delegate to the same application service.
+  - id: DDS-009
+    level: MUST_NOT
+    statement: Connector discovery MUST NOT follow symbolic links or include hidden Obsidian configuration directories.
+
+acceptanceScenarios:
+  - id: AC-DDS-PREVIEW-APPLY
+    given: A server-approved directory source contains a new Markdown document.
+    when: preview and then apply run against an unchanged snapshot.
+    then:
+      - preview changes neither source nor target
+      - apply creates an identical mirror through atomic workspace I/O
+      - provenance and a successful SyncRun are persisted
+  - id: AC-DDS-MIRROR-DELETE
+    given: A mirrored source document and active provenance exist.
+    when: the canonical source file is deleted and sync runs.
+    then:
+      - the active mirror is removed
+      - provenance remains inactive
+      - a tombstone records source, former target, checksum, time, and reason
+  - id: AC-DDS-READ-ONLY
+    given: A target is an active mirror.
+    when: REST or MCP file mutation addresses it.
+    then:
+      - the mutation fails with MIRROR_DOCUMENT_READ_ONLY
+      - source and target bytes stay unchanged
+  - id: AC-DDS-OBSIDIAN-VAULT
+    given: An Obsidian vault is mounted read-only as a configured source root.
+    when: sync runs.
+    then:
+      - allowed Markdown files are mirrored
+      - .obsidian and symlinked content are ignored
+      - no operation writes into the vault

@@ -1,0 +1,15 @@
+name: abcm
+
+services:
+  rest:
+    environment:
+      ABCM_DERIVED_STORE_ENABLED: "true"
+      ABCM_WORKSPACE_ID: ${ABCM_DOCUMENTATION_WORKSPACE_ID:-castalia-public}
+      ABCM_WORKSPACE_ROOT: /workspaces/${ABCM_DOCUMENTATION_WORKSPACE_ID:-castalia-public}
+      ABCM_DOCUMENTATION_SOURCES: >-
+        [{"id":"${ABCM_DOCUMENTATION_SOURCE_ID:-obsidian}","workspaceId":"${ABCM_DOCUMENTATION_WORKSPACE_ID:-castalia-public}","root":"/documentation-sources/obsidian","targetBasePath":"${ABCM_DOCUMENTATION_TARGET_BASE_PATH:-abcm/artifacts/notes/obsidian}"}]
+    volumes:
+      - type: bind
+        source: ${ABCM_DOCUMENTATION_SOURCE_PATH:?required}
+        target: /documentation-sources/obsidian
+        read_only: true

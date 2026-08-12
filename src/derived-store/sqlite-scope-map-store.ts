@@ -5,10 +5,17 @@ import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { AbcmError } from "../core/errors.js";
+import type {
+  DocumentationStateCommit,
+  DocumentProvenanceRecord,
+  DocumentStorageResolution,
+  SyncRunRecord,
+  TombstoneRecord,
+} from "../documentation/types.js";
 import type { MapRevision } from "../scope-map/types.js";
 import type { RuntimeOwnerHandle, ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./types.js";
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 interface LeaseRow {
   owner_id: string;
@@ -282,6 +289,192 @@ export class SqliteScopeMapStore implements ScopeMapStore {
     }).deferred();
   }
 
+  resolveDocumentStorage(workspaceId: string, targetPath: string): DocumentStorageResolution {
+    this.#assertRuntimeOwner();
+    const row = this.#database
+      .query<{ source_id: string }, [string, string]>(
+        "SELECT source_id FROM document_provenance WHERE workspace_id = ? AND target_path = ? AND active = 1",
+      )
+      .get(workspaceId, targetPath);
+    return row === null ? { storageMode: "managed" } : { storageMode: "mirror", sourceId: row.source_id };
+  }
+
+  listDocumentProvenance(workspaceId: string, sourceId: string): DocumentProvenanceRecord[] {
+    this.#assertRuntimeOwner();
+    return this.#database
+      .query<
+        {
+          workspace_id: string;
+          source_id: string;
+          source_path: string;
+          target_path: string;
+          source_checksum: string;
+          target_checksum: string;
+          last_synchronized_at: string;
+          active: number;
+        },
+        [string, string]
+      >(
+        `SELECT workspace_id, source_id, source_path, target_path, source_checksum, target_checksum,
+                last_synchronized_at, active
+           FROM document_provenance WHERE workspace_id = ? AND source_id = ? ORDER BY source_path`,
+      )
+      .all(workspaceId, sourceId)
+      .map(row => ({
+        workspaceId: row.workspace_id,
+        sourceId: row.source_id,
+        sourcePath: row.source_path,
+        targetPath: row.target_path,
+        sourceChecksum: row.source_checksum,
+        targetChecksum: row.target_checksum,
+        lastSynchronizedAt: row.last_synchronized_at,
+        active: row.active === 1,
+      }));
+  }
+
+  listTombstones(workspaceId: string, sourceId: string): TombstoneRecord[] {
+    this.#assertRuntimeOwner();
+    return this.#database
+      .query<
+        {
+          resource_id: string;
+          workspace_id: string;
+          source_id: string;
+          former_path: string;
+          checksum: string;
+          deleted_at: string;
+          reason: "canonical_source_deleted";
+        },
+        [string, string]
+      >(
+        `SELECT resource_id, workspace_id, source_id, former_path, checksum, deleted_at, reason
+           FROM tombstones WHERE workspace_id = ? AND source_id = ? ORDER BY deleted_at, resource_id`,
+      )
+      .all(workspaceId, sourceId)
+      .map(row => ({
+        resourceId: row.resource_id,
+        workspaceId: row.workspace_id,
+        sourceId: row.source_id,
+        formerPath: row.former_path,
+        checksum: row.checksum,
+        deletedAt: row.deleted_at,
+        reason: row.reason,
+      }));
+  }
+
+  listSyncRuns(workspaceId: string, sourceId: string): SyncRunRecord[] {
+    this.#assertRuntimeOwner();
+    return this.#database
+      .query<
+        {
+          sync_run_id: string;
+          workspace_id: string;
+          source_id: string;
+          started_at: string;
+          finished_at: string;
+          created: number;
+          updated: number;
+          moved: number;
+          deleted: number;
+          conflicts: number;
+          status: "succeeded";
+        },
+        [string, string]
+      >(
+        `SELECT sync_run_id, workspace_id, source_id, started_at, finished_at, created, updated, moved, deleted,
+                conflicts, status
+           FROM sync_runs WHERE workspace_id = ? AND source_id = ? ORDER BY started_at, sync_run_id`,
+      )
+      .all(workspaceId, sourceId)
+      .map(row => ({
+        syncRunId: row.sync_run_id,
+        workspaceId: row.workspace_id,
+        sourceId: row.source_id,
+        startedAt: row.started_at,
+        finishedAt: row.finished_at,
+        created: row.created,
+        updated: row.updated,
+        moved: row.moved,
+        deleted: row.deleted,
+        conflicts: row.conflicts,
+        status: row.status,
+      }));
+  }
+
+  commitDocumentationSync(commit: DocumentationStateCommit): void {
+    this.#database.transaction(() => {
+      this.#assertRuntimeOwner();
+      this.#database.run(
+        `INSERT INTO documentation_sources (workspace_id, source_id, connector_kind, target_base_path, storage_mode, status)
+         VALUES (?, ?, 'directory', ?, 'mirror', 'active')
+         ON CONFLICT(workspace_id, source_id) DO UPDATE SET
+           target_base_path = excluded.target_base_path, storage_mode = excluded.storage_mode, status = excluded.status`,
+        [commit.source.workspaceId, commit.source.id, commit.source.targetBasePath],
+      );
+      for (const record of commit.upserts) {
+        this.#database.run(
+          `INSERT INTO document_provenance
+            (workspace_id, source_id, source_path, target_path, source_checksum, target_checksum, last_synchronized_at, active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+           ON CONFLICT(workspace_id, source_id, source_path) DO UPDATE SET
+             target_path = excluded.target_path,
+             source_checksum = excluded.source_checksum,
+             target_checksum = excluded.target_checksum,
+             last_synchronized_at = excluded.last_synchronized_at,
+             active = 1`,
+          [
+            record.workspaceId,
+            record.sourceId,
+            record.sourcePath,
+            record.targetPath,
+            record.sourceChecksum,
+            record.targetChecksum,
+            record.lastSynchronizedAt,
+          ],
+        );
+      }
+      for (const tombstone of commit.deletions) {
+        this.#database.run(
+          `UPDATE document_provenance SET active = 0, last_synchronized_at = ?
+            WHERE workspace_id = ? AND source_id = ? AND target_path = ?`,
+          [tombstone.deletedAt, tombstone.workspaceId, tombstone.sourceId, tombstone.formerPath],
+        );
+        this.#database.run(
+          `INSERT INTO tombstones (resource_id, workspace_id, source_id, former_path, checksum, deleted_at, reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [
+            tombstone.resourceId,
+            tombstone.workspaceId,
+            tombstone.sourceId,
+            tombstone.formerPath,
+            tombstone.checksum,
+            tombstone.deletedAt,
+            tombstone.reason,
+          ],
+        );
+      }
+      const run = commit.run;
+      this.#database.run(
+        `INSERT INTO sync_runs
+          (sync_run_id, workspace_id, source_id, started_at, finished_at, created, updated, moved, deleted, conflicts, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          run.syncRunId,
+          run.workspaceId,
+          run.sourceId,
+          run.startedAt,
+          run.finishedAt,
+          run.created,
+          run.updated,
+          run.moved,
+          run.deleted,
+          run.conflicts,
+          run.status,
+        ],
+      );
+    }).immediate();
+  }
+
   close(): void {
     this.releaseRuntimeOwner();
     this.#database.close();
@@ -498,6 +691,56 @@ export class SqliteScopeMapStore implements ScopeMapStore {
           permissions_profile TEXT NOT NULL,
           PRIMARY KEY (workspace_id, revision, resource_id),
           FOREIGN KEY (workspace_id, revision) REFERENCES map_revisions(workspace_id, revision) ON DELETE CASCADE
+        )`);
+      }
+      if (currentVersion < 4) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS documentation_sources (
+          workspace_id TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          connector_kind TEXT NOT NULL,
+          target_base_path TEXT NOT NULL,
+          storage_mode TEXT NOT NULL CHECK(storage_mode IN ('mirror', 'managed')),
+          status TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, source_id)
+        )`);
+        this.#database.run(`CREATE TABLE IF NOT EXISTS document_provenance (
+          workspace_id TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          source_path TEXT NOT NULL,
+          target_path TEXT NOT NULL,
+          source_checksum TEXT NOT NULL,
+          target_checksum TEXT NOT NULL,
+          last_synchronized_at TEXT NOT NULL,
+          active INTEGER NOT NULL CHECK(active IN (0, 1)),
+          PRIMARY KEY (workspace_id, source_id, source_path),
+          FOREIGN KEY (workspace_id, source_id) REFERENCES documentation_sources(workspace_id, source_id)
+        )`);
+        this.#database.run(
+          "CREATE UNIQUE INDEX IF NOT EXISTS active_document_target ON document_provenance(workspace_id, target_path) WHERE active = 1",
+        );
+        this.#database.run(`CREATE TABLE IF NOT EXISTS sync_runs (
+          sync_run_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          finished_at TEXT NOT NULL,
+          created INTEGER NOT NULL,
+          updated INTEGER NOT NULL,
+          moved INTEGER NOT NULL,
+          deleted INTEGER NOT NULL,
+          conflicts INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          FOREIGN KEY (workspace_id, source_id) REFERENCES documentation_sources(workspace_id, source_id)
+        )`);
+        this.#database.run(`CREATE TABLE IF NOT EXISTS tombstones (
+          resource_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          former_path TEXT NOT NULL,
+          checksum TEXT NOT NULL,
+          deleted_at TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          FOREIGN KEY (workspace_id, source_id) REFERENCES documentation_sources(workspace_id, source_id)
         )`);
       }
       this.#database.run(

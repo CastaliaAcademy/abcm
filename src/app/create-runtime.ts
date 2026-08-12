@@ -2,6 +2,8 @@ import { createAbcmMcpHttpHandler } from "../mcp/create-http-handler.js";
 import { createAbcmMcpServer } from "../mcp/create-server.js";
 import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-store.js";
 import type { ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "../derived-store/types.js";
+import { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
+import type { DirectoryDocumentationSourceDefinition } from "../documentation/types.js";
 import { createAbcmRestHandler } from "../rest/create-rest-handler.js";
 import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
@@ -20,6 +22,7 @@ export interface AbcmRuntimeOptions {
   scopeMapStore?: ScopeMapStore;
   sqliteDerivedStoreEnabled?: boolean;
   sqliteDerivedStoreOptions?: SqliteWorkspaceMapStoreOptions;
+  documentationSources?: readonly DirectoryDocumentationSourceDefinition[];
 }
 
 export function createAbcmRuntime(
@@ -37,11 +40,26 @@ export function createAbcmRuntime(
     options.sqliteDerivedStoreEnabled === true
       ? new SqliteWorkspaceMapStore(registry, options.sqliteDerivedStoreOptions)
       : undefined;
+  if ((options.documentationSources?.length ?? 0) > 0 && ownedScopeMapStore === undefined) {
+    throw new Error("documentationSources require sqliteDerivedStoreEnabled=true.");
+  }
   const scopeMapStore = options.scopeMapStore ?? ownedScopeMapStore;
-  const scopeMap = new ScopeMapService(registry, scopeMapStore);
+  const documentationState = (options.documentationSources?.length ?? 0) > 0 ? ownedScopeMapStore : undefined;
+  const scopeMap = new ScopeMapService(registry, scopeMapStore, documentationState);
+  let documentation: DirectoryDocumentationSyncService | undefined;
   const files = new WorkspaceFileService(registry, {
     onMutation: async workspaceId => void (await scopeMap.scan(workspaceId)),
+    authorizeMutation: async (workspaceId, paths) => documentation?.authorizeMutation(workspaceId, paths),
   });
+  if (documentationState !== undefined && options.documentationSources !== undefined) {
+    documentation = new DirectoryDocumentationSyncService({
+      registry,
+      files,
+      scopeMap,
+      state: documentationState,
+      sources: options.documentationSources,
+    });
+  }
   const workspaceProvisioning =
     options.workspaceStoreRoot === undefined
       ? undefined
@@ -49,13 +67,14 @@ export function createAbcmRuntime(
   const baseRestHandler = createAbcmRestHandler({
     files,
     scopeMap,
+    ...(documentation === undefined ? {} : { documentation }),
     ...(workspaceProvisioning === undefined ? {} : { workspaces: workspaceProvisioning }),
   });
   const mcp =
     options.mcpHttpEnabled === false
       ? undefined
       : createAbcmMcpHttpHandler(
-          { files, scopeMap, defaultWorkspaceId: defaultWorkspace.id },
+          { files, scopeMap, defaultWorkspaceId: defaultWorkspace.id, ...(documentation === undefined ? {} : { documentation }) },
           {
             ...(options.mcpEndpointPath === undefined ? {} : { endpointPath: options.mcpEndpointPath }),
             ...(options.mcpAllowedHostnames === undefined ? {} : { allowedHostnames: options.mcpAllowedHostnames }),
@@ -77,11 +96,18 @@ export function createAbcmRuntime(
     files,
     scopeMap,
     workspaceProvisioning,
+    documentation,
     restHandler,
     mcpHandler,
     httpHandler: (request: Request) =>
       new URL(request.url).pathname === mcpEndpointPath ? mcpHandler(request) : restHandler(request),
-    createMcpServer: () => createAbcmMcpServer({ files, scopeMap, defaultWorkspaceId: defaultWorkspace.id }),
+    createMcpServer: () =>
+      createAbcmMcpServer({
+        files,
+        scopeMap,
+        defaultWorkspaceId: defaultWorkspace.id,
+        ...(documentation === undefined ? {} : { documentation }),
+      }),
     close: async () => {
       try {
         await mcp?.close();

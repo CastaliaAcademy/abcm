@@ -50,12 +50,12 @@ function revision(id: string): MapRevision {
 describe("SqliteScopeMapStore", () => {
   test("creates a versioned rollback-journal database and reopens idempotently", () => {
     const first = new SqliteScopeMapStore(databasePath, { ownerId: "owner-a", clock: () => now });
-    expect(first.schemaVersion()).toBe(3);
+    expect(first.schemaVersion()).toBe(4);
     expect(first.journalMode().toLowerCase()).toBe("delete");
     first.close();
 
     const second = new SqliteScopeMapStore(databasePath, { ownerId: "owner-b", clock: () => now });
-    expect(second.schemaVersion()).toBe(3);
+    expect(second.schemaVersion()).toBe(4);
     second.close();
 
     const database = new Database(databasePath, { readonly: true });
@@ -74,12 +74,16 @@ describe("SqliteScopeMapStore", () => {
         "map_files",
         "map_documents",
         "map_executable_resources",
+        "documentation_sources",
+        "document_provenance",
+        "sync_runs",
+        "tombstones",
       ]),
     );
     database.close();
   });
 
-  test("upgrades schema v1 to v3 transactionally", () => {
+  test("upgrades schema v1 to v4 transactionally", () => {
     const initial = new SqliteScopeMapStore(databasePath);
     const lease = initial.beginScan("workspace");
     initial.publish(lease, revision("sha256:before-upgrade"));
@@ -90,7 +94,7 @@ describe("SqliteScopeMapStore", () => {
     legacy.close();
 
     const upgraded = new SqliteScopeMapStore(databasePath);
-    expect(upgraded.schemaVersion()).toBe(3);
+    expect(upgraded.schemaVersion()).toBe(4);
     expect(upgraded.getActive("workspace")).toEqual(revision("sha256:before-upgrade"));
     upgraded.close();
     const check = new Database(databasePath, { readonly: true });
@@ -100,7 +104,7 @@ describe("SqliteScopeMapStore", () => {
     check.close();
   });
 
-  test("upgrades schema v2 to v3 without replacing the active revision", () => {
+  test("upgrades schema v2 to v4 without replacing the active revision", () => {
     const initial = new SqliteScopeMapStore(databasePath);
     const lease = initial.beginScan("workspace");
     initial.publish(lease, revision("sha256:before-v3"));
@@ -113,8 +117,28 @@ describe("SqliteScopeMapStore", () => {
     legacy.close();
 
     const upgraded = new SqliteScopeMapStore(databasePath);
-    expect(upgraded.schemaVersion()).toBe(3);
+    expect(upgraded.schemaVersion()).toBe(4);
     expect(upgraded.getActive("workspace")).toEqual(revision("sha256:before-v3"));
+    upgraded.close();
+  });
+
+  test("upgrades schema v3 to v4 without replacing the active revision", () => {
+    const initial = new SqliteScopeMapStore(databasePath);
+    const lease = initial.beginScan("workspace");
+    initial.publish(lease, revision("sha256:before-v4"));
+    initial.close();
+    const legacy = new Database(databasePath);
+    legacy.run("DROP TABLE tombstones");
+    legacy.run("DROP TABLE sync_runs");
+    legacy.run("DROP INDEX active_document_target");
+    legacy.run("DROP TABLE document_provenance");
+    legacy.run("DROP TABLE documentation_sources");
+    legacy.run("UPDATE schema_metadata SET value = '3' WHERE key = 'schema_version'");
+    legacy.close();
+
+    const upgraded = new SqliteScopeMapStore(databasePath);
+    expect(upgraded.schemaVersion()).toBe(4);
+    expect(upgraded.getActive("workspace")).toEqual(revision("sha256:before-v4"));
     upgraded.close();
   });
 

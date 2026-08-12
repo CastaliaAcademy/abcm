@@ -173,8 +173,10 @@ REST handlers ----------/          |                    |
 - PLAN-0005 добавил schema v2, exclusive runtime owner lease, heartbeat, graceful release и crash-expiry recovery.
 - PLAN-0006 добавил heartbeat отдельной scan lease, stale-publication guard и эксплуатационные TTL/renewal настройки.
 - PLAN-0007 добавил MAP-P4 FileRecord/DocumentRecord/ExecutableResourceRecord indexes и их атомарную публикацию в SQLite schema v3 без хранения тел документов и ordinary source paths.
-- M2 остаётся незавершённым до репозиториев provenance/sync/tombstone/context state и нормализованных relations/diagnostics.
+- PLAN-0008 добавил первый вертикальный срез M10: one-way directory/Obsidian mirror, preview/apply/sync, schema v4 provenance/sync/tombstone state, read-only mirror protection и REST/MCP parity.
+- M2 остаётся незавершённым до context state и нормализованных relations/diagnostics.
 - M3 остаётся незавершённым до полного MAP-P0..P6 indexing/reconcile pipeline и periodic full reconcile.
+- M10 остаётся незавершённым до mapping rules, identity-preserving moves, managed cutover и fault-injection recovery между filesystem и metadata phases.
 
 ## 5. Риски и открытые решения до M1
 

@@ -1,0 +1,20 @@
+apiVersion: abcm.dev/traceability/v1alpha1
+kind: RequirementTraceability
+milestone: 0.2.0-alpha.6
+status: verified
+entries:
+  - requirements: [DDS-001, DDS-002, DDS-003, DDS-009, SYNC-005]
+    tests: [test/documentation-config.test.ts, test/documentation-sync.test.ts]
+    status: verified
+  - requirements: [DDS-004, SYNC-001, SYNC-002, SYNC-003]
+    tests: [test/documentation-sync.test.ts, runtime-mounted-folder-smoke]
+    status: verified
+  - requirements: [DDS-005, DDS-007, SYNC-004]
+    tests: [test/documentation-sync.test.ts, test/sqlite-scope-map-store.test.ts]
+    status: verified
+  - requirements: [DDS-006]
+    tests: [test/documentation-sync-rest.test.ts, test/documentation-sync-mcp.test.ts]
+    status: verified
+  - requirements: [DDS-008]
+    tests: [test/documentation-sync-rest.test.ts, test/documentation-sync-mcp.test.ts]
+    status: verified

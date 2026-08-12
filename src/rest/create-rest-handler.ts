@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 
 import { AbcmError } from "../core/errors.js";
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
+import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
 
@@ -9,6 +10,7 @@ export interface AbcmRestDependencies {
   files: WorkspaceFileService;
   scopeMap: ScopeMapService;
   workspaces?: WorkspaceRegistrationService;
+  documentation?: DirectoryDocumentationSyncService;
 }
 
 export interface WorkspaceRegistrationService {
@@ -26,6 +28,7 @@ const moveSchema = z.object({
   ifMatch: z.string().optional(),
 });
 const directorySchema = z.object({ path: z.string() });
+const documentationPreviewSchema = z.object({ sourceId: z.string().min(1) }).strict();
 const workspaceSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
@@ -139,10 +142,34 @@ export function createAbcmRestHandler(
         );
       }
 
+      const documentationApply = /^\/v1\/documentation-imports\/([^/]+)\/apply$/.exec(url.pathname);
+      if (request.method === "POST" && documentationApply !== null) {
+        if (dependencies.documentation === undefined) {
+          throw new AbcmError("DOCUMENTATION_SYNC_DISABLED", "Documentation synchronization is not configured.");
+        }
+        return json(await dependencies.documentation.apply(decodeURIComponent(documentationApply[1] ?? "")));
+      }
+
+      const documentationSync = /^\/v1\/documentation-sources\/([^/]+)\/sync$/.exec(url.pathname);
+      if (request.method === "POST" && documentationSync !== null) {
+        if (dependencies.documentation === undefined) {
+          throw new AbcmError("DOCUMENTATION_SYNC_DISABLED", "Documentation synchronization is not configured.");
+        }
+        return json(await dependencies.documentation.sync(decodeURIComponent(documentationSync[1] ?? "")));
+      }
+
       const match = /^\/v1\/workspaces\/([^/]+)(\/.*)$/.exec(url.pathname);
       if (!match) return problem(new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found."));
       const workspaceId = decodeURIComponent(match[1] ?? "");
       const endpoint = match[2];
+
+      if (endpoint === "/documentation-sources/preview" && request.method === "POST") {
+        if (dependencies.documentation === undefined) {
+          throw new AbcmError("DOCUMENTATION_SYNC_DISABLED", "Documentation synchronization is not configured.");
+        }
+        const body = await readJson(request, documentationPreviewSchema, maxRequestBodyBytes);
+        return json(await dependencies.documentation.preview(workspaceId, body.sourceId));
+      }
 
       if (endpoint === "/files" && request.method === "GET") {
         const recursiveValue = url.searchParams.get("recursive") ?? "false";

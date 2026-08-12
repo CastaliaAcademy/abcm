@@ -20,6 +20,8 @@ docker compose \
   up -d --build
 ```
 
+To attach an already mounted Obsidian vault as a read-only source, add `-f app/deploy/compose.obsidian.yaml` and the documentation variables described in the [Obsidian integration guide](../integrations/obsidian.md). The managed target workspace must exist before the source-enabled runtime starts.
+
 The production profile exposes `127.0.0.1:8787` only. Connect from an operator workstation with an SSH tunnel rather than publishing the static-token alpha API directly:
 
 ```bash

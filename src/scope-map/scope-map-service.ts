@@ -7,6 +7,7 @@ import { parse } from "yaml";
 
 import { AbcmError } from "../core/errors.js";
 import type { ScopeMapStore } from "../derived-store/types.js";
+import type { DocumentationStateStore } from "../documentation/types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
 import { indexScopeContent, resolveDocumentCandidates } from "./content-indexer.js";
@@ -71,11 +72,13 @@ function normalizedDigest(
 export class ScopeMapService {
   readonly #registry: WorkspaceRegistry;
   readonly #store: ScopeMapStore | undefined;
+  readonly #documentationState: DocumentationStateStore | undefined;
   readonly #active = new Map<string, MapRevision>();
 
-  constructor(registry: WorkspaceRegistry, store?: ScopeMapStore) {
+  constructor(registry: WorkspaceRegistry, store?: ScopeMapStore, documentationState?: DocumentationStateStore) {
     this.#registry = registry;
     this.#store = store;
+    this.#documentationState = documentationState;
   }
 
   async scan(workspaceId: string): Promise<MapRevision> {
@@ -201,6 +204,20 @@ export class ScopeMapService {
       files.push(...index.files);
       documentCandidates.push(...index.documentCandidates);
       executableResources.push(...index.executableResources);
+    }
+    if (this.#documentationState !== undefined) {
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index];
+        if (file === undefined) continue;
+        const storage = this.#documentationState.resolveDocumentStorage(workspaceId, file.relativePath);
+        files[index] = { ...file, ...storage };
+      }
+      for (let index = 0; index < documentCandidates.length; index++) {
+        const document = documentCandidates[index];
+        if (document === undefined) continue;
+        const storage = this.#documentationState.resolveDocumentStorage(workspaceId, document.relativePath);
+        documentCandidates[index] = { ...document, ...storage };
+      }
     }
     files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));

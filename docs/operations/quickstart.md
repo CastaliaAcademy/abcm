@@ -26,4 +26,6 @@ curl -H "Authorization: Bearer $ABCM_API_TOKEN" \
 
 For remote MCP, configure a Streamable HTTP client with URL `http://127.0.0.1:8787/mcp` and the same Bearer token. See [the HTTP MCP API](../api/mcp-http-api.md).
 
+To mirror an Obsidian vault or another mounted documentation directory, enable SQLite and set `ABCM_DOCUMENTATION_SOURCES` to a JSON array of deployment-approved source roots. See the [Obsidian integration guide](../integrations/obsidian.md). Requests name only a configured source id and cannot submit a filesystem root.
+
 For MCP stdio, configure the client command as `bun run src/cli/mcp-stdio.ts` with `ABCM_WORKSPACE_ID`, `ABCM_WORKSPACE_ROOT`, and the same optional `ABCM_WORKSPACE_STORE_ROOT`. MCP transport authentication is delegated to the embedding client/host and does not use `ABCM_API_TOKEN`.
