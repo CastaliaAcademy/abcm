@@ -182,7 +182,7 @@ REST handlers ----------/          |                    |
 - PLAN-0014 завершил M5: canonical intent errors, access-bounded candidate universe, deterministic scoring tiers, workflow-project-service-feature merge и один bounded local re-resolution pass.
 - PLAN-0015 завершил M6: compact SkillDescriptor index, пять connection strategies, local precedence, legacy diagnostics, additive context requirements и post-selection SKILL.md materialization.
 - PLAN-0016 завершил исполняемый M7 alpha-срез: единый `buildTaskContext`, mandatory-first access/budget, deterministic projections/digest, REST/MCP parity и атомарный body-free fingerprint в reserved derived tree.
-- M2 остаётся незавершённым до SQLite-каталога bundles/fingerprints; relations и diagnostics нормализованы PLAN-0010.
+- M2 закрыт PLAN-0025 после schema v7 body-free SQLite-каталога bundles/fingerprints; relations и diagnostics нормализованы PLAN-0010.
 - PLAN-0017 закрыл первую половину M8: стабильный permission-filtered MCP resource catalog, scoped maps, addressable indexed documents/skills, revision-bound pagination, checksum-safe reads, cancellation/timeout boundary и legacy/dual-protocol client tests.
 - PLAN-0018 добавил вторую часть M8: единый экспортируемый registry строгих input/output schemas для всех 12 tools, versioned capability metadata и стабильное expected/internal error mapping с real-client operation matrix.
 - PLAN-0019 завершил M8: client cancellation и deployment deadline проходят до application commit boundaries; pre-commit abort не мутирует canonical/derived state, а многофайловый documentation commit после старта завершается non-preemptibly.
@@ -193,6 +193,7 @@ REST handlers ----------/          |                    |
 - PLAN-0023 завершает M10: operator-approved checksum-pinned final sync, SQLite v6 atomic mirror→managed cutover, managed MapRevision и durable body-free recovery journals между filesystem/metadata/publication phases.
 - M3-M10 закрыты; Obsidian готов для mounted folder и private REST plugin, включая irreversible managed cutover.
 - PLAN-0024 начинает M11: fixed body-free audit/metrics port, critical-operation instrumentation, safe YAML parsing, pre-allocation indexing limit и threat model.
+- PLAN-0025 закрывает оставшийся M2 gap и release-packaging часть M11: schema v7 context catalog, benchmark harness, frozen package gate, CycloneDX SBOM, provenance, release notes и runnable examples.
 
 ## 5. Риски и открытые решения до M1
 

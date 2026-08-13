@@ -14,11 +14,14 @@ export type {
 export { buildTaskContextSchema, normalizeBuildTaskContextInput } from "./context/schema.js";
 export type {
   BuildTaskContextRequest,
+  ContextBundleCatalogRecord,
   ContextBudgetProfile,
   ContextBuilderOptions,
   ContextBundle,
   ContextExecutionBinding,
   ContextFingerprint,
+  ContextFingerprintCatalog,
+  ContextFingerprintCatalogRecord,
   ContextFingerprintDocument,
   ContextFingerprintStore,
   ContextOmission,

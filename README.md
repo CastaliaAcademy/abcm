@@ -4,7 +4,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 
 ## Status
 
-`0.1.0-alpha.1` is the first working migration target. It provides:
+`0.1.0` is the first public release candidate. It provides:
 
 - bounded workflow and scope-map discovery;
 - safe, atomic workspace file list/read/write/delete/move/directory operations;
@@ -26,7 +26,7 @@ The normative baseline is specification 0.5.0 plus the extensions in [docs/spec/
 
 ## Requirements
 
-- Bun 1.3.14 or newer
+- Bun 1.3.14 or newer (the reference SQLite runtime does not claim Node.js support)
 
 ## Verify
 
@@ -63,6 +63,8 @@ ABCM_WORKSPACE_STORE_ROOT="$PWD/.local-workspaces" ABCM_WORKSPACE_ID=self ABCM_W
 
 See the [MCP API](docs/api/mcp-api.md).
 
+Release consumers can also inspect the [0.1.0 changelog](CHANGELOG.md), [package provenance](docs/release/provenance.md), [CycloneDX SBOM](docs/release/sbom.cdx.json), [large-fixture benchmark](docs/performance/benchmark-v0.1.md), and [runnable examples](examples/README.md).
+
 ## Library entrypoint
 
 ```ts
@@ -78,7 +80,7 @@ Directory sources require SQLite persistence and are configured only by the depl
 
 ## Alpha boundaries
 
-Scope-map revisions and MAP-P4 metadata indexes can be persisted in rebuildable SQLite when explicitly enabled. DomainLanguageBootstrap is currently in-memory and deployment-principal-bound; ContextBundle fingerprints are atomically persisted as derived metadata under `.abcm` but are not yet catalogued in SQLite. External identity providers, durable audit storage, executable-resource activation, and automatic documentation watchers remain later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
+Scope-map revisions, MAP-P4 metadata indexes, and body-free ContextBundle/ContextFingerprint catalog records can be persisted in rebuildable SQLite when explicitly enabled. DomainLanguageBootstrap is currently in-memory and deployment-principal-bound. External identity providers, durable audit storage, executable-resource activation, and automatic documentation watchers remain later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
 
 ## License
 

@@ -5,7 +5,7 @@ import { dirname, join, posix } from "node:path";
 import { stringify } from "yaml";
 
 import { AbcmError } from "../core/errors.js";
-import type { ContextExecutionBinding, ContextFingerprint, ContextFingerprintStore } from "./types.js";
+import type { ContextExecutionBinding, ContextFingerprint, ContextFingerprintCatalog, ContextFingerprintStore } from "./types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
 
 function safeSegment(value: string, field: string): string {
@@ -34,9 +34,11 @@ async function ensureOwnedDirectory(root: string, relative: string): Promise<str
 
 export class DirectoryContextFingerprintStore implements ContextFingerprintStore {
   readonly #registry: WorkspaceRegistry;
+  readonly #catalog: ContextFingerprintCatalog | undefined;
 
-  constructor(registry: WorkspaceRegistry) {
+  constructor(registry: WorkspaceRegistry, catalog?: ContextFingerprintCatalog) {
     this.#registry = registry;
+    this.#catalog = catalog;
   }
 
   async write(workspaceId: string, execution: ContextExecutionBinding | undefined, fingerprint: ContextFingerprint): Promise<string> {
@@ -72,6 +74,7 @@ export class DirectoryContextFingerprintStore implements ContextFingerprintStore
       await rm(temporary, { recursive: true, force: true });
       if (existing !== json) throw new Error(`Context fingerprint location '${relative}' is immutable.`);
     }
+    this.#catalog?.recordContextFingerprint(workspaceId, relative, fingerprint);
     return relative;
   }
 }

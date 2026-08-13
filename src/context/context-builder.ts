@@ -270,7 +270,7 @@ export class ContextBuilder {
     };
     const bundleDigest = digest(digestInput);
     const contextBundleId = `context-${bundleDigest.slice("sha256:".length, "sha256:".length + 24)}`;
-    const fingerprintIdentityDigest = digest({ bundleDigest, principalId: principal.principalId });
+    const fingerprintIdentityDigest = digest({ bundleDigest, principalId: principal.principalId, execution: request.execution });
     const fingerprintId = `fingerprint-${fingerprintIdentityDigest.slice("sha256:".length, "sha256:".length + 24)}`;
     const fingerprintDocuments: ContextFingerprintDocument[] = selected.map(item => ({
       documentId: item.documentId, scopeId: item.scopeId, relativePath: item.relativePath, checksum: item.checksum,
@@ -282,6 +282,7 @@ export class ContextBuilder {
       fingerprintId,
       workspaceId: bootstrap.anchor.workspaceId,
       principalId: principal.principalId,
+      ...(request.execution === undefined ? {} : { execution: request.execution }),
       mapRevision: revision.revision,
       mapDigest: revision.digest,
       domainLanguageBootstrapId: bootstrap.bootstrapId,

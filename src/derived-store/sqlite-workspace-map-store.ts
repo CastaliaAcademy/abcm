@@ -1,6 +1,12 @@
 import { join } from "node:path";
 
 import type {
+  ContextBundleCatalogRecord,
+  ContextFingerprint,
+  ContextFingerprintCatalog,
+  ContextFingerprintCatalogRecord,
+} from "../context/types.js";
+import type {
   DocumentationStateCommit,
   DocumentationStateStore,
   DocumentationCutoverRecord,
@@ -15,7 +21,7 @@ import type { WorkspaceRegistry } from "../workspace/registry.js";
 import { SqliteScopeMapStore } from "./sqlite-scope-map-store.js";
 import type { ScanLeaseHandle, ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "./types.js";
 
-export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStateStore {
+export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStateStore, ContextFingerprintCatalog {
   readonly scanLeaseRenewalIntervalMs: number;
   readonly #registry: WorkspaceRegistry;
   readonly #options: SqliteWorkspaceMapStoreOptions;
@@ -74,6 +80,21 @@ export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStat
   getActive(workspaceId: string): MapRevision | undefined {
     this.#assertHealthy();
     return this.#store(workspaceId).getActive(workspaceId);
+  }
+
+  recordContextFingerprint(workspaceId: string, location: string, fingerprint: ContextFingerprint): void {
+    this.#assertHealthy();
+    this.#store(workspaceId).recordContextFingerprint(workspaceId, location, fingerprint);
+  }
+
+  getContextFingerprint(workspaceId: string, fingerprintId: string): ContextFingerprintCatalogRecord | undefined {
+    this.#assertHealthy();
+    return this.#store(workspaceId).getContextFingerprint(workspaceId, fingerprintId);
+  }
+
+  listContextBundles(workspaceId: string): ContextBundleCatalogRecord[] {
+    this.#assertHealthy();
+    return this.#store(workspaceId).listContextBundles(workspaceId);
   }
 
   resolveDocumentStorage(workspaceId: string, targetPath: string): DocumentStorageResolution {

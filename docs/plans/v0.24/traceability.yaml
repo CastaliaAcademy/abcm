@@ -1,0 +1,13 @@
+plan: PLAN-0025
+requirements:
+  CAT-001:
+    tests: [test/context-fingerprint-catalog.test.ts, test/sqlite-scope-map-store.test.ts]
+  CAT-002:
+    tests: [test/context-fingerprint-catalog.test.ts]
+  CAT-003:
+    tests: [test/context-fingerprint-catalog.test.ts]
+  CAT-004:
+    tests: [test/context-fingerprint-catalog.test.ts]
+acceptance:
+  AC-CONTEXT-CATALOG:
+    tests: [test/context-fingerprint-catalog.test.ts]

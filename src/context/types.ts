@@ -90,6 +90,7 @@ export interface ContextFingerprint {
   fingerprintId: string;
   workspaceId: string;
   principalId: string;
+  execution?: ContextExecutionBinding;
   mapRevision: string;
   mapDigest: string;
   domainLanguageBootstrapId: string;
@@ -145,6 +146,33 @@ export interface ContextFingerprintStore {
     execution: ContextExecutionBinding | undefined,
     fingerprint: ContextFingerprint,
   ): Promise<string>;
+}
+
+export interface ContextBundleCatalogRecord {
+  workspaceId: string;
+  bundleDigest: string;
+  mapRevision: string;
+  mapDigest: string;
+  budgetProfile: string;
+  softLimitTokens: number;
+  hardLimitTokens: number;
+  tokenEstimate: number;
+  selectedDocumentCount: number;
+}
+
+export interface ContextFingerprintCatalogRecord {
+  workspaceId: string;
+  fingerprintId: string;
+  bundleDigest: string;
+  principalId: string;
+  location: string;
+  fingerprint: ContextFingerprint;
+}
+
+export interface ContextFingerprintCatalog {
+  recordContextFingerprint(workspaceId: string, location: string, fingerprint: ContextFingerprint): void;
+  getContextFingerprint(workspaceId: string, fingerprintId: string): ContextFingerprintCatalogRecord | undefined;
+  listContextBundles(workspaceId: string): ContextBundleCatalogRecord[];
 }
 
 export interface ContextBuilderOptions {

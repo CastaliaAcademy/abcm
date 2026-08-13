@@ -6,6 +6,12 @@ import { Database } from "bun:sqlite";
 
 import { AbcmError } from "../core/errors.js";
 import type {
+  ContextBundleCatalogRecord,
+  ContextFingerprint,
+  ContextFingerprintCatalog,
+  ContextFingerprintCatalogRecord,
+} from "../context/types.js";
+import type {
   DocumentationStateCommit,
   DocumentationCutoverRecord,
   DocumentationSourceState,
@@ -17,7 +23,7 @@ import type {
 import type { MapRevision } from "../scope-map/types.js";
 import type { RuntimeOwnerHandle, ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./types.js";
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 interface LeaseRow {
   owner_id: string;
@@ -35,7 +41,7 @@ interface RuntimeOwnerRow {
   fencing_token: number;
 }
 
-export class SqliteScopeMapStore implements ScopeMapStore {
+export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCatalog {
   readonly scanLeaseRenewalIntervalMs: number;
   readonly #database: Database;
   readonly #ownerId: string;
@@ -98,6 +104,83 @@ export class SqliteScopeMapStore implements ScopeMapStore {
     const row = this.#database.query<{ journal_mode: string }, []>("PRAGMA journal_mode").get();
     if (row === null) throw new AbcmError("DERIVED_STORE_CORRUPT", "SQLite journal mode is unavailable.");
     return row.journal_mode;
+  }
+
+  recordContextFingerprint(workspaceId: string, location: string, fingerprint: ContextFingerprint): void {
+    if (fingerprint.workspaceId !== workspaceId) {
+      throw new AbcmError("REQUEST_INVALID", "Context fingerprint workspace does not match the catalog workspace.");
+    }
+    const bundle: ContextBundleCatalogRecord = {
+      workspaceId,
+      bundleDigest: fingerprint.bundleDigest,
+      mapRevision: fingerprint.mapRevision,
+      mapDigest: fingerprint.mapDigest,
+      budgetProfile: fingerprint.budgetProfile,
+      softLimitTokens: fingerprint.budget.softLimitTokens,
+      hardLimitTokens: fingerprint.budget.hardLimitTokens,
+      tokenEstimate: fingerprint.tokenEstimate,
+      selectedDocumentCount: fingerprint.selectedDocuments.length,
+    };
+    const record: ContextFingerprintCatalogRecord = {
+      workspaceId,
+      fingerprintId: fingerprint.fingerprintId,
+      bundleDigest: fingerprint.bundleDigest,
+      principalId: fingerprint.principalId,
+      location,
+      fingerprint,
+    };
+    const bundleJson = JSON.stringify(bundle);
+    const fingerprintJson = JSON.stringify(record);
+    this.#database.transaction(() => {
+      this.#assertRuntimeOwner(this.#clock());
+      const existingBundle = this.#database
+        .query<{ bundle_json: string }, [string, string]>("SELECT bundle_json FROM context_bundles WHERE workspace_id = ? AND bundle_digest = ?")
+        .get(workspaceId, fingerprint.bundleDigest);
+      if (existingBundle !== null && existingBundle.bundle_json !== bundleJson) {
+        throw new AbcmError("CONTEXT_FINGERPRINT_CONFLICT", "Context bundle digest is already catalogued with different metadata.");
+      }
+      this.#database.run(
+        "INSERT OR IGNORE INTO context_bundles (workspace_id, bundle_digest, bundle_json) VALUES (?, ?, ?)",
+        [workspaceId, fingerprint.bundleDigest, bundleJson],
+      );
+      const existingFingerprint = this.#database
+        .query<{ fingerprint_json: string }, [string, string]>("SELECT fingerprint_json FROM context_fingerprints WHERE workspace_id = ? AND fingerprint_id = ?")
+        .get(workspaceId, fingerprint.fingerprintId);
+      if (existingFingerprint !== null && existingFingerprint.fingerprint_json !== fingerprintJson) {
+        throw new AbcmError("CONTEXT_FINGERPRINT_CONFLICT", "Context fingerprint id is already catalogued with different metadata or location.");
+      }
+      this.#database.run(
+        `INSERT OR IGNORE INTO context_fingerprints
+          (workspace_id, fingerprint_id, bundle_digest, fingerprint_json)
+         VALUES (?, ?, ?, ?)`,
+        [workspaceId, fingerprint.fingerprintId, fingerprint.bundleDigest, fingerprintJson],
+      );
+    }).immediate();
+  }
+
+  getContextFingerprint(workspaceId: string, fingerprintId: string): ContextFingerprintCatalogRecord | undefined {
+    this.#assertRuntimeOwner(this.#clock());
+    const row = this.#database
+      .query<{ fingerprint_json: string }, [string, string]>("SELECT fingerprint_json FROM context_fingerprints WHERE workspace_id = ? AND fingerprint_id = ?")
+      .get(workspaceId, fingerprintId);
+    if (row === null) return undefined;
+    try {
+      return JSON.parse(row.fingerprint_json) as ContextFingerprintCatalogRecord;
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Context fingerprint catalog payload is invalid.");
+    }
+  }
+
+  listContextBundles(workspaceId: string): ContextBundleCatalogRecord[] {
+    this.#assertRuntimeOwner(this.#clock());
+    const rows = this.#database
+      .query<{ bundle_json: string }, [string]>("SELECT bundle_json FROM context_bundles WHERE workspace_id = ? ORDER BY bundle_digest")
+      .all(workspaceId);
+    try {
+      return rows.map(row => JSON.parse(row.bundle_json) as ContextBundleCatalogRecord);
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Context bundle catalog payload is invalid.");
+    }
   }
 
   beginScan(workspaceId: string): ScanLeaseHandle {
@@ -947,6 +1030,22 @@ export class SqliteScopeMapStore implements ScopeMapStore {
           status TEXT NOT NULL CHECK(status IN ('committed', 'completed')),
           map_revision TEXT,
           FOREIGN KEY (workspace_id, source_id) REFERENCES documentation_sources(workspace_id, source_id)
+        )`);
+      }
+      if (currentVersion < 7) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS context_bundles (
+          workspace_id TEXT NOT NULL,
+          bundle_digest TEXT NOT NULL,
+          bundle_json TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, bundle_digest)
+        )`);
+        this.#database.run(`CREATE TABLE IF NOT EXISTS context_fingerprints (
+          workspace_id TEXT NOT NULL,
+          fingerprint_id TEXT NOT NULL,
+          bundle_digest TEXT NOT NULL,
+          fingerprint_json TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, fingerprint_id),
+          FOREIGN KEY (workspace_id, bundle_digest) REFERENCES context_bundles(workspace_id, bundle_digest)
         )`);
       }
       this.#database.run(

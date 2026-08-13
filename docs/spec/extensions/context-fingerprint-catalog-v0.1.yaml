@@ -1,0 +1,27 @@
+apiVersion: abcm.dev/v1alpha1
+kind: RequirementExtension
+metadata:
+  id: context-fingerprint-catalog-v0.1
+  version: 0.1.0
+  status: draft
+requirements:
+  - id: CAT-001
+    level: MUST
+    statement: Every successfully persisted ContextFingerprint MUST be idempotently catalogued in rebuildable SQLite when the derived store is enabled.
+  - id: CAT-002
+    level: MUST_NOT
+    statement: Context bundle and fingerprint catalog rows MUST NOT contain selected document bodies.
+  - id: CAT-003
+    level: MUST
+    statement: A catalog entry MUST pin workspace, fingerprint id, execution binding when present, bundle digest, map revision/digest, principal, budget, token count, selected count, and immutable fingerprint location.
+  - id: CAT-004
+    level: MUST
+    statement: Retrying an identical fingerprint write MUST converge, while conflicting payload or location reuse MUST fail closed.
+acceptanceScenarios:
+  - id: AC-CONTEXT-CATALOG
+    given: SQLite persistence is enabled and buildTaskContext succeeds
+    when: the fingerprint files are materialized
+    then:
+      - one bundle and one fingerprint catalog row exist
+      - retrying the same build does not duplicate rows
+      - neither row contains selected body bytes

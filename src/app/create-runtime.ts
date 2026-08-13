@@ -3,7 +3,7 @@ import { createAbcmMcpServer } from "../mcp/create-server.js";
 import { ContextBuilder } from "../context/context-builder.js";
 import type { AbcmObservability } from "../core/observability.js";
 import { DirectoryContextFingerprintStore } from "../context/directory-context-fingerprint-store.js";
-import type { ContextBuilderOptions } from "../context/types.js";
+import type { ContextBuilderOptions, ContextFingerprintCatalog } from "../context/types.js";
 import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-store.js";
 import type { ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "../derived-store/types.js";
 import { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
@@ -42,6 +42,7 @@ export interface AbcmRuntimeOptions {
   domainLanguage?: DomainLanguageServiceOptions;
   context?: ContextBuilderOptions;
   observability?: AbcmObservability;
+  contextFingerprintCatalog?: ContextFingerprintCatalog;
 }
 
 export function createAbcmRuntime(
@@ -77,7 +78,8 @@ export function createAbcmRuntime(
     authorizeMutation: async (workspaceId, paths) => documentation?.authorizeMutation(workspaceId, paths),
     ...(options.observability === undefined ? {} : { observability: options.observability }),
   });
-  const contextFingerprintStore = new DirectoryContextFingerprintStore(registry);
+  const contextFingerprintCatalog = options.contextFingerprintCatalog ?? ownedScopeMapStore;
+  const contextFingerprintStore = new DirectoryContextFingerprintStore(registry, contextFingerprintCatalog);
   const contextBuilder = new ContextBuilder({
     files,
     scopeMap,
@@ -155,6 +157,7 @@ export function createAbcmRuntime(
     skillConnectionResolver,
     contextBuilder,
     contextFingerprintStore,
+    contextFingerprintCatalog,
     scopeMapReconciler,
     workspaceProvisioning,
     documentation,
