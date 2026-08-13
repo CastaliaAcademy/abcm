@@ -1,5 +1,5 @@
 import { access, readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { parseSafeYaml } from "../src/core/safe-yaml.js";
 
@@ -37,9 +37,21 @@ async function assertTests(groups: readonly Group[]): Promise<void> {
   }
 }
 
-export async function validateReleaseTraceability(manifestPath = "docs/release/traceability-v0.1.0.yaml") {
+function documentationPath(root: string, path: string): string {
+  if (isAbsolute(path)) throw new Error(`Documentation reference '${path}' must be relative.`);
+  const target = resolve(root, path);
+  const targetRelative = relative(root, target);
+  if (targetRelative === ".." || targetRelative.startsWith(`..${sep}`) || isAbsolute(targetRelative)) {
+    throw new Error(`Documentation reference '${path}' escapes the export root.`);
+  }
+  return target;
+}
+
+export async function validateReleaseTraceability(documentationRoot = ".") {
+  const root = resolve(documentationRoot);
+  const manifestPath = join(root, "docs/release/traceability-v0.1.0.yaml");
   const manifest = parseSafeYaml(await readFile(manifestPath, "utf8")) as Manifest;
-  const baseline = parseSafeYaml(await readFile(manifest.baseline.specification, "utf8")) as Specification;
+  const baseline = parseSafeYaml(await readFile(documentationPath(root, manifest.baseline.specification), "utf8")) as Specification;
   const requirements = baseline.requirements ?? [];
   const acceptance = baseline.acceptanceScenarios ?? [];
   const mandatory = requirements.filter(item => item.level === "MUST" || item.level === "MUST_NOT");
@@ -50,11 +62,12 @@ export async function validateReleaseTraceability(manifestPath = "docs/release/t
   assertExact("baseline requirements", requirements.map(item => item.id), manifest.baseline.requirements);
   assertExact("baseline acceptance", acceptance.map(item => item.id), manifest.baseline.acceptance);
 
-  const extensionFiles = (await readdir(manifest.extensions.directory)).filter(path => path.endsWith(".yaml")).sort();
+  const extensionDirectory = documentationPath(root, manifest.extensions.directory);
+  const extensionFiles = (await readdir(extensionDirectory)).filter(path => path.endsWith(".yaml")).sort();
   const extensionRequirements: string[] = [];
   const extensionAcceptance: string[] = [];
   for (const file of extensionFiles) {
-    const specification = parseSafeYaml(await readFile(join(manifest.extensions.directory, file), "utf8")) as Specification;
+    const specification = parseSafeYaml(await readFile(join(extensionDirectory, file), "utf8")) as Specification;
     extensionRequirements.push(...items(specification.requirements).map(item => item.id));
     extensionAcceptance.push(...items(specification.acceptanceScenarios).map(item => item.id));
     extensionAcceptance.push(...items(specification.acceptance).map(item => item.id));
@@ -79,4 +92,4 @@ export async function validateReleaseTraceability(manifestPath = "docs/release/t
   };
 }
 
-if (import.meta.main) console.log(JSON.stringify(await validateReleaseTraceability()));
+if (import.meta.main) console.log(JSON.stringify(await validateReleaseTraceability(process.argv[2] ?? ".")));

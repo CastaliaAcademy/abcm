@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 import { parseSafeYaml } from "../src/core/safe-yaml.js";
 
@@ -66,6 +67,7 @@ const bom = {
   components,
   dependencies: [{ ref: applicationRef, dependsOn: components.map(component => component["bom-ref"]).sort() }, ...dependencies],
 };
-await mkdir("docs/release", { recursive: true });
-await writeFile("docs/release/sbom.cdx.json", `${JSON.stringify(bom, null, 2)}\n`);
-console.log(JSON.stringify({ output: "docs/release/sbom.cdx.json", components: components.length + 1 }));
+const output = resolve(process.argv[2] ?? ".abcm-generated/sbom.cdx.json");
+await mkdir(dirname(output), { recursive: true });
+await writeFile(output, `${JSON.stringify(bom, null, 2)}\n`);
+console.log(JSON.stringify({ output, components: components.length + 1 }));

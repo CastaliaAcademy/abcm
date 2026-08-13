@@ -26,12 +26,10 @@ services:
       ABCM_MCP_ALLOWED_ORIGINS: ${ABCM_MCP_ALLOWED_ORIGINS:-localhost,127.0.0.1,[::1]}
     volumes:
       - type: bind
-        source: ${ABCM_WORKSPACE_PATH:?required}
-        target: /workspace
-        read_only: true
-      - type: volume
-        source: managed-workspaces
+        source: ${ABCM_MANAGED_WORKSPACES_PATH:?required}
         target: /workspaces
+        bind:
+          create_host_path: false
     init: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
@@ -48,7 +46,3 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
-
-volumes:
-  managed-workspaces:
-    name: abcm-managed-workspaces

@@ -1,4 +1,0 @@
-interface:
-  display_name: "ABCM Project Migration"
-  short_description: "Plan and verify project migration"
-  default_prompt: "Use $migrate-project-to-abcm to preview and execute a safe project migration into an ABCM workspace."

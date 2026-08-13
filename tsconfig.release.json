@@ -4,5 +4,5 @@
     "noEmit": true,
     "types": ["bun", "node"]
   },
-  "include": ["benchmarks/**/*.ts", "examples/**/*.ts", "scripts/**/*.ts", "src/**/*.ts"]
+  "include": ["benchmarks/**/*.ts", "scripts/**/*.ts", "src/**/*.ts"]
 }

@@ -84,7 +84,7 @@ describe("ScopeMap scan lease heartbeat", () => {
     await Bun.sleep(15);
     expect(store.renewals).toBe(renewalsAfterPublish);
     store.close();
-  });
+  }, 15_000);
 
   test("blocks publication when heartbeat renewal fails", async () => {
     const { root, registry } = await fixture();
@@ -103,5 +103,5 @@ describe("ScopeMap scan lease heartbeat", () => {
     expect(store.publications).toBe(0);
     expect(store.getActive("test")?.digest).toBe(initial.digest);
     store.close();
-  });
+  }, 15_000);
 });

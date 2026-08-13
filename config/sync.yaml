@@ -1,3 +1,0 @@
-apiVersion: abcm/v1
-kind: SyncConfig
-periodicFullReconcile: true
