@@ -1,0 +1,52 @@
+apiVersion: abcm.dev/spec/v1alpha1
+kind: SpecificationExtension
+metadata:
+  name: deterministic-scope-path-resolution
+  version: 0.1.0
+  status: approved-for-alpha
+  extends: abcm-file-workspace-mvp@0.5.0
+  changeReason: Define executable alpha scoring tiers, local language routing metadata, and bounded re-resolution.
+
+requirements:
+  - id: DSP-001
+    level: MUST
+    statement: Path resolution MUST validate a principal-bound non-stale DomainLanguageBootstrap before normalizing intent or reading the active map.
+  - id: DSP-002
+    level: MUST
+    statement: Unknown canonical domains or terms MUST fail; aliases MUST resolve to canonical concept ids and multi-target homonyms MUST be reported as ambiguous.
+  - id: DSP-003
+    level: MUST
+    statement: The candidate universe MUST contain only valid descendants of the anchored project for which discover and metadata grants are effective.
+  - id: DSP-004
+    level: MUST
+    statement: Candidate scoring MUST use deterministic tiers ordered exact scope id or URI, artifact ownership, repository path prefix, canonical language, relations, then keyword fallback.
+  - id: DSP-005
+    level: MUST
+    statement: Equal top scores at equal scope rank MUST fail with TARGET_SCOPE_AMBIGUOUS rather than use incidental filesystem order.
+  - id: DSP-006
+    level: MUST
+    statement: After the first target, workflow-project-service-feature conventions MUST be merged in physical path order and locked definitions MUST remain immutable.
+  - id: DSP-007
+    level: MUST
+    statement: A concept MAY declare scopeId as routing metadata; it does not grant access and MUST resolve only inside the bounded candidate universe.
+  - id: DSP-008
+    level: MUST
+    statement: Local alias normalization MAY trigger exactly one additional resolution pass; a further meaning change MUST fail with PATH_RESOLUTION_NOT_CONVERGED.
+  - id: DSP-009
+    level: MUST_NOT
+    statement: ResolvedScopePath or ResolverTrace MUST expose document bodies, the full map, or inaccessible candidates.
+
+acceptanceScenarios:
+  - id: AC-DSP-TIERS
+    given: Different candidates match exact links, owned artifacts, repository prefixes, and keywords.
+    when: path resolution runs.
+    then:
+      - higher deterministic tiers win
+      - evidence records the winning tier and value
+  - id: AC-DSP-LOCAL-RERESOLVE
+    given: A service alias maps a goal term to a feature-routed canonical concept.
+    when: the service language is merged after the first pass.
+    then:
+      - a second pass selects the feature
+      - both passes are recorded
+      - no third pass is allowed

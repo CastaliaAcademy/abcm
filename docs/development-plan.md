@@ -179,8 +179,9 @@ REST handlers ----------/          |                    |
 - PLAN-0011 добавил targeted impact-set reconcile, безопасную очередь in-flight mutations и post-publication ScopeMapChanged events.
 - PLAN-0012 завершил M4 bounded projections: root/depth bounds, global/local access grants, path-only ancestors, admin invalid branches и единый REST/MCP disclosure boundary.
 - PLAN-0013 добавил первую половину M5: principal/revision/checksum/expiry-bound DomainLanguageBootstrap, строгий workflow-project merge и REST/MCP `context.get_domain_language` parity.
+- PLAN-0014 завершил M5: canonical intent errors, access-bounded candidate universe, deterministic scoring tiers, workflow-project-service-feature merge и один bounded local re-resolution pass.
 - M2 остаётся незавершённым до derived context/fingerprint state; relations и diagnostics нормализованы PLAN-0010.
-- M3 закрыт PLAN-0010 и PLAN-0011; M5 продолжается deterministic path resolver, service/feature merge и bounded local re-resolution.
+- M3, M4 и M5 закрыты; следующий продуктовый этап — M6 deterministic Agent Skill discovery и connection resolution.
 - M10 остаётся незавершённым до mapping rules, identity-preserving moves, managed cutover и fault-injection recovery между filesystem и metadata phases.
 
 ## 5. Риски и открытые решения до M1

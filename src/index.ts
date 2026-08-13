@@ -12,6 +12,7 @@ export type {
 export { AbcmError } from "./core/errors.js";
 export { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "./core/server-info.js";
 export { DomainLanguageService } from "./domain-language/domain-language-service.js";
+export { ScopePathResolver } from "./domain-language/scope-path-resolver.js";
 export type { DomainLanguageServiceOptions } from "./domain-language/domain-language-service.js";
 export { parseContextPrincipalEnvironment } from "./domain-language/context-principal-config.js";
 export type {
@@ -25,6 +26,11 @@ export type {
   DomainLanguageBootstrapRequest,
   DomainLanguageSource,
   EffectiveDomainLanguage,
+  NormalizedTaskIntent,
+  ResolvedScopePath,
+  ResolveTaskPathRequest,
+  ResolverPass,
+  ScopeResolutionEvidence,
 } from "./domain-language/types.js";
 export { parseDocumentationSources } from "./documentation/config.js";
 export { DirectoryDocumentationSyncService } from "./documentation/directory-documentation-sync-service.js";

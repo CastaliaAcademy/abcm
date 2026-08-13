@@ -26,6 +26,7 @@ export interface DomainDefinition {
 export interface ConceptDefinition {
   id: string;
   domainId: string;
+  scopeId?: string;
   term: string;
   definition?: string;
   locked: boolean;
@@ -68,4 +69,57 @@ export interface DomainLanguageBootstrap {
   readiness: "ready";
   createdAt: string;
   expiresAt: string;
+}
+
+export interface ResolveTaskPathRequest {
+  domainLanguageBootstrapId: string;
+  goal: string;
+  canonicalDomains?: readonly string[];
+  canonicalTerms?: readonly string[];
+  keywords?: readonly string[];
+  targetHints?: readonly string[];
+  explicitLinks?: readonly string[];
+  artifacts?: readonly string[];
+  repositoryPaths?: readonly string[];
+}
+
+export interface NormalizedTaskIntent {
+  originalGoal: string;
+  normalizedGoal: string;
+  canonicalDomains: readonly string[];
+  canonicalTerms: readonly string[];
+  keywords: readonly string[];
+  targetHints: readonly string[];
+  explicitLinks: readonly string[];
+  artifacts: readonly string[];
+  repositoryPaths: readonly string[];
+}
+
+export interface ScopeResolutionEvidence {
+  tier: "exact" | "artifact" | "repository_path" | "canonical_language" | "relation" | "keyword";
+  value: string;
+  score: number;
+}
+
+export interface ResolverPass {
+  pass: 1 | 2;
+  targetScopeId: string;
+  score: number;
+  evidence: readonly ScopeResolutionEvidence[];
+}
+
+export interface ResolvedScopePath {
+  mapRevision: string;
+  bootstrapId: string;
+  primaryTargetScopeId: string;
+  scopeIds: readonly string[];
+  affectedScopeIds: readonly string[];
+  normalizedIntent: NormalizedTaskIntent;
+  effectiveDomainLanguage: EffectiveDomainLanguage;
+  domainLanguageSources: readonly DomainLanguageSource[];
+  resolverTrace: {
+    candidateCount: number;
+    filteredByAccess: number;
+    passes: readonly ResolverPass[];
+  };
 }

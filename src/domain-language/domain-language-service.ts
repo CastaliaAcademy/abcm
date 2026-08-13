@@ -47,6 +47,7 @@ const glossarySchema = z.object({
   concepts: z.array(z.object({
     id,
     domainId: id,
+    scopeId: id.optional(),
     term: z.string().min(1),
     definition: z.string().min(1).optional(),
     locked: z.boolean().default(false),
@@ -217,6 +218,51 @@ export class DomainLanguageService {
       }
     }
     return bootstrap;
+  }
+
+  async buildEffectiveLanguageForPath(
+    bootstrapId: string,
+    targetScopeId: string,
+    principal: ContextPrincipal,
+  ): Promise<{ effectiveLanguage: EffectiveDomainLanguage; sources: DomainLanguageSource[] }> {
+    const bootstrap = this.validateBootstrap(bootstrapId, principal);
+    const revision = this.#scopeMap.getActiveRevision(bootstrap.anchor.workspaceId);
+    const byId = new Map(revision.nodes.map(node => [node.scopeId, node]));
+    const target = byId.get(targetScopeId);
+    if (target === undefined || target.status !== "valid") {
+      throw new AbcmError("TARGET_SCOPE_INVALID", "Target scope does not exist in the active resolver graph.", { targetScopeId });
+    }
+    const path: ScopeNode[] = [];
+    let current: ScopeNode | undefined = target;
+    while (current !== undefined) {
+      path.unshift(current);
+      current = current.parentScopeId === undefined ? undefined : byId.get(current.parentScopeId);
+    }
+    if (!path.some(node => node.scopeId === bootstrap.anchor.projectId)) {
+      throw new AbcmError("TARGET_SCOPE_INVALID", "Target scope is outside the bootstrap project anchor.", { targetScopeId });
+    }
+    for (const node of path) {
+      for (const permission of ["scope.discover", "scope.read_metadata", "context.build"] as const) {
+        if (!this.#hasPermission(principal, node, permission)) {
+          throw new AbcmError("ACCESS_DENIED", "Path-specific domain-language access is denied.", { scopeId: node.scopeId, permission });
+        }
+      }
+    }
+    const workspace = this.#registry.get(bootstrap.anchor.workspaceId);
+    const language: MutableLanguage = {
+      domains: new Map(), concepts: new Map(), aliases: new Map(), homonyms: new Map(), namingRules: new Map(),
+    };
+    const sources: DomainLanguageSource[] = [];
+    try {
+      for (const node of path) await this.#mergeScope(workspace.root, revision, node, language, sources);
+      this.#validateReferences(language);
+    } catch (error) {
+      if (error instanceof AbcmError) throw error;
+      throw new AbcmError("DOMAIN_LANGUAGE_CONFIGURATION_INVALID", "Path-specific domain-language configuration is invalid.", {
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return { effectiveLanguage: this.#materialize(language), sources };
   }
 
   async #mergeScope(

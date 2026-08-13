@@ -5,6 +5,7 @@ import type { ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "../derived-s
 import { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { DirectoryDocumentationSourceDefinition } from "../documentation/types.js";
 import { DomainLanguageService, type DomainLanguageServiceOptions } from "../domain-language/domain-language-service.js";
+import { ScopePathResolver } from "../domain-language/scope-path-resolver.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
 import { createAbcmRestHandler } from "../rest/create-rest-handler.js";
 import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
@@ -55,6 +56,7 @@ export function createAbcmRuntime(
   const documentationState = (options.documentationSources?.length ?? 0) > 0 ? ownedScopeMapStore : undefined;
   const scopeMap = new ScopeMapService(registry, scopeMapStore, documentationState);
   const domainLanguage = new DomainLanguageService(registry, scopeMap, options.domainLanguage);
+  const scopePathResolver = new ScopePathResolver(domainLanguage, scopeMap);
   const scopeMapReconciler = new ScopeMapReconcileCoordinator(registry, scopeMap, options.scopeMapReconcile);
   let documentation: DirectoryDocumentationSyncService | undefined;
   const files = new WorkspaceFileService(registry, {
@@ -117,6 +119,7 @@ export function createAbcmRuntime(
     files,
     scopeMap,
     domainLanguage,
+    scopePathResolver,
     scopeMapReconciler,
     workspaceProvisioning,
     documentation,

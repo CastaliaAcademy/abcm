@@ -15,6 +15,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 - REST access with ETags, stable problem responses, and static Bearer authentication;
 - MCP tools and the `abcm://map` resource over stdio and authenticated Streamable HTTP, backed by the same application services;
 - principal-bound workflow-plus-project DomainLanguageBootstrap through REST and MCP before task path resolution;
+- deterministic access-bounded ScopePath resolution with exact/artifact/path/language/relation/keyword tiers and one local-language retry;
 - self-hosting ABCM metadata, feature plans, verification plans, and reusable project skills.
 
 The normative baseline is specification 0.5.0 plus the extensions in [docs/spec/extensions](docs/spec/extensions). The executed plan is [PLAN-0001](docs/plans/v0.1/plan.md).
@@ -69,7 +70,7 @@ Directory sources require SQLite persistence and are configured only by the depl
 
 ## Alpha boundaries
 
-Scope-map revisions and MAP-P4 metadata indexes can be persisted in rebuildable SQLite when explicitly enabled. DomainLanguageBootstrap is currently in-memory and deployment-principal-bound; final path resolution, ContextBundle assembly, managed-storage documentation cutover, external identity providers, durable bootstrap/audit records, and automatic documentation watchers remain later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
+Scope-map revisions and MAP-P4 metadata indexes can be persisted in rebuildable SQLite when explicitly enabled. DomainLanguageBootstrap is currently in-memory and deployment-principal-bound; ContextBundle assembly, skill connection, managed-storage documentation cutover, external identity providers, durable bootstrap/audit records, and automatic documentation watchers remain later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
 
 ## License
 
