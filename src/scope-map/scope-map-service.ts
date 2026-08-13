@@ -11,6 +11,7 @@ import type { DocumentationStateStore } from "../documentation/types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
 import { indexScopeContent, resolveDocumentCandidates } from "./content-indexer.js";
+import { indexExplicitRelations } from "./explicit-relations.js";
 import type {
   DocumentRecord,
   ExecutableResourceRecord,
@@ -197,7 +198,13 @@ export class ScopeMapService {
 
         const childNode = await this.#node(manifest, childRelative, parent.scopeId, status, childAbsolute, diagnostics);
         nodes.push(childNode);
-        relations.push({ fromId: parent.scopeId, toId: childNode.scopeId, relationType: "parent-child" });
+        relations.push({
+          fromId: parent.scopeId,
+          toId: childNode.scopeId,
+          relationType: "parent-child",
+          source: "physical-hierarchy",
+          status: "resolved",
+        });
         if (status === "valid") {
           seenIds.add(manifest.id);
           for (const alias of manifest.aliases) seenIds.add(alias);
@@ -208,7 +215,6 @@ export class ScopeMapService {
 
     await walk(rootNode, workspace.root);
     nodes.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-    relations.sort((left, right) => `${left.fromId}/${left.toId}`.localeCompare(`${right.fromId}/${right.toId}`));
     const files: FileRecord[] = [];
     const documentCandidates: DocumentRecord[] = [];
     const executableResources: ExecutableResourceRecord[] = [];
@@ -237,6 +243,17 @@ export class ScopeMapService {
     files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     const documents = resolveDocumentCandidates(documentCandidates, diagnostics);
+    const explicit = await indexExplicitRelations(workspace, nodes, documents, diagnostics);
+    relations.push(...explicit.relations);
+    for (let index = 0; index < nodes.length; index++) {
+      const node = nodes[index];
+      if (node !== undefined && explicit.warningScopeIds.has(node.scopeId)) nodes[index] = { ...node, readiness: "warning" };
+    }
+    relations.sort((left, right) =>
+      `${left.fromId}/${left.toId}/${left.relationType}/${left.source}`.localeCompare(
+        `${right.fromId}/${right.toId}/${right.relationType}/${right.source}`,
+      ),
+    );
     diagnostics.sort((left, right) => `${left.path}/${left.code}`.localeCompare(`${right.path}/${right.code}`));
     const digest = normalizedDigest(nodes, relations, files, documents, executableResources, diagnostics);
     const revision: MapRevision = {
@@ -258,11 +275,19 @@ export class ScopeMapService {
     if (!revision) throw new AbcmError("MAP_NOT_BUILT", "ScopeMap has not been scanned for this workspace.");
     const nodes = view === "admin" ? revision.nodes : revision.nodes.filter(node => node.status === "valid");
     const visibleIds = new Set(nodes.map(node => node.scopeId));
-    const relations = revision.relations.filter(relation => visibleIds.has(relation.fromId) && visibleIds.has(relation.toId));
+    const relations =
+      view === "admin"
+        ? revision.relations
+        : revision.relations.filter(relation => visibleIds.has(relation.fromId) && visibleIds.has(relation.toId));
     const warnings =
       view === "admin"
         ? revision.diagnostics
-        : revision.diagnostics.filter(diagnostic => diagnostic.code === "DOMAIN_LANGUAGE_CONFIGURATION_INVALID" && (diagnostic.scopeId === undefined || visibleIds.has(diagnostic.scopeId)));
+        : revision.diagnostics.filter(
+            diagnostic =>
+              (diagnostic.code === "DOMAIN_LANGUAGE_CONFIGURATION_INVALID" ||
+                diagnostic.code === "EXPLICIT_LINK_UNRESOLVED") &&
+              (diagnostic.scopeId === undefined || visibleIds.has(diagnostic.scopeId)),
+          );
     return {
       mapRevision: revision.revision,
       digest: revision.digest,

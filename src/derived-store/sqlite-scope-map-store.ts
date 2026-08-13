@@ -15,7 +15,7 @@ import type {
 import type { MapRevision } from "../scope-map/types.js";
 import type { RuntimeOwnerHandle, ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./types.js";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 interface LeaseRow {
   owner_id: string;
@@ -219,6 +219,7 @@ export class SqliteScopeMapStore implements ScopeMapStore {
           ],
         );
       }
+      this.#persistNormalizedGraph(lease.workspaceId, revision);
       this.#database.run(
         `INSERT INTO active_map_revisions (workspace_id, revision)
          VALUES (?, ?)
@@ -743,11 +744,113 @@ export class SqliteScopeMapStore implements ScopeMapStore {
           FOREIGN KEY (workspace_id, source_id) REFERENCES documentation_sources(workspace_id, source_id)
         )`);
       }
+      if (currentVersion < 5) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS map_nodes (
+          workspace_id TEXT NOT NULL,
+          revision TEXT NOT NULL,
+          scope_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          name TEXT NOT NULL,
+          aliases_json TEXT NOT NULL,
+          relative_path TEXT NOT NULL,
+          parent_scope_id TEXT,
+          rank INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          readiness TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, revision, scope_id),
+          FOREIGN KEY (workspace_id, revision) REFERENCES map_revisions(workspace_id, revision) ON DELETE CASCADE
+        )`);
+        this.#database.run(`CREATE TABLE IF NOT EXISTS map_relations (
+          workspace_id TEXT NOT NULL,
+          revision TEXT NOT NULL,
+          from_id TEXT NOT NULL,
+          to_id TEXT NOT NULL,
+          relation_type TEXT NOT NULL,
+          source TEXT NOT NULL,
+          status TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, revision, from_id, to_id, relation_type, source),
+          FOREIGN KEY (workspace_id, revision) REFERENCES map_revisions(workspace_id, revision) ON DELETE CASCADE
+        )`);
+        this.#database.run(`CREATE TABLE IF NOT EXISTS map_diagnostics (
+          workspace_id TEXT NOT NULL,
+          revision TEXT NOT NULL,
+          diagnostic_index INTEGER NOT NULL,
+          code TEXT NOT NULL,
+          severity TEXT NOT NULL,
+          path TEXT NOT NULL,
+          message TEXT NOT NULL,
+          scope_id TEXT,
+          PRIMARY KEY (workspace_id, revision, diagnostic_index),
+          FOREIGN KEY (workspace_id, revision) REFERENCES map_revisions(workspace_id, revision) ON DELETE CASCADE
+        )`);
+        const revisions = this.#database
+          .query<{ workspace_id: string; payload_json: string }, []>("SELECT workspace_id, payload_json FROM map_revisions")
+          .all();
+        for (const row of revisions) {
+          let revision: MapRevision;
+          try {
+            revision = JSON.parse(row.payload_json) as MapRevision;
+          } catch {
+            throw new AbcmError("DERIVED_STORE_CORRUPT", "A persisted MapRevision payload cannot be migrated to schema v5.");
+          }
+          this.#persistNormalizedGraph(row.workspace_id, revision);
+        }
+      }
       this.#database.run(
         `INSERT INTO schema_metadata (key, value) VALUES ('schema_version', ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
         [String(SCHEMA_VERSION)],
       );
     }).immediate();
+  }
+
+  #persistNormalizedGraph(workspaceId: string, revision: MapRevision): void {
+    for (const node of revision.nodes) {
+      this.#database.run(
+        `INSERT OR IGNORE INTO map_nodes
+          (workspace_id, revision, scope_id, kind, name, aliases_json, relative_path, parent_scope_id, rank, status, readiness)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          workspaceId,
+          revision.revision,
+          node.scopeId,
+          node.kind,
+          node.name,
+          JSON.stringify(node.aliases),
+          node.relativePath,
+          node.parentScopeId ?? null,
+          node.rank,
+          node.status,
+          node.readiness,
+        ],
+      );
+    }
+    for (const relation of revision.relations) {
+      const source = relation.source ?? (relation.relationType === "parent-child" ? "physical-hierarchy" : "legacy-map-payload");
+      const status = relation.status ?? "resolved";
+      this.#database.run(
+        `INSERT OR IGNORE INTO map_relations
+          (workspace_id, revision, from_id, to_id, relation_type, source, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [workspaceId, revision.revision, relation.fromId, relation.toId, relation.relationType, source, status],
+      );
+    }
+    for (const [index, diagnostic] of revision.diagnostics.entries()) {
+      this.#database.run(
+        `INSERT OR IGNORE INTO map_diagnostics
+          (workspace_id, revision, diagnostic_index, code, severity, path, message, scope_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          workspaceId,
+          revision.revision,
+          index,
+          diagnostic.code,
+          diagnostic.severity,
+          diagnostic.path,
+          diagnostic.message,
+          diagnostic.scopeId ?? null,
+        ],
+      );
+    }
   }
 }

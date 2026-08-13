@@ -16,7 +16,9 @@ export interface ScopeNode {
 export interface ScopeRelation {
   fromId: string;
   toId: string;
-  relationType: "parent-child";
+  relationType: string;
+  source: string;
+  status: "resolved" | "unresolved_optional" | "unresolved_required";
 }
 
 export interface MapDiagnostic {
@@ -25,7 +27,10 @@ export interface MapDiagnostic {
     | "SCOPE_MANIFEST_INVALID"
     | "SCOPE_ID_DUPLICATE"
     | "DOMAIN_LANGUAGE_CONFIGURATION_INVALID"
-    | "DOCUMENT_ID_DUPLICATE";
+    | "DOCUMENT_ID_DUPLICATE"
+    | "RELATIONS_CONFIGURATION_INVALID"
+    | "EXPLICIT_LINK_INVALID"
+    | "EXPLICIT_LINK_UNRESOLVED";
   severity: "branch_error" | "scope_error" | "warning";
   path: string;
   message: string;

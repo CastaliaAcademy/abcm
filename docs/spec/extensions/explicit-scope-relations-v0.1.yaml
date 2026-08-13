@@ -1,0 +1,74 @@
+apiVersion: abcm.dev/spec/v1alpha1
+kind: SpecificationExtension
+metadata:
+  name: explicit-scope-relations
+  version: 0.1.0
+  status: approved-for-alpha
+  extends: abcm-file-workspace-mvp@0.5.0
+  changeReason: Define the alpha relations.yaml contract and normalized persistence needed to complete MAP-P5.
+
+relationConfiguration:
+  path: config/relations.yaml
+  schema:
+    apiVersion: abcm/v1
+    kind: ScopeRelations
+    relations:
+      - id: stable-relation-id
+        target: abcm://scope/target-scope
+        type: depends-on
+        required: false
+  defaults:
+    required: false
+  strict: true
+
+requirements:
+  - id: ESR-001
+    level: MUST
+    statement: ScopeMap MUST resolve scope, artifact, plan, and architecture references by stable abcm URI and MUST NOT resolve references by physical path.
+  - id: ESR-002
+    level: MUST
+    statement: config/relations.yaml MUST use the strict ScopeRelations schema defined by this extension and MUST identify its source scope from the containing scope.
+  - id: ESR-003
+    level: MUST
+    statement: ScopeMap MUST record resolved, unresolved_optional, or unresolved_required status for every supported explicit relation.
+  - id: ESR-004
+    level: MUST
+    statement: Invalid, absolute-path, network-path, and unresolved explicit references MUST produce deterministic map diagnostics without exposing document bodies.
+  - id: ESR-005
+    level: MUST
+    statement: A scope containing an unresolved required relation MUST have warning readiness; the mandatory context-construction failure remains governed by LNK-002.
+  - id: ESR-006
+    level: MUST
+    statement: Structural and explicit relation metadata, nodes, and diagnostics MUST be normalized in the same atomic SQLite publication transaction as the MapRevision payload.
+  - id: ESR-007
+    level: MUST
+    statement: Agent projection MUST expose only relations whose endpoints are visible scopes and MUST NOT expose indexed document paths or bodies.
+
+acceptanceScenarios:
+  - id: AC-ESR-STABLE-LINKS
+    given: Documents and relations.yaml reference existing scopes and documents by supported abcm URI.
+    when: ScopeMap is built.
+    then:
+      - aliases resolve to canonical scope ids
+      - document ids remain stable across filename changes
+      - normalized resolved relations are deterministic
+  - id: AC-ESR-UNRESOLVED
+    given: One optional and one required relation target cannot be resolved.
+    when: ScopeMap is built.
+    then:
+      - both relations and warnings record their unresolved status
+      - the required relation owner has warning readiness
+      - publication still succeeds for map inspection
+  - id: AC-ESR-PATH-REJECTION
+    given: relations.yaml contains an absolute or network path target.
+    when: ScopeMap is built.
+    then:
+      - the target is not resolved
+      - a deterministic invalid-link diagnostic is published
+  - id: AC-ESR-SQLITE-V5
+    given: A map containing nodes, relations, and diagnostics is published.
+    when: SQLite publication commits.
+    then:
+      - schema version is 5
+      - normalized rows match the active MapRevision
+      - no document or source body is persisted in normalized relation tables
