@@ -23,3 +23,9 @@ Status: complete
 - Production image: `abcm-mcp-server:plan-0023`.
 - Image manifest digest: `sha256:ce84dfbd85c16da7d05969a00383ed1615e3c1cf37028f719ca54ed5f60b67bd`.
 - Final-image smoke: 13 shared tools; strict approved cutover input accepted; REST cutover path present; 16 OpenAPI schemas.
+
+## Workspace publication
+
+- Published 11 project documents through the authenticated REST file API into `castalia-public/abcm`.
+- First pass: 5 created, 6 updated, 0 unchanged; all 11 reread byte-for-byte.
+- ScopeMap scan completed with digest `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a` and 0 diagnostics.
