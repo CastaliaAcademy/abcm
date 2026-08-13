@@ -30,4 +30,8 @@ Status: complete
 - Final-image smoke imported production `dist`, reported version `0.1.0`, migrated schema 7, and round-tripped one body-free execution-bound bundle/fingerprint catalog entry.
 - Package dry run after final docs: 113 files, 0.55 MB unpacked.
 
-Workspace publication remains to be recorded after the reviewed commit is transferred to the main local branch.
+## Workspace publication
+
+- Published 13 project/release documents through the authenticated REST file API into `castalia-public/abcm`.
+- First pass: 10 created, 3 updated, 0 unchanged; all 13 reread byte-for-byte.
+- ScopeMap scan completed with digest `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a` and 0 diagnostics.
