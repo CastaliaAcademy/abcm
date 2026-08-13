@@ -183,7 +183,8 @@ REST handlers ----------/          |                    |
 - PLAN-0015 завершил M6: compact SkillDescriptor index, пять connection strategies, local precedence, legacy diagnostics, additive context requirements и post-selection SKILL.md materialization.
 - PLAN-0016 завершил исполняемый M7 alpha-срез: единый `buildTaskContext`, mandatory-first access/budget, deterministic projections/digest, REST/MCP parity и атомарный body-free fingerprint в reserved derived tree.
 - M2 остаётся незавершённым до SQLite-каталога bundles/fingerprints; relations и diagnostics нормализованы PLAN-0010.
-- M3-M7 закрыты на alpha-контракте; следующий продуктовый этап — M8 MCP resource/tool contract closure.
+- PLAN-0017 закрыл первую половину M8: стабильный permission-filtered MCP resource catalog, scoped maps, addressable indexed documents/skills, revision-bound pagination, checksum-safe reads, cancellation/timeout boundary и legacy/dual-protocol client tests.
+- M3-M7 закрыты на alpha-контракте; M8 остаётся открытым до tool schema/error/cancellation/timeout closure по каждому operation.
 - M10 остаётся незавершённым до mapping rules, identity-preserving moves, managed cutover и fault-injection recovery между filesystem и metadata phases.
 
 ## 5. Риски и открытые решения до M1

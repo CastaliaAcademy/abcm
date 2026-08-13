@@ -11,6 +11,7 @@ import type { DirectoryDocumentationSyncService } from "../documentation/directo
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
+import { McpResourceCatalog, toMcpProtocolError } from "./resource-catalog.js";
 
 export interface AbcmMcpDependencies {
   files: WorkspaceFileService;
@@ -21,6 +22,8 @@ export interface AbcmMcpDependencies {
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
   documentation?: DirectoryDocumentationSyncService;
+  mcpResourcePageSize?: number;
+  mcpOperationTimeoutMs?: number;
 }
 
 function success(structuredContent: Record<string, unknown>) {
@@ -43,7 +46,10 @@ async function toolResult(action: () => Promise<Record<string, unknown>>) {
 
 /** Creates an unconnected ABCM MCP server and optionally registers workspace capabilities. */
 export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServer {
-  const server = new McpServer(ABCM_SERVER_INFO);
+  const server = new McpServer(ABCM_SERVER_INFO, {
+    supportedProtocolVersions: ["2025-11-25"],
+    instructions: "Use context.get_domain_language before resolving a task path, then context.build_task_context for bounded task context.",
+  });
   if (!dependencies) return server;
   const workspaceId = z.string().min(1);
   const path = z.string();
@@ -229,37 +235,35 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       async input => toolResult(async () => ({ ...(await dependencies.documentation!.sync(input.sourceId)) })),
     );
   }
-  server.registerResource(
-    "scope-map",
-    "abcm://map",
-    { title: "ABCM agent ScopeMap", description: "Bounded agent projection of the default workspace.", mimeType: "application/json" },
-    async uri => {
-      try {
-        dependencies.scopeMap.getProjection(
-          dependencies.defaultWorkspaceId,
-          { view: "agent" },
-          dependencies.scopeMapAccess,
-        );
-      } catch (error) {
-        if (!(error instanceof AbcmError) || error.code !== "MAP_NOT_BUILT") throw error;
-        await dependencies.scopeMap.scan(dependencies.defaultWorkspaceId);
-      }
-      return {
-        contents: [
-          {
-            uri: uri.href,
-            mimeType: "application/json",
-            text: JSON.stringify(
-              dependencies.scopeMap.getProjection(
-                dependencies.defaultWorkspaceId,
-                { view: "agent" },
-                dependencies.scopeMapAccess,
-              ),
-            ),
-          },
-        ],
-      };
-    },
-  );
+  const resources = new McpResourceCatalog({
+    files: dependencies.files,
+    scopeMap: dependencies.scopeMap,
+    workspaceId: dependencies.defaultWorkspaceId,
+    ...(dependencies.scopeMapAccess === undefined ? {} : { access: dependencies.scopeMapAccess }),
+    ...(dependencies.mcpResourcePageSize === undefined ? {} : { pageSize: dependencies.mcpResourcePageSize }),
+    ...(dependencies.mcpOperationTimeoutMs === undefined ? {} : { operationTimeoutMs: dependencies.mcpOperationTimeoutMs }),
+  });
+  server.server.registerCapabilities({ resources: { listChanged: false, subscribe: false } });
+  server.server.setRequestHandler("resources/list", async (request, context) => {
+    try {
+      return await resources.list(request.params?.cursor, context.mcpReq.signal);
+    } catch (error) {
+      return toMcpProtocolError(error);
+    }
+  });
+  server.server.setRequestHandler("resources/templates/list", async (request, context) => {
+    try {
+      return await resources.listTemplates(request.params?.cursor, context.mcpReq.signal);
+    } catch (error) {
+      return toMcpProtocolError(error);
+    }
+  });
+  server.server.setRequestHandler("resources/read", async (request, context) => {
+    try {
+      return await resources.read(request.params.uri, context.mcpReq.signal);
+    } catch (error) {
+      return toMcpProtocolError(error, request.params.uri);
+    }
+  });
   return server;
 }

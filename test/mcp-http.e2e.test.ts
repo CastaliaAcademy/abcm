@@ -65,6 +65,10 @@ describe("ABCM Streamable HTTP MCP endpoint", () => {
       const tools = await client.listTools();
       expect(tools.tools.map(tool => tool.name)).toContain("workspace.read_file");
       expect(tools.tools.find(tool => tool.name === "workspace.read_file")?.annotations?.readOnlyHint).toBe(true);
+      const resources = await client.listResources();
+      expect(resources.resources.map(resource => resource.uri)).toContain("abcm://map");
+      const map = await client.readResource({ uri: "abcm://map" });
+      expect(JSON.parse((map.contents[0] as { text: string }).text)).toEqual(expect.objectContaining({ view: "agent" }));
 
       const write = await client.callTool({
         name: "workspace.write_file",
@@ -77,6 +81,32 @@ describe("ABCM Streamable HTTP MCP endpoint", () => {
         headers: { authorization: `Bearer ${token}` },
       });
       expect(await restRead.text()).toBe("remote");
+    } finally {
+      await client.close();
+      server.stop(true);
+      await runtime.close();
+    }
+  });
+
+  test("keeps the ABCM resource contract under SDK dual-protocol auto negotiation", async () => {
+    const root = await fixture();
+    const runtime = createAbcmRuntime({ id: "test", root }, { bearerToken: token });
+    await runtime.scopeMap.scan("test");
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: runtime.httpHandler });
+    const client = new Client(
+      { name: "abcm-modern-http-test-client", version: "0.1.0" },
+      { versionNegotiation: { mode: "auto" } },
+    );
+    const transport = new StreamableHTTPClientTransport(new URL("/mcp", server.url), {
+      authProvider: { token: async () => token },
+    });
+
+    try {
+      await client.connect(transport);
+      const resources = await client.listResources();
+      expect(resources.resources.map(resource => resource.uri)).toContain("abcm://map");
+      const map = await client.readResource({ uri: "abcm://map" });
+      expect(JSON.parse((map.contents[0] as { text: string }).text)).toEqual(expect.objectContaining({ view: "agent" }));
     } finally {
       await client.close();
       server.stop(true);

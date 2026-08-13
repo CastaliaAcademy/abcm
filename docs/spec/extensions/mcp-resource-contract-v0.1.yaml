@@ -1,0 +1,35 @@
+extension:
+  id: mcp-resource-contract
+  version: 0.1.0
+  baseSpecVersion: 0.5.0
+  status: approved-for-alpha
+
+requirements:
+  MCP-001:
+    statement: The server shall advertise MCP resources and negotiate protocol version 2025-11-25 through both supported transports.
+  MCP-002:
+    statement: Resource discovery shall expose the global map, permitted scoped maps, active indexed documents, plans, architecture documents, and active indexed skill definitions by stable abcm URI.
+  MCP-003:
+    statement: Discovery and reads shall require scope discovery, metadata, and document-read permissions as applicable and shall not disclose inaccessible identifiers.
+  MCP-004:
+    statement: Dynamic resource and template lists shall be deterministically sorted and use opaque revision-bound cursors.
+  MCP-005:
+    statement: Resource reads shall resolve only the active MapRevision, verify the indexed checksum, and return exact textual bytes without exposing physical paths.
+  MCP-006:
+    statement: Ordinary project sources and executable resources shall not be exposed through the MCP resource catalog.
+  MCP-007:
+    statement: Invalid URI, namespace mismatch, missing or inaccessible resource, stale checksum, invalid cursor, cancellation, and timeout shall map to stable MCP and ABCM errors.
+  MCP-008:
+    statement: Resource subscriptions shall remain disabled until an independently verified delivery contract exists.
+
+resourceUris:
+  map: abcm://map
+  scopedMap: abcm://map/{scopeId}
+  artifact: abcm://artifact/{documentId}
+  plan: abcm://plan/{documentId}
+  architecture: abcm://architecture/{documentId}
+  skill: abcm://skill/{skillId}
+
+defaults:
+  resourcePageSize: 100
+  operationTimeoutMs: 30000
