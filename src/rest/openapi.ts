@@ -163,6 +163,14 @@ export function createAbcmOpenApiDocument(): JsonObject {
           responses: { "200": response("Documentation sync result", reference("DocumentationSyncResult")), ...problemResponses },
         },
       },
+      "/v1/documentation-sources/{sourceId}/cutover": {
+        post: {
+          operationId: "cutoverDocumentationSource",
+          parameters: [parameter("sourceId", "path", true, { type: "string", minLength: 1 })],
+          requestBody: { required: true, content: { "application/json": { schema: reference("DocumentationCutoverRequest") } } },
+          responses: { "200": response("Documentation cutover result", reference("DocumentationCutoverResult")), ...problemResponses },
+        },
+      },
     },
     components: {
       securitySchemes: {

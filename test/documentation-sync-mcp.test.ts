@@ -42,6 +42,7 @@ describe("documentation sync MCP contract", () => {
           "documentation_source.preview",
           "documentation_source.apply",
           "documentation_source.sync",
+          "documentation_source.cutover",
         ]),
       );
       const preview = await client.callTool({
@@ -49,6 +50,7 @@ describe("documentation sync MCP contract", () => {
         arguments: { workspaceId: "test", sourceId: "obsidian" },
       });
       const importId = (preview.structuredContent as { importId: string }).importId;
+      const snapshotDigest = (preview.structuredContent as { snapshotDigest: string }).snapshotDigest;
       const applied = await client.callTool({ name: "documentation_source.apply", arguments: { importId } });
       expect(applied.structuredContent).toEqual(expect.objectContaining({ created: 1, status: "succeeded" }));
 
@@ -72,6 +74,17 @@ describe("documentation sync MCP contract", () => {
       });
       expect(rejectedMove.isError).toBe(true);
       expect((rejectedMove.content[0] as { text: string }).text).toContain("MIRROR_DOCUMENT_READ_ONLY");
+
+      const cutover = await client.callTool({
+        name: "documentation_source.cutover",
+        arguments: { sourceId: "obsidian", operatorApproved: true, expectedSnapshotDigest: snapshotDigest },
+      });
+      expect(cutover.structuredContent).toEqual(expect.objectContaining({ status: "completed", storageMode: "managed" }));
+      const managedWrite = await client.callTool({
+        name: "workspace.write_file",
+        arguments: { workspaceId: "test", path: "artifacts/notes/note.md", content: "managed" },
+      });
+      expect(managedWrite.isError).not.toBe(true);
     } finally {
       await client.close();
       await server.close();

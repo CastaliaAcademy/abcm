@@ -3,6 +3,8 @@ import { join } from "node:path";
 import type {
   DocumentationStateCommit,
   DocumentationStateStore,
+  DocumentationCutoverRecord,
+  DocumentationSourceState,
   DocumentProvenanceRecord,
   DocumentStorageResolution,
   SyncRunRecord,
@@ -94,9 +96,39 @@ export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStat
     return this.#store(workspaceId).listSyncRuns(workspaceId, sourceId);
   }
 
+  getDocumentationSource(workspaceId: string, sourceId: string): DocumentationSourceState | undefined {
+    this.#assertHealthy();
+    return this.#store(workspaceId).getDocumentationSource(workspaceId, sourceId);
+  }
+
+  prepareDocumentationSync(commit: DocumentationStateCommit): void {
+    this.#assertHealthy();
+    this.#store(commit.source.workspaceId).prepareDocumentationSync(commit);
+  }
+
+  getPendingDocumentationSync(workspaceId: string, sourceId: string): DocumentationStateCommit | undefined {
+    this.#assertHealthy();
+    return this.#store(workspaceId).getPendingDocumentationSync(workspaceId, sourceId);
+  }
+
   commitDocumentationSync(commit: DocumentationStateCommit): void {
     this.#assertHealthy();
     this.#store(commit.source.workspaceId).commitDocumentationSync(commit);
+  }
+
+  getDocumentationCutover(workspaceId: string, sourceId: string): DocumentationCutoverRecord | undefined {
+    this.#assertHealthy();
+    return this.#store(workspaceId).getDocumentationCutover(workspaceId, sourceId);
+  }
+
+  commitDocumentationCutover(record: DocumentationCutoverRecord): void {
+    this.#assertHealthy();
+    this.#store(record.workspaceId).commitDocumentationCutover(record);
+  }
+
+  completeDocumentationCutover(workspaceId: string, cutoverId: string, mapRevision: string): DocumentationCutoverRecord {
+    this.#assertHealthy();
+    return this.#store(workspaceId).completeDocumentationCutover(workspaceId, cutoverId, mapRevision);
   }
 
   close(): void {

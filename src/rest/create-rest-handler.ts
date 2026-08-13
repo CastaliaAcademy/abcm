@@ -15,6 +15,7 @@ import { createAbcmOpenApiDocument } from "./openapi.js";
 import {
   restCreateDirectoryInputSchema,
   restDocumentationPreviewInputSchema,
+  restDocumentationCutoverInputSchema,
   restMoveFileInputSchema,
   workspaceRegistrationSchema,
 } from "./schemas.js";
@@ -237,6 +238,19 @@ export function createAbcmRestHandler(
           throw new AbcmError("DOCUMENTATION_SYNC_DISABLED", "Documentation synchronization is not configured.");
         }
         return json(await dependencies.documentation.sync(decodeURIComponent(documentationSync[1] ?? ""), signal));
+      }
+
+      const documentationCutover = /^\/v1\/documentation-sources\/([^/]+)\/cutover$/.exec(url.pathname);
+      if (request.method === "POST" && documentationCutover !== null) {
+        if (dependencies.documentation === undefined) {
+          throw new AbcmError("DOCUMENTATION_SYNC_DISABLED", "Documentation synchronization is not configured.");
+        }
+        const body = await readJson(request, restDocumentationCutoverInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.documentation.cutover(
+          decodeURIComponent(documentationCutover[1] ?? ""),
+          body,
+          signal,
+        ));
       }
 
       const match = /^\/v1\/workspaces\/([^/]+)(\/.*)$/.exec(url.pathname);

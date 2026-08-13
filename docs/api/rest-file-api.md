@@ -22,6 +22,7 @@ The reference server defaults to a 1 MiB request-body limit, a 30 second request
 - `POST /v1/workspaces/{id}/documentation-sources/preview` with strict JSON `{ "sourceId": "configured-id" }`
 - `POST /v1/documentation-imports/{importId}/apply`
 - `POST /v1/documentation-sources/{sourceId}/sync`
+- `POST /v1/documentation-sources/{sourceId}/cutover` with strict JSON `{ "operatorApproved": true, "expectedSnapshotDigest": "sha256:..." }`
 
 The scan endpoint returns the published revision summary plus aggregate `resourceSummary` counts. Internal `FileRecord`, `DocumentRecord`, and `ExecutableResourceRecord` arrays are not exposed through REST map responses.
 
@@ -34,5 +35,7 @@ Reads return strong SHA-256 ETags. Writes accept `If-Match`; creates accept `If-
 Workspace registration returns `201` after creating a minimal workflow scaffold. It returns `409 WORKSPACE_ALREADY_EXISTS` without changing a registered or pre-existing target. Supplying `root`, `path`, or any unknown field returns `400 REQUEST_INVALID`; if no managed store is configured, registration returns `503 WORKSPACE_REGISTRATION_DISABLED`.
 
 Directory documentation sources are deployment-owned and require SQLite persistence. Preview is non-mutating and returns checksum-pinned create/update/move/delete/unchanged/conflict operations after configured include/exclude/mapping rules. Ambiguous rules or duplicate mapped targets return `DOCUMENTATION_MAPPING_AMBIGUOUS`. Apply rejects stale snapshots or targets. `sync` performs an immediate preview/apply. Active mirrors remain readable but general write/delete/move endpoints return `409 MIRROR_DOCUMENT_READ_ONLY`. See the [Obsidian integration guide](../integrations/obsidian.md).
+
+Cutover runs one final sync, requires explicit operator approval of the preview `snapshotDigest`, verifies every source/provenance/target checksum, and atomically disables mirror ownership before publishing a managed ScopeMap. A committed cutover resumes idempotently after a map-publication fault. Pending sync transitions are journaled without document bodies and resume on the next preview; divergence fails closed as `DOCUMENTATION_RECOVERY_REQUIRED`.
 
 The alpha server uses one static deployment token mapped to a deployment-owned context principal. External identity-provider integration and audit persistence remain later milestones.

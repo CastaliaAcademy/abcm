@@ -7,6 +7,8 @@ import { Database } from "bun:sqlite";
 import { AbcmError } from "../core/errors.js";
 import type {
   DocumentationStateCommit,
+  DocumentationCutoverRecord,
+  DocumentationSourceState,
   DocumentProvenanceRecord,
   DocumentStorageResolution,
   SyncRunRecord,
@@ -15,7 +17,7 @@ import type {
 import type { MapRevision } from "../scope-map/types.js";
 import type { RuntimeOwnerHandle, ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./types.js";
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 interface LeaseRow {
   owner_id: string;
@@ -402,6 +404,60 @@ export class SqliteScopeMapStore implements ScopeMapStore {
       }));
   }
 
+  getDocumentationSource(workspaceId: string, sourceId: string): DocumentationSourceState | undefined {
+    this.#assertRuntimeOwner();
+    const row = this.#database
+      .query<
+        { workspace_id: string; source_id: string; target_base_path: string; storage_mode: "mirror" | "managed"; status: "active" | "cutover" },
+        [string, string]
+      >(
+        `SELECT workspace_id, source_id, target_base_path, storage_mode, status
+           FROM documentation_sources WHERE workspace_id = ? AND source_id = ?`,
+      )
+      .get(workspaceId, sourceId);
+    return row === null ? undefined : {
+      workspaceId: row.workspace_id,
+      sourceId: row.source_id,
+      targetBasePath: row.target_base_path,
+      storageMode: row.storage_mode,
+      status: row.status,
+    };
+  }
+
+  prepareDocumentationSync(commit: DocumentationStateCommit): void {
+    this.#database.transaction(() => {
+      this.#assertRuntimeOwner();
+      this.#database.run(
+        `INSERT INTO documentation_sources (workspace_id, source_id, connector_kind, target_base_path, storage_mode, status)
+         VALUES (?, ?, 'directory', ?, 'mirror', 'active')
+         ON CONFLICT(workspace_id, source_id) DO UPDATE SET target_base_path = excluded.target_base_path
+           WHERE documentation_sources.storage_mode = 'mirror'`,
+        [commit.source.workspaceId, commit.source.id, commit.source.targetBasePath],
+      );
+      this.#database.run(
+        `INSERT INTO pending_documentation_syncs (workspace_id, source_id, commit_json, prepared_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(workspace_id, source_id) DO UPDATE SET commit_json = excluded.commit_json, prepared_at = excluded.prepared_at`,
+        [commit.source.workspaceId, commit.source.id, JSON.stringify(commit), commit.run.startedAt],
+      );
+    }).immediate();
+  }
+
+  getPendingDocumentationSync(workspaceId: string, sourceId: string): DocumentationStateCommit | undefined {
+    this.#assertRuntimeOwner();
+    const row = this.#database
+      .query<{ commit_json: string }, [string, string]>(
+        "SELECT commit_json FROM pending_documentation_syncs WHERE workspace_id = ? AND source_id = ?",
+      )
+      .get(workspaceId, sourceId);
+    if (row === null) return undefined;
+    try {
+      return JSON.parse(row.commit_json) as DocumentationStateCommit;
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Pending documentation sync journal is invalid JSON.");
+    }
+  }
+
   commitDocumentationSync(commit: DocumentationStateCommit): void {
     this.#database.transaction(() => {
       this.#assertRuntimeOwner();
@@ -480,7 +536,76 @@ export class SqliteScopeMapStore implements ScopeMapStore {
           run.status,
         ],
       );
+      this.#database.run(
+        "DELETE FROM pending_documentation_syncs WHERE workspace_id = ? AND source_id = ?",
+        [commit.source.workspaceId, commit.source.id],
+      );
     }).immediate();
+  }
+
+  getDocumentationCutover(workspaceId: string, sourceId: string): DocumentationCutoverRecord | undefined {
+    this.#assertRuntimeOwner();
+    const row = this.#database
+      .query<
+        { cutover_id: string; workspace_id: string; source_id: string; snapshot_digest: string; document_count: number; cutover_at: string; status: "committed" | "completed"; map_revision: string | null },
+        [string, string]
+      >(
+        `SELECT cutover_id, workspace_id, source_id, snapshot_digest, document_count, cutover_at, status, map_revision
+           FROM documentation_cutovers WHERE workspace_id = ? AND source_id = ? ORDER BY cutover_at DESC LIMIT 1`,
+      )
+      .get(workspaceId, sourceId);
+    return row === null ? undefined : {
+      cutoverId: row.cutover_id,
+      workspaceId: row.workspace_id,
+      sourceId: row.source_id,
+      snapshotDigest: row.snapshot_digest,
+      documentCount: row.document_count,
+      cutoverAt: row.cutover_at,
+      status: row.status,
+      ...(row.map_revision === null ? {} : { mapRevision: row.map_revision }),
+    };
+  }
+
+  commitDocumentationCutover(record: DocumentationCutoverRecord): void {
+    this.#database.transaction(() => {
+      this.#assertRuntimeOwner();
+      const changed = this.#database.run(
+        `UPDATE documentation_sources SET storage_mode = 'managed', status = 'cutover'
+          WHERE workspace_id = ? AND source_id = ? AND storage_mode = 'mirror' AND status = 'active'`,
+        [record.workspaceId, record.sourceId],
+      );
+      if (changed.changes !== 1) {
+        throw new AbcmError("DOCUMENTATION_SOURCE_ALREADY_MANAGED", "Documentation source is not an active mirror.");
+      }
+      this.#database.run(
+        "UPDATE document_provenance SET active = 0, last_synchronized_at = ? WHERE workspace_id = ? AND source_id = ? AND active = 1",
+        [record.cutoverAt, record.workspaceId, record.sourceId],
+      );
+      this.#database.run(
+        `INSERT INTO documentation_cutovers
+          (cutover_id, workspace_id, source_id, snapshot_digest, document_count, cutover_at, status, map_revision)
+         VALUES (?, ?, ?, ?, ?, ?, 'committed', NULL)`,
+        [record.cutoverId, record.workspaceId, record.sourceId, record.snapshotDigest, record.documentCount, record.cutoverAt],
+      );
+    }).immediate();
+  }
+
+  completeDocumentationCutover(_workspaceId: string, cutoverId: string, mapRevision: string): DocumentationCutoverRecord {
+    this.#database.transaction(() => {
+      this.#assertRuntimeOwner();
+      const changed = this.#database.run(
+        "UPDATE documentation_cutovers SET status = 'completed', map_revision = ? WHERE cutover_id = ?",
+        [mapRevision, cutoverId],
+      );
+      if (changed.changes !== 1) throw new AbcmError("DERIVED_STORE_CORRUPT", "Documentation cutover record is missing.");
+    }).immediate();
+    const row = this.#database
+      .query<{ workspace_id: string; source_id: string }, [string]>(
+        "SELECT workspace_id, source_id FROM documentation_cutovers WHERE cutover_id = ?",
+      )
+      .get(cutoverId);
+    if (row === null) throw new AbcmError("DERIVED_STORE_CORRUPT", "Documentation cutover record is missing.");
+    return this.getDocumentationCutover(row.workspace_id, row.source_id)!;
   }
 
   close(): void {
@@ -802,6 +927,27 @@ export class SqliteScopeMapStore implements ScopeMapStore {
           }
           this.#persistNormalizedGraph(row.workspace_id, revision);
         }
+      }
+      if (currentVersion < 6) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS pending_documentation_syncs (
+          workspace_id TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          commit_json TEXT NOT NULL,
+          prepared_at TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, source_id),
+          FOREIGN KEY (workspace_id, source_id) REFERENCES documentation_sources(workspace_id, source_id)
+        )`);
+        this.#database.run(`CREATE TABLE IF NOT EXISTS documentation_cutovers (
+          cutover_id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          snapshot_digest TEXT NOT NULL,
+          document_count INTEGER NOT NULL,
+          cutover_at TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('committed', 'completed')),
+          map_revision TEXT,
+          FOREIGN KEY (workspace_id, source_id) REFERENCES documentation_sources(workspace_id, source_id)
+        )`);
       }
       this.#database.run(
         `INSERT INTO schema_metadata (key, value) VALUES ('schema_version', ?)

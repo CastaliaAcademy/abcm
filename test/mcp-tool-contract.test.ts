@@ -66,6 +66,7 @@ describe("MCP tool contract", () => {
         "documentation_source.preview",
         "documentation_source.apply",
         "documentation_source.sync",
+        "documentation_source.cutover",
       ]);
       for (const tool of listed.tools) {
         expect(tool.inputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));

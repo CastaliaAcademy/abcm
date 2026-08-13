@@ -1,0 +1,35 @@
+extension:
+  id: documentation-cutover-recovery
+  version: 0.1.0
+  baseSpecVersion: 0.5.0
+  status: approved-for-beta
+
+requirements:
+  DCR-001:
+    statement: Cutover requires literal operator approval and the checksum digest of a reviewed source snapshot.
+  DCR-002:
+    statement: Cutover performs a final one-way sync and rejects any source change, unresolved conflict, incomplete provenance, or source/target checksum mismatch.
+  DCR-003:
+    statement: SQLite atomically changes the DocumentationSource to managed/cutover, deactivates all active provenance, and persists a committed cutover record.
+  DCR-004:
+    statement: The next ScopeMap publishes the selected documents as managed and completion pins that map revision to the cutover record.
+  DCR-005:
+    statement: A committed cutover whose map publication failed is resumed idempotently without requiring the former source directory.
+  DCR-006:
+    statement: After cutover, general workspace mutations are allowed and source deletion or sync cannot alter managed target bytes.
+  DCR-007:
+    statement: Before a multi-file sync mutates the filesystem, the store persists a body-free pending commit journal containing checksums and metadata effects.
+  DCR-008:
+    statement: A later preview or sync resumes a pending filesystem/metadata transition from unchanged source bytes, commits metadata once, and rebuilds ScopeMap.
+  DCR-009:
+    statement: Divergence from a pending journal fails closed with DOCUMENTATION_RECOVERY_REQUIRED and does not overwrite the divergent target.
+  DCR-010:
+    statement: SQLite schema v6 migrates transactionally from v1 through v5 and stores no document bodies in sync or cutover journals.
+  DCR-011:
+    statement: REST and MCP expose the same documentation_source.cutover application use case and strict request/result schemas.
+
+errors:
+  CUTOVER_APPROVAL_REQUIRED: 403
+  CUTOVER_CHECKSUM_MISMATCH: 409
+  DOCUMENTATION_SOURCE_ALREADY_MANAGED: 409
+  DOCUMENTATION_RECOVERY_REQUIRED: 409

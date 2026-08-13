@@ -34,7 +34,7 @@ describe("documentation sync REST contract", () => {
         body: JSON.stringify({ sourceId: "obsidian" }),
       });
       expect(previewResponse.status).toBe(200);
-      const preview = (await previewResponse.json()) as { importId: string; operations: unknown[] };
+      const preview = (await previewResponse.json()) as { importId: string; snapshotDigest: string; operations: unknown[] };
       expect(preview.operations).toHaveLength(1);
 
       const apply = await call(`/v1/documentation-imports/${preview.importId}/apply`, { method: "POST" });
@@ -63,6 +63,20 @@ describe("documentation sync REST contract", () => {
       const sync = await call("/v1/documentation-sources/obsidian/sync", { method: "POST" });
       expect(sync.status).toBe(200);
       expect(await sync.json()).toEqual(expect.objectContaining({ status: "succeeded" }));
+
+      const cutover = await call("/v1/documentation-sources/obsidian/cutover", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ operatorApproved: true, expectedSnapshotDigest: preview.snapshotDigest }),
+      });
+      expect(cutover.status).toBe(200);
+      expect(await cutover.json()).toEqual(expect.objectContaining({ status: "completed", storageMode: "managed" }));
+
+      const managedWrite = await call("/v1/workspaces/test/files/content?path=artifacts%2Fnotes%2Fnote.md", {
+        method: "PUT",
+        body: "managed",
+      });
+      expect(managedWrite.status).toBe(200);
 
       const unknown = await call("/v1/workspaces/test/documentation-sources/preview", {
         method: "POST",

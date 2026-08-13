@@ -11,6 +11,8 @@ import type {
   DirectoryDocumentationSourceDefinition,
   DocumentationImportOperation,
   DocumentationImportPlan,
+  DocumentationCutoverResult,
+  DocumentationCutoverRecord,
   DocumentationStateStore,
   DocumentationSyncResult,
   DocumentProvenanceRecord,
@@ -140,11 +142,15 @@ export class DirectoryDocumentationSyncService {
 
   async preview(workspaceId: string, sourceId: string, signal?: AbortSignal): Promise<DocumentationImportPlan> {
     throwIfAborted(signal);
+    if (this.#state.getDocumentationSource(workspaceId, sourceId)?.storageMode === "managed") {
+      throw new AbcmError("DOCUMENTATION_SOURCE_ALREADY_MANAGED", "Documentation source has already cut over to managed storage.");
+    }
     const source = await this.#source(sourceId, signal);
     if (source.workspaceId !== workspaceId) {
       throw new AbcmError("SOURCE_CONNECTOR_UNAVAILABLE", `Documentation source '${sourceId}' is not configured for workspace '${workspaceId}'.`);
     }
     const snapshot = await this.#snapshot(source, signal);
+    await this.#recoverPending(source, snapshot);
     const provenance = this.#state.listDocumentProvenance(workspaceId, sourceId);
     const activeBySourcePath = new Map(provenance.filter(record => record.active).map(record => [record.sourcePath, record]));
     const sourcePaths = new Set(snapshot.map(file => file.sourcePath));
@@ -364,6 +370,68 @@ export class DirectoryDocumentationSyncService {
       let moved = 0;
       let deleted = 0;
       for (const operation of plan.operations) {
+        const file = sourceFiles.get(operation.sourcePath);
+        const synchronizedAt = this.#clock().toISOString();
+        if (operation.operation === "create" || operation.operation === "update" || operation.operation === "unchanged" || operation.operation === "move") {
+          if (file === undefined) throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Planned source file disappeared.");
+          upserts.push({
+            workspaceId: plan.workspaceId,
+            sourceId: plan.sourceId,
+            sourcePath: operation.sourcePath,
+            targetPath: operation.targetPath,
+            sourceChecksum: file.checksum,
+            targetChecksum: file.checksum,
+            lastSynchronizedAt: synchronizedAt,
+            active: true,
+          });
+          if (operation.operation === "create") created++;
+          else if (operation.operation === "update") updated++;
+          else if (operation.operation === "move") {
+            if (operation.previousSourcePath === undefined) throw new Error("Move source is unavailable.");
+            retirements.push({
+              workspaceId: plan.workspaceId,
+              sourceId: plan.sourceId,
+              sourcePath: operation.previousSourcePath,
+              lastSynchronizedAt: synchronizedAt,
+            });
+            moved++;
+          }
+        } else if (operation.operation === "delete") {
+          if (operation.targetChecksum === undefined) throw new Error("Delete checksum is unavailable.");
+          deletions.push({
+            resourceId: randomUUID(),
+            workspaceId: plan.workspaceId,
+            sourceId: plan.sourceId,
+            formerPath: operation.targetPath,
+            checksum: operation.targetChecksum,
+            deletedAt: synchronizedAt,
+            reason: "canonical_source_deleted",
+          });
+          deleted++;
+        }
+      }
+      const run: SyncRunRecord = {
+        syncRunId: randomUUID(),
+        workspaceId: plan.workspaceId,
+        sourceId: plan.sourceId,
+        startedAt,
+        finishedAt: this.#clock().toISOString(),
+        created,
+        updated,
+        moved,
+        deleted,
+        conflicts: 0,
+        status: "succeeded",
+      };
+      const commit = {
+        source: { id: source.id, workspaceId: source.workspaceId, targetBasePath: source.targetBasePath },
+        run,
+        upserts,
+        retirements,
+        deletions,
+      };
+      this.#state.prepareDocumentationSync(commit);
+      for (const operation of plan.operations) {
         if (operation.operation === "create" || operation.operation === "update") {
           const file = sourceFiles.get(operation.sourcePath);
           if (file === undefined) throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Planned source file disappeared.");
@@ -375,19 +443,7 @@ export class DirectoryDocumentationSyncService {
                     throw new Error("Update checksum is unavailable.");
                   })()
                 : { ifMatch: operation.targetChecksum };
-          const written = await this.#files.writeMirror(plan.workspaceId, operation.targetPath, file.content, preconditions);
-          upserts.push({
-            workspaceId: plan.workspaceId,
-            sourceId: plan.sourceId,
-            sourcePath: operation.sourcePath,
-            targetPath: operation.targetPath,
-            sourceChecksum: file.checksum,
-            targetChecksum: written.checksum,
-            lastSynchronizedAt: this.#clock().toISOString(),
-            active: true,
-          });
-          if (operation.operation === "create") created++;
-          else updated++;
+          await this.#files.writeMirror(plan.workspaceId, operation.targetPath, file.content, preconditions);
         } else if (operation.operation === "move") {
           const file = sourceFiles.get(operation.sourcePath);
           if (
@@ -406,73 +462,15 @@ export class DirectoryDocumentationSyncService {
                 operation.targetPath,
                 { ifMatch: operation.targetChecksum },
               );
-          const synchronizedAt = this.#clock().toISOString();
-          retirements.push({
-            workspaceId: plan.workspaceId,
-            sourceId: plan.sourceId,
-            sourcePath: operation.previousSourcePath,
-            lastSynchronizedAt: synchronizedAt,
-          });
-          upserts.push({
-            workspaceId: plan.workspaceId,
-            sourceId: plan.sourceId,
-            sourcePath: operation.sourcePath,
-            targetPath: operation.targetPath,
-            sourceChecksum: file.checksum,
-            targetChecksum: movedEntry.checksum,
-            lastSynchronizedAt: synchronizedAt,
-            active: true,
-          });
-          moved++;
+          void movedEntry;
         } else if (operation.operation === "unchanged") {
-          const file = sourceFiles.get(operation.sourcePath);
-          if (file === undefined || operation.targetChecksum === undefined) throw new Error("Unchanged source is unavailable.");
-          upserts.push({
-            workspaceId: plan.workspaceId,
-            sourceId: plan.sourceId,
-            sourcePath: operation.sourcePath,
-            targetPath: operation.targetPath,
-            sourceChecksum: file.checksum,
-            targetChecksum: operation.targetChecksum,
-            lastSynchronizedAt: this.#clock().toISOString(),
-            active: true,
-          });
+          continue;
         } else if (operation.operation === "delete") {
           if (operation.targetChecksum === undefined) throw new Error("Delete checksum is unavailable.");
           await this.#files.deleteMirror(plan.workspaceId, operation.targetPath, { ifMatch: operation.targetChecksum });
-          deletions.push({
-            resourceId: randomUUID(),
-            workspaceId: plan.workspaceId,
-            sourceId: plan.sourceId,
-            formerPath: operation.targetPath,
-            checksum: operation.targetChecksum,
-            deletedAt: this.#clock().toISOString(),
-            reason: "canonical_source_deleted",
-          });
-          deleted++;
         }
       }
-
-      const run: SyncRunRecord = {
-        syncRunId: randomUUID(),
-        workspaceId: plan.workspaceId,
-        sourceId: plan.sourceId,
-        startedAt,
-        finishedAt: this.#clock().toISOString(),
-        created,
-        updated,
-        moved,
-        deleted,
-        conflicts: 0,
-        status: "succeeded",
-      };
-      this.#state.commitDocumentationSync({
-        source: { id: source.id, workspaceId: source.workspaceId, targetBasePath: source.targetBasePath },
-        run,
-        upserts,
-        retirements,
-        deletions,
-      });
+      this.#state.commitDocumentationSync(commit);
       this.#plans.delete(importId);
       const revision = await this.#scopeMap.scan(plan.workspaceId);
       return { ...run, mapRevision: revision.revision };
@@ -482,8 +480,138 @@ export class DirectoryDocumentationSyncService {
   }
 
   async sync(sourceId: string, signal?: AbortSignal): Promise<DocumentationSyncResult> {
+    const configured = this.#sources.get(sourceId);
+    if (configured !== undefined && this.#state.getDocumentationSource(configured.workspaceId, sourceId)?.storageMode === "managed") {
+      throw new AbcmError("DOCUMENTATION_SOURCE_ALREADY_MANAGED", "Documentation source has already cut over to managed storage.");
+    }
     const source = await this.#source(sourceId, signal);
     return this.apply((await this.preview(source.workspaceId, sourceId, signal)).importId, signal);
+  }
+
+  async cutover(
+    sourceId: string,
+    input: { operatorApproved: true; expectedSnapshotDigest: string },
+    signal?: AbortSignal,
+  ): Promise<DocumentationCutoverResult> {
+    throwIfAborted(signal);
+    if (input.operatorApproved !== true) {
+      throw new AbcmError("CUTOVER_APPROVAL_REQUIRED", "Documentation cutover requires explicit operator approval.");
+    }
+    const configured = this.#sources.get(sourceId);
+    if (configured === undefined) throw new AbcmError("SOURCE_CONNECTOR_UNAVAILABLE", `Documentation source '${sourceId}' is unavailable.`);
+    const existing = this.#state.getDocumentationCutover(configured.workspaceId, sourceId);
+    if (existing?.status === "completed") return { ...existing, storageMode: "managed" };
+    if (existing?.status === "committed") {
+      const revision = await this.#scopeMap.scan(configured.workspaceId, signal);
+      const completed = this.#state.completeDocumentationCutover(configured.workspaceId, existing.cutoverId, revision.revision);
+      return { ...completed, storageMode: "managed" };
+    }
+    const source = await this.#source(sourceId, signal);
+    const state = this.#state.getDocumentationSource(source.workspaceId, sourceId);
+    if (state?.storageMode === "managed") {
+      throw new AbcmError("DOCUMENTATION_SOURCE_ALREADY_MANAGED", "Documentation source has already cut over to managed storage.");
+    }
+    await this.sync(sourceId, signal);
+    const snapshot = await this.#snapshot(source, signal);
+    const snapshotDigest = this.#snapshotDigest(snapshot);
+    if (snapshotDigest !== input.expectedSnapshotDigest) {
+      throw new AbcmError("CUTOVER_CHECKSUM_MISMATCH", "Documentation source changed after operator approval.", {
+        expectedSnapshotDigest: input.expectedSnapshotDigest,
+        actualSnapshotDigest: snapshotDigest,
+      });
+    }
+    const sourceFiles = new Map(snapshot.map(file => [file.sourcePath, file]));
+    const provenance = this.#state.listDocumentProvenance(source.workspaceId, sourceId).filter(record => record.active);
+    for (const record of provenance) {
+      const external = sourceFiles.get(record.sourcePath);
+      const target = await this.#readTarget(source.workspaceId, record.targetPath, signal);
+      if (
+        external?.checksum !== record.sourceChecksum ||
+        target?.checksum !== record.targetChecksum ||
+        external.checksum !== target.checksum
+      ) {
+        throw new AbcmError("CUTOVER_CHECKSUM_MISMATCH", "Source and mirror checksums do not match for cutover.", {
+          sourcePath: record.sourcePath,
+          targetPath: record.targetPath,
+        });
+      }
+    }
+    if (provenance.length !== snapshot.length) {
+      throw new AbcmError("CUTOVER_CHECKSUM_MISMATCH", "Cutover selection does not match active mirror provenance.");
+    }
+    throwIfAborted(signal);
+    const record: DocumentationCutoverRecord = {
+      cutoverId: randomUUID(),
+      workspaceId: source.workspaceId,
+      sourceId,
+      snapshotDigest,
+      documentCount: provenance.length,
+      cutoverAt: this.#clock().toISOString(),
+      status: "committed",
+    };
+    this.#state.commitDocumentationCutover(record);
+    const revision = await this.#scopeMap.scan(source.workspaceId);
+    const completed = this.#state.completeDocumentationCutover(source.workspaceId, record.cutoverId, revision.revision);
+    return { ...completed, storageMode: "managed" };
+  }
+
+  async #recoverPending(source: ResolvedSource, snapshot: readonly SourceFile[]): Promise<void> {
+    const pending = this.#state.getPendingDocumentationSync(source.workspaceId, source.id);
+    if (pending === undefined) return;
+    const sourceFiles = new Map(snapshot.map(file => [file.sourcePath, file]));
+    const active = new Map(
+      this.#state
+        .listDocumentProvenance(source.workspaceId, source.id)
+        .filter(record => record.active)
+        .map(record => [record.sourcePath, record]),
+    );
+    try {
+      for (const record of pending.upserts) {
+        const sourceFile = sourceFiles.get(record.sourcePath);
+        if (sourceFile?.checksum !== record.sourceChecksum) {
+          throw new AbcmError("DOCUMENTATION_RECOVERY_REQUIRED", "Pending sync source bytes no longer match the journal.", {
+            sourcePath: record.sourcePath,
+          });
+        }
+        const current = await this.#readTarget(record.workspaceId, record.targetPath);
+        if (current === undefined) {
+          await this.#files.writeMirror(record.workspaceId, record.targetPath, sourceFile.content, { ifNoneMatch: "*" });
+        } else if (current.checksum !== record.targetChecksum) {
+          throw new AbcmError("DOCUMENTATION_RECOVERY_REQUIRED", "Pending sync target bytes diverged from the journal.", {
+            targetPath: record.targetPath,
+          });
+        }
+      }
+      for (const retirement of pending.retirements ?? []) {
+        const previous = active.get(retirement.sourcePath);
+        if (previous === undefined || pending.upserts.some(record => record.targetPath === previous.targetPath)) continue;
+        const current = await this.#readTarget(previous.workspaceId, previous.targetPath);
+        if (current === undefined) continue;
+        if (current.checksum !== previous.targetChecksum) {
+          throw new AbcmError("DOCUMENTATION_RECOVERY_REQUIRED", "Pending move source diverged from the journal.", {
+            targetPath: previous.targetPath,
+          });
+        }
+        await this.#files.deleteMirror(previous.workspaceId, previous.targetPath, { ifMatch: previous.targetChecksum });
+      }
+      for (const tombstone of pending.deletions) {
+        const current = await this.#readTarget(tombstone.workspaceId, tombstone.formerPath);
+        if (current === undefined) continue;
+        if (current.checksum !== tombstone.checksum) {
+          throw new AbcmError("DOCUMENTATION_RECOVERY_REQUIRED", "Pending deletion target diverged from the journal.", {
+            targetPath: tombstone.formerPath,
+          });
+        }
+        await this.#files.deleteMirror(tombstone.workspaceId, tombstone.formerPath, { ifMatch: tombstone.checksum });
+      }
+      this.#state.commitDocumentationSync(pending);
+      await this.#scopeMap.scan(source.workspaceId);
+    } catch (error) {
+      if (error instanceof AbcmError && error.code === "DOCUMENTATION_RECOVERY_REQUIRED") throw error;
+      throw new AbcmError("DOCUMENTATION_RECOVERY_REQUIRED", "Pending documentation sync could not be recovered.", {
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async authorizeMutation(workspaceId: string, paths: readonly string[]): Promise<void> {

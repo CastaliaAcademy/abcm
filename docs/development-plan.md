@@ -190,7 +190,8 @@ REST handlers ----------/          |                    |
 - PLAN-0021 завершает M9: protected-request rate limiting, bounded streaming bodies, deployment deadline/client cancellation до application commit boundaries, стабильные 429/499/504 problems и validated runtime/env settings.
 - M3-M9 закрыты на alpha-контракте.
 - PLAN-0022 добавляет deterministic include/exclude/mapping rules, pre-mutation ambiguity conflicts и checksum/provenance identity-preserving mirror moves без tombstone.
-- M10 остаётся незавершённым до managed cutover и fault-injection recovery между filesystem и metadata phases.
+- PLAN-0023 завершает M10: operator-approved checksum-pinned final sync, SQLite v6 atomic mirror→managed cutover, managed MapRevision и durable body-free recovery journals между filesystem/metadata/publication phases.
+- M3-M10 закрыты; Obsidian готов для mounted folder и private REST plugin, включая irreversible managed cutover.
 
 ## 5. Риски и открытые решения до M1
 

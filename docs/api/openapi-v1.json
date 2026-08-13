@@ -1133,6 +1133,83 @@
           }
         }
       }
+    },
+    "/v1/documentation-sources/{sourceId}/cutover": {
+      "post": {
+        "operationId": "cutoverDocumentationSource",
+        "parameters": [
+          {
+            "name": "sourceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentationCutoverRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Documentation cutover result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentationCutoverResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "401": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "403": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "404": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "409": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "412": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "413": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "415": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "500": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "503": {
+            "$ref": "#/components/responses/Problem"
+          },
+          "504": {
+            "$ref": "#/components/responses/Problem"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1909,6 +1986,76 @@
           "conflicts",
           "status",
           "mapRevision"
+        ],
+        "additionalProperties": false
+      },
+      "DocumentationCutoverRequest": {
+        "type": "object",
+        "properties": {
+          "operatorApproved": {
+            "type": "boolean",
+            "const": true
+          },
+          "expectedSnapshotDigest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "operatorApproved",
+          "expectedSnapshotDigest"
+        ],
+        "additionalProperties": false
+      },
+      "DocumentationCutoverResult": {
+        "type": "object",
+        "properties": {
+          "cutoverId": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          },
+          "snapshotDigest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "documentCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "cutoverAt": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "committed",
+              "completed"
+            ]
+          },
+          "mapRevision": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "storageMode": {
+            "type": "string",
+            "const": "managed"
+          }
+        },
+        "required": [
+          "cutoverId",
+          "sourceId",
+          "workspaceId",
+          "snapshotDigest",
+          "documentCount",
+          "cutoverAt",
+          "status",
+          "storageMode"
         ],
         "additionalProperties": false
       },

@@ -25,6 +25,7 @@ describe("OpenAPI contract", () => {
       "buildTaskContext",
       "createDirectory",
       "createWorkspace",
+      "cutoverDocumentationSource",
       "deleteFile",
       "getDomainLanguage",
       "getOpenApiDocument",
@@ -43,6 +44,7 @@ describe("OpenAPI contract", () => {
       DomainLanguageRequest: expect.objectContaining({ additionalProperties: false }),
       BuildTaskContextRequest: expect.objectContaining({ additionalProperties: false }),
       DocumentationPreviewRequest: expect.objectContaining({ additionalProperties: false }),
+      DocumentationCutoverRequest: expect.objectContaining({ additionalProperties: false }),
       Problem: expect.objectContaining({ additionalProperties: false }),
     }));
   });

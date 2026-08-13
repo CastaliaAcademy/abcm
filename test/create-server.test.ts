@@ -15,7 +15,7 @@ describe("ABCM MCP server library", () => {
       version: "0.1.0-alpha.1",
     });
     expect(ABCM_SPEC_VERSION).toBe("0.5.0");
-    expect(Object.keys(ABCM_MCP_TOOL_SCHEMAS)).toHaveLength(12);
+    expect(Object.keys(ABCM_MCP_TOOL_SCHEMAS)).toHaveLength(13);
   });
 
   test("creates an unconnected MCP server", () => {

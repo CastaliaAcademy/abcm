@@ -10,7 +10,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 - safe, atomic workspace file list/read/write/delete/move/directory operations;
 - server-owned workspace registration below a configured managed store, including restart discovery;
 - opt-in rebuildable SQLite persistence for ScopeMap revisions, leases, atomic publication, and metadata-only file/document/executable-resource indexes;
-- one-way Markdown mirroring from server-configured local or mounted network directories, with preview/apply/sync, provenance, tombstones, and read-only mirror protection;
+- one-way Markdown mirroring from server-configured local or mounted network directories, with mapping, preview/apply/sync, provenance, identity-preserving moves, tombstones, read-only protection, and operator-approved managed cutover;
 - runtime-owned periodic full ScopeMap reconciliation, per-workspace scan serialization, and debounced mutation rebuilds for missed network-filesystem events;
 - REST access with ETags, stable problem responses, and static Bearer authentication;
 - process-local REST rate limiting, bounded streamed request bodies, and cooperative request deadlines/cancellation;
@@ -75,7 +75,7 @@ Directory sources require SQLite persistence and are configured only by the depl
 
 ## Alpha boundaries
 
-Scope-map revisions and MAP-P4 metadata indexes can be persisted in rebuildable SQLite when explicitly enabled. DomainLanguageBootstrap is currently in-memory and deployment-principal-bound; ContextBundle fingerprints are atomically persisted as derived metadata under `.abcm` but are not yet catalogued in SQLite. Managed-storage documentation cutover, external identity providers, durable bootstrap/audit records, executable-resource activation, and automatic documentation watchers remain later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
+Scope-map revisions and MAP-P4 metadata indexes can be persisted in rebuildable SQLite when explicitly enabled. DomainLanguageBootstrap is currently in-memory and deployment-principal-bound; ContextBundle fingerprints are atomically persisted as derived metadata under `.abcm` but are not yet catalogued in SQLite. External identity providers, durable bootstrap/audit records, executable-resource activation, and automatic documentation watchers remain later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
 
 ## License
 

@@ -49,6 +49,29 @@ export interface DocumentationSyncResult {
   mapRevision: string;
 }
 
+export interface DocumentationCutoverRecord {
+  cutoverId: string;
+  workspaceId: string;
+  sourceId: string;
+  snapshotDigest: string;
+  documentCount: number;
+  cutoverAt: string;
+  status: "committed" | "completed";
+  mapRevision?: string;
+}
+
+export interface DocumentationCutoverResult extends DocumentationCutoverRecord {
+  storageMode: "managed";
+}
+
+export interface DocumentationSourceState {
+  workspaceId: string;
+  sourceId: string;
+  targetBasePath: string;
+  storageMode: "mirror" | "managed";
+  status: "active" | "cutover";
+}
+
 export interface DocumentProvenanceRecord {
   workspaceId: string;
   sourceId: string;
@@ -102,5 +125,11 @@ export interface DocumentationStateStore {
   listDocumentProvenance(workspaceId: string, sourceId: string): DocumentProvenanceRecord[];
   listTombstones(workspaceId: string, sourceId: string): TombstoneRecord[];
   listSyncRuns(workspaceId: string, sourceId: string): SyncRunRecord[];
+  getDocumentationSource(workspaceId: string, sourceId: string): DocumentationSourceState | undefined;
+  prepareDocumentationSync(commit: DocumentationStateCommit): void;
+  getPendingDocumentationSync(workspaceId: string, sourceId: string): DocumentationStateCommit | undefined;
   commitDocumentationSync(commit: DocumentationStateCommit): void;
+  getDocumentationCutover(workspaceId: string, sourceId: string): DocumentationCutoverRecord | undefined;
+  commitDocumentationCutover(record: DocumentationCutoverRecord): void;
+  completeDocumentationCutover(workspaceId: string, cutoverId: string, mapRevision: string): DocumentationCutoverRecord;
 }

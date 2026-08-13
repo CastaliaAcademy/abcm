@@ -170,6 +170,11 @@ export const documentationPreviewOutputSchema = z.object({
 
 export const documentationApplyInputSchema = z.object({ importId: z.string().min(1) }).strict();
 export const documentationSyncInputSchema = z.object({ sourceId: z.string().min(1) }).strict();
+export const documentationCutoverInputSchema = z.object({
+  sourceId: z.string().min(1),
+  operatorApproved: z.literal(true),
+  expectedSnapshotDigest: checksum,
+}).strict();
 export const documentationSyncOutputSchema = z.object({
   syncRunId: z.string(),
   sourceId: z.string(),
@@ -183,6 +188,17 @@ export const documentationSyncOutputSchema = z.object({
   conflicts: z.number().int().nonnegative(),
   status: z.literal("succeeded"),
   mapRevision: checksum,
+}).strict();
+export const documentationCutoverOutputSchema = z.object({
+  cutoverId: z.string(),
+  sourceId: z.string(),
+  workspaceId: z.string(),
+  snapshotDigest: checksum,
+  documentCount: z.number().int().nonnegative(),
+  cutoverAt: z.string(),
+  status: z.enum(["committed", "completed"]),
+  mapRevision: checksum.optional(),
+  storageMode: z.literal("managed"),
 }).strict();
 
 export const ABCM_MCP_TOOL_SCHEMAS = {
@@ -198,4 +214,5 @@ export const ABCM_MCP_TOOL_SCHEMAS = {
   "documentation_source.preview": { input: documentationPreviewInputSchema, output: documentationPreviewOutputSchema },
   "documentation_source.apply": { input: documentationApplyInputSchema, output: documentationSyncOutputSchema },
   "documentation_source.sync": { input: documentationSyncInputSchema, output: documentationSyncOutputSchema },
+  "documentation_source.cutover": { input: documentationCutoverInputSchema, output: documentationCutoverOutputSchema },
 } as const;

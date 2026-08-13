@@ -77,6 +77,18 @@ curl -sS \
   http://127.0.0.1:8787/v1/documentation-sources/obsidian/sync
 ```
 
+To transfer canonical ownership into ABCM, first coordinate/freeze vault edits and review a fresh preview. Then submit its `snapshotDigest` with explicit approval:
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer $ABCM_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"operatorApproved":true,"expectedSnapshotDigest":"sha256:REVIEWED_DIGEST"}' \
+  http://127.0.0.1:8787/v1/documentation-sources/obsidian/cutover
+```
+
+Cutover performs a final sync and checksum verification, then atomically marks the copies managed. After success the vault may be unmounted or deleted without affecting ABCM, and ordinary authorized REST/MCP/filesystem edits to the managed copies are allowed. Further preview/sync calls fail with `DOCUMENTATION_SOURCE_ALREADY_MANAGED`. Repeating cutover returns the recorded result and completes any interrupted MapRevision publication.
+
 If either the source snapshot or a mirrored target changes after preview, apply fails rather than overwriting. A unique checksum/provenance source rename moves the mirror while retaining its frontmatter document identity and creates no tombstone. Deleting a canonical Markdown file removes its active mirror and retains inactive provenance plus a tombstone. Direct REST/MCP write, delete, or move operations against active mirrors fail with `MIRROR_DOCUMENT_READ_ONLY`.
 
 ## Plugin contract
@@ -88,5 +100,6 @@ An Obsidian plugin needs only the ABCM base URL, bearer token, configured `sourc
 3. call apply with the returned `importId`;
 4. use `sync` only for subsequent user-triggered refreshes;
 5. treat `DOCUMENTATION_IMPORT_STALE` and `SOURCE_TARGET_CONFLICT` as requests to refresh preview.
+6. expose cutover only as a separately confirmed operator action and pin the displayed preview digest.
 
 For remote access, use the same approved HTTPS tunnel as MCP. Do not embed a long-lived production token in a public plugin build.

@@ -23,6 +23,8 @@ import {
   documentationApplyInputSchema,
   documentationPreviewInputSchema,
   documentationPreviewOutputSchema,
+  documentationCutoverInputSchema,
+  documentationCutoverOutputSchema,
   documentationSyncInputSchema,
   documentationSyncOutputSchema,
   domainLanguageInputSchema,
@@ -291,6 +293,21 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         outputSchema: documentationSyncOutputSchema,
       },
       async (input, context) => toolResult(async signal => ({ ...(await dependencies.documentation!.sync(input.sourceId, signal)) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "documentation_source.cutover",
+      {
+        title: "Cut over documentation source to managed storage",
+        description: "Run a final sync and atomically disable mirror ownership after operator-approved checksum validation.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+        inputSchema: documentationCutoverInputSchema,
+        outputSchema: documentationCutoverOutputSchema,
+      },
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.documentation!.cutover(
+        input.sourceId,
+        { operatorApproved: input.operatorApproved, expectedSnapshotDigest: input.expectedSnapshotDigest },
+        signal,
+      )) }), context.mcpReq.signal, operationTimeoutMs),
     );
   }
   const resources = new McpResourceCatalog({
