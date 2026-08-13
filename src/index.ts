@@ -1,4 +1,11 @@
 export { createAbcmRuntime } from "./app/create-runtime.js";
+export {
+  ABCM_AGENT_INSTRUCTIONS,
+  ABCM_AGENT_INSTRUCTIONS_CHECKSUM,
+  ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE,
+  ABCM_AGENT_INSTRUCTIONS_VERSION,
+  getAbcmAgentInstructions,
+} from "./agent-instructions/agent-instructions.js";
 export { ContextBuilder } from "./context/context-builder.js";
 export { DirectoryContextFingerprintStore } from "./context/directory-context-fingerprint-store.js";
 export { emitAudit, emitMetric, InMemoryAbcmObservability, observeOperation } from "./core/observability.js";

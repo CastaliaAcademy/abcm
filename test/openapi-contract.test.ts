@@ -22,6 +22,7 @@ describe("OpenAPI contract", () => {
       "createWorkspace",
       "cutoverDocumentationSource",
       "deleteFile",
+      "getAgentInstructions",
       "getDomainLanguage",
       "getOpenApiDocument",
       "getScopeMap",

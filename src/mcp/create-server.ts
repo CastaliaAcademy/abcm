@@ -1,5 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 
+import { getAbcmAgentInstructions } from "../agent-instructions/agent-instructions.js";
+
 import { AbcmError } from "../core/errors.js";
 import { createOperationDeadline } from "../core/operation.js";
 import { normalizeBuildTaskContextInput } from "../context/schema.js";
@@ -18,6 +20,8 @@ import type { ScopeMapAccess } from "../scope-map/types.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
 import { McpResourceCatalog, toMcpProtocolError } from "./resource-catalog.js";
 import {
+  agentInstructionsInputSchema,
+  agentInstructionsOutputSchema,
   contextBuildInputSchema,
   contextBuildOutputSchema,
   documentationApplyInputSchema,
@@ -115,8 +119,19 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         },
       },
     },
-    instructions: "Use context.get_domain_language before resolving a task path, then context.build_task_context for bounded task context.",
+    instructions: "Call agent_instructions.get first. Then use context.get_domain_language before resolving a task path and context.build_task_context for bounded task context.",
   });
+  server.registerTool(
+    "agent_instructions.get",
+    {
+      title: "Get ABCM agent instructions",
+      description: "Read the complete self-contained setup and operating guide for ABCM. Call this before every other ABCM capability when the server version is unknown or changed.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
+      inputSchema: agentInstructionsInputSchema,
+      outputSchema: agentInstructionsOutputSchema,
+    },
+    async (_input, context) => toolResult(async () => getAbcmAgentInstructions(), context.mcpReq.signal, operationTimeoutMs),
+  );
   if (!dependencies) return server;
   server.registerTool(
     "workspace.list_files",

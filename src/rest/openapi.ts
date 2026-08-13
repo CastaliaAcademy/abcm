@@ -65,6 +65,16 @@ export function createAbcmOpenApiDocument(): JsonObject {
           responses: { "200": response("OpenAPI 3.1 contract", { type: "object" }) },
         },
       },
+      "/v1/agent-instructions": {
+        get: {
+          operationId: "getAgentInstructions",
+          description: "Complete self-contained setup and operating guide that an agent must read before using ABCM.",
+          responses: {
+            "200": response("Canonical ABCM agent instructions", { type: "string" }, "text/markdown"),
+            ...problemResponses,
+          },
+        },
+      },
       "/v1/workspaces": {
         post: {
           operationId: "createWorkspace",

@@ -1,5 +1,7 @@
 import { z } from "zod/v4";
 
+import { getAbcmAgentInstructions } from "../agent-instructions/agent-instructions.js";
+
 import { AbcmError } from "../core/errors.js";
 import { createOperationDeadline, throwIfAborted, type OperationDeadline } from "../core/operation.js";
 import { normalizeBuildTaskContextInput } from "../context/schema.js";
@@ -188,6 +190,16 @@ export function createAbcmRestHandler(
       throwIfAborted(signal);
       if (request.method === "GET" && url.pathname === "/openapi.json") {
         return json(createAbcmOpenApiDocument());
+      }
+      if (request.method === "GET" && url.pathname === "/v1/agent-instructions") {
+        const instructions = getAbcmAgentInstructions();
+        return new Response(instructions.content, {
+          headers: {
+            "content-type": instructions.contentType,
+            etag: `"${instructions.checksum}"`,
+            "x-abcm-agent-instructions-version": instructions.version,
+          },
+        });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/workspaces") {

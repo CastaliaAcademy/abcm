@@ -2,6 +2,14 @@ import { z } from "zod/v4";
 
 import { buildTaskContextSchema } from "../context/schema.js";
 
+export const agentInstructionsInputSchema = z.object({}).strict();
+export const agentInstructionsOutputSchema = z.object({
+  version: z.literal("1.0.0"),
+  contentType: z.literal("text/markdown; charset=utf-8"),
+  checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  content: z.string().min(1),
+}).strict();
+
 const workspaceId = z.string().min(1);
 const path = z.string();
 const checksum = z.string().regex(/^sha256:[a-f0-9]{64}$/);
@@ -202,6 +210,7 @@ export const documentationCutoverOutputSchema = z.object({
 }).strict();
 
 export const ABCM_MCP_TOOL_SCHEMAS = {
+  "agent_instructions.get": { input: agentInstructionsInputSchema, output: agentInstructionsOutputSchema },
   "workspace.list_files": { input: workspaceListFilesInputSchema, output: workspaceListFilesOutputSchema },
   "workspace.read_file": { input: workspaceReadFileInputSchema, output: workspaceReadFileOutputSchema },
   "workspace.write_file": { input: workspaceWriteFileInputSchema, output: workspaceWriteFileOutputSchema },

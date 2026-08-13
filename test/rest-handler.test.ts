@@ -8,6 +8,7 @@ import { ScopeMapService } from "../src/scope-map/scope-map-service.js";
 import { WorkspaceFileService } from "../src/workspace/file-service.js";
 import { WorkspaceProvisioningService } from "../src/workspace/provisioning-service.js";
 import { WorkspaceRegistry } from "../src/workspace/registry.js";
+import { getAbcmAgentInstructions } from "../src/agent-instructions/agent-instructions.js";
 
 let root: string;
 let fetchHandler: (request: Request) => Promise<Response>;
@@ -34,6 +35,16 @@ async function call(path: string, init?: RequestInit) {
 }
 
 describe("ABCM REST handler", () => {
+  test("serves the canonical self-contained agent instructions", async () => {
+    const expected = getAbcmAgentInstructions();
+    const response = await call("/v1/agent-instructions");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe(expected.contentType);
+    expect(response.headers.get("etag")).toBe(`"${expected.checksum}"`);
+    expect(response.headers.get("x-abcm-agent-instructions-version")).toBe(expected.version);
+    expect(await response.text()).toBe(expected.content);
+  });
+
   test("reports managed workspace registration as disabled when no store is configured", async () => {
     const response = await call("/v1/workspaces", {
       method: "POST",

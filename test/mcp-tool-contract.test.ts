@@ -54,6 +54,7 @@ describe("MCP tool contract", () => {
         toolErrors: { encoding: "isError-json", version: "1" },
       });
       expect(listed.tools.map(tool => tool.name)).toEqual([
+        "agent_instructions.get",
         "workspace.list_files",
         "workspace.read_file",
         "workspace.write_file",
@@ -68,6 +69,13 @@ describe("MCP tool contract", () => {
         "documentation_source.sync",
         "documentation_source.cutover",
       ]);
+      const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
+      expect(instructions.structuredContent).toEqual(expect.objectContaining({
+        version: "1.0.0",
+        contentType: "text/markdown; charset=utf-8",
+        checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        content: expect.stringContaining("# ABCM agent instructions"),
+      }));
       for (const tool of listed.tools) {
         expect(tool.inputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));
         expect(tool.outputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));

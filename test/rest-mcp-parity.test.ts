@@ -44,6 +44,22 @@ function mcpErrorCode(result: { content: unknown[] }): string {
 }
 
 describe("REST and MCP semantic parity", () => {
+  test("returns identical agent instructions through REST and MCP", async () => {
+    const { runtime, server, client } = await fixture();
+    try {
+      const rest = await runtime.restHandler(new Request("http://localhost/v1/agent-instructions"));
+      const mcp = await client.callTool({ name: "agent_instructions.get", arguments: {} });
+      const body = mcp.structuredContent as { content: string; checksum: string; version: string };
+      expect(await rest.text()).toBe(body.content);
+      expect(rest.headers.get("etag")).toBe(`"${body.checksum}"`);
+      expect(rest.headers.get("x-abcm-agent-instructions-version")).toBe(body.version);
+    } finally {
+      await client.close();
+      await server.close();
+      await runtime.close();
+    }
+  });
+
   test("observes identical file bytes, metadata, map digest, and expected errors", async () => {
     const { runtime, server, client } = await fixture();
     try {
