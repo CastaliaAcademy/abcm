@@ -15,5 +15,5 @@ The default local endpoints are `http://127.0.0.1:8787` for REST and `http://127
 For Obsidian, open the managed project directory as a vault:
 
 ```text
-C:\Users\egor\Documents\Qualia\ABCM Workspaces\castalia-public\abcm
+C:\Users\egor\Documents\Qualia\castalia\документация\Castalia\public\abcm
 ```
