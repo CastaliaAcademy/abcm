@@ -25,3 +25,7 @@ Status: PASS
 - Manifest list: `sha256:02fac4942bdbd6489056be4633b25bb47104b036994d8c528e62719a50dd4210`.
 - Production `dist` smoke on a read-only workspace: first page contained 3 resources with a next cursor; `abcm://map` returned the agent projection.
 - Existing `abcm-local` and `abcm-tunnel` containers were not restarted or replaced.
+
+## Workspace documentation publication
+
+The preserved local service received six PLAN-0017 documents under `castalia-public/abcm` through authenticated REST: five creates and one checksum-protected update. Byte-for-byte verification passed and a live ScopeMap scan completed with zero diagnostics. The intentionally preserved older runtime retained legacy digest `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a`; neither running container was replaced or restarted.
