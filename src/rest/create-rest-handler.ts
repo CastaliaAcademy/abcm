@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 
 import { AbcmError } from "../core/errors.js";
+import { createOperationDeadline, throwIfAborted, type OperationDeadline } from "../core/operation.js";
 import { normalizeBuildTaskContextInput } from "../context/schema.js";
 import type { ContextBuilder } from "../context/context-builder.js";
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
@@ -18,6 +19,7 @@ import {
   workspaceRegistrationSchema,
 } from "./schemas.js";
 import { contextBuildInputSchema, domainLanguageInputSchema } from "../mcp/tool-schemas.js";
+import { resolveRestLimitOptions, type AbcmRestLimitOptions } from "./config.js";
 
 export interface AbcmRestDependencies {
   files: WorkspaceFileService;
@@ -31,12 +33,10 @@ export interface AbcmRestDependencies {
 }
 
 export interface WorkspaceRegistrationService {
-  create(input: { id: string; name?: string }): Promise<{ id: string }>;
+  create(input: { id: string; name?: string }, signal?: AbortSignal): Promise<{ id: string }>;
 }
 
-export interface AbcmRestOptions {
-  maxRequestBodyBytes?: number;
-}
+export type AbcmRestOptions = AbcmRestLimitOptions;
 
 function json(value: unknown, status = 200, headers?: HeadersInit): Response {
   return Response.json(value, headers === undefined ? { status } : { status, headers });
@@ -64,13 +64,52 @@ function requiredPath(url: URL): string {
   return path;
 }
 
-async function readJson<T>(request: Request, schema: z.ZodType<T>, maxBytes: number): Promise<T> {
+async function readBoundedBytes(request: Request, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
   const contentLength = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new AbcmError("FILE_TOO_LARGE", "Request body exceeds the configured limit.", { maxBytes });
   }
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > maxBytes) throw new AbcmError("FILE_TOO_LARGE", "Request body exceeds the configured limit.", { maxBytes });
+  throwIfAborted(signal);
+  if (request.body === null) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    throwIfAborted(signal);
+    let onAbort: (() => void) | undefined;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(signal.reason ?? new DOMException("REST request was cancelled.", "AbortError"));
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    const next = await Promise.race([reader.read(), aborted])
+      .catch(error => {
+        void reader.cancel(signal.reason).catch(() => undefined);
+        throw error;
+      })
+      .finally(() => {
+        if (onAbort !== undefined) signal.removeEventListener("abort", onAbort);
+      });
+    const { done, value } = next;
+    throwIfAborted(signal);
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      throw new AbcmError("FILE_TOO_LARGE", "Request body exceeds the configured limit.", { maxBytes });
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function readJson<T>(request: Request, schema: z.ZodType<T>, maxBytes: number, signal: AbortSignal): Promise<T> {
+  const bytes = await readBoundedBytes(request, maxBytes, signal);
   try {
     return schema.parse(JSON.parse(new TextDecoder().decode(bytes)));
   } catch (error) {
@@ -80,18 +119,9 @@ async function readJson<T>(request: Request, schema: z.ZodType<T>, maxBytes: num
   }
 }
 
-async function readBytes(request: Request, maxBytes: number): Promise<Uint8Array> {
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new AbcmError("FILE_TOO_LARGE", "Request body exceeds the configured limit.", { maxBytes });
-  }
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > maxBytes) throw new AbcmError("FILE_TOO_LARGE", "Request body exceeds the configured limit.", { maxBytes });
-  return bytes;
-}
-
 function problem(error: unknown): Response {
   if (error instanceof AbcmError) {
+    const retryAfter = error.code === "REST_RATE_LIMIT_EXCEEDED" ? error.details?.retryAfterSeconds : undefined;
     return json(
       {
         type: `https://abcm.dev/problems/${error.code}`,
@@ -102,7 +132,10 @@ function problem(error: unknown): Response {
         ...(error.details === undefined ? {} : { details: error.details }),
       },
       error.status,
-      { "content-type": "application/problem+json" },
+      {
+        "content-type": "application/problem+json",
+        ...(typeof retryAfter === "number" ? { "retry-after": String(retryAfter) } : {}),
+      },
     );
   }
   return json(
@@ -122,13 +155,36 @@ export function createAbcmRestHandler(
   dependencies: AbcmRestDependencies,
   options: AbcmRestOptions = {},
 ): (request: Request) => Promise<Response> {
-  const maxRequestBodyBytes = options.maxRequestBodyBytes ?? 1_048_576;
+  const { maxRequestBodyBytes, requestTimeoutMs, maxRequestsPerMinute } = resolveRestLimitOptions(options);
+  let rateWindowStartedAt = Date.now();
+  let requestsInWindow = 0;
   return async request => {
+    let deadline: OperationDeadline | undefined;
     try {
       const url = new URL(request.url);
       if (request.method === "GET" && url.pathname === "/health") {
         return json({ status: "ok", server: ABCM_SERVER_INFO, specificationVersion: ABCM_SPEC_VERSION });
       }
+      const now = Date.now();
+      if (now - rateWindowStartedAt >= 60_000) {
+        rateWindowStartedAt = now;
+        requestsInWindow = 0;
+      }
+      if (requestsInWindow >= maxRequestsPerMinute) {
+        const retryAfterSeconds = Math.max(1, Math.ceil((rateWindowStartedAt + 60_000 - now) / 1_000));
+        throw new AbcmError("REST_RATE_LIMIT_EXCEEDED", "REST request rate exceeds the configured limit.", {
+          maxRequestsPerMinute,
+          retryAfterSeconds,
+        });
+      }
+      requestsInWindow += 1;
+      deadline = createOperationDeadline(request.signal, requestTimeoutMs, {
+        label: "REST request",
+        timeoutCode: "REST_REQUEST_TIMEOUT",
+        cancelledCode: "REST_REQUEST_CANCELLED",
+      });
+      const signal = deadline.signal;
+      throwIfAborted(signal);
       if (request.method === "GET" && url.pathname === "/openapi.json") {
         return json(createAbcmOpenApiDocument());
       }
@@ -137,12 +193,12 @@ export function createAbcmRestHandler(
         if (dependencies.workspaces === undefined) {
           throw new AbcmError("WORKSPACE_REGISTRATION_DISABLED", "Managed workspace registration is not configured.");
         }
-        const workspace = await readJson(request, workspaceRegistrationSchema, maxRequestBodyBytes);
+        const workspace = await readJson(request, workspaceRegistrationSchema, maxRequestBodyBytes, signal);
         return json(
           await dependencies.workspaces.create({
             id: workspace.id,
             ...(workspace.name === undefined ? {} : { name: workspace.name }),
-          }),
+          }, signal),
           201,
         );
       }
@@ -151,20 +207,20 @@ export function createAbcmRestHandler(
         if (dependencies.domainLanguage === undefined || dependencies.contextPrincipal === undefined) {
           throw new AbcmError("ACCESS_DENIED", "Domain-language context access is not configured.");
         }
-        const body = await readJson(request, domainLanguageInputSchema, maxRequestBodyBytes);
+        const body = await readJson(request, domainLanguageInputSchema, maxRequestBodyBytes, signal);
         return json(await dependencies.domainLanguage.createBootstrap({
           anchor: body.anchor,
           ...(body.roleId === undefined ? {} : { roleId: body.roleId }),
           ...(body.projection === undefined ? {} : { projection: body.projection }),
-        }, dependencies.contextPrincipal));
+        }, dependencies.contextPrincipal, signal));
       }
 
       if (request.method === "POST" && url.pathname === "/v1/context/build-task-context") {
         if (dependencies.contextBuilder === undefined || dependencies.contextPrincipal === undefined) {
           throw new AbcmError("ACCESS_DENIED", "Context build access is not configured.");
         }
-        const body = await readJson(request, contextBuildInputSchema, maxRequestBodyBytes);
-        return json(await dependencies.contextBuilder.build(normalizeBuildTaskContextInput(body), dependencies.contextPrincipal));
+        const body = await readJson(request, contextBuildInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.contextBuilder.build(normalizeBuildTaskContextInput(body), dependencies.contextPrincipal, signal));
       }
 
       const documentationApply = /^\/v1\/documentation-imports\/([^/]+)\/apply$/.exec(url.pathname);
@@ -172,7 +228,7 @@ export function createAbcmRestHandler(
         if (dependencies.documentation === undefined) {
           throw new AbcmError("DOCUMENTATION_SYNC_DISABLED", "Documentation synchronization is not configured.");
         }
-        return json(await dependencies.documentation.apply(decodeURIComponent(documentationApply[1] ?? "")));
+        return json(await dependencies.documentation.apply(decodeURIComponent(documentationApply[1] ?? ""), signal));
       }
 
       const documentationSync = /^\/v1\/documentation-sources\/([^/]+)\/sync$/.exec(url.pathname);
@@ -180,7 +236,7 @@ export function createAbcmRestHandler(
         if (dependencies.documentation === undefined) {
           throw new AbcmError("DOCUMENTATION_SYNC_DISABLED", "Documentation synchronization is not configured.");
         }
-        return json(await dependencies.documentation.sync(decodeURIComponent(documentationSync[1] ?? "")));
+        return json(await dependencies.documentation.sync(decodeURIComponent(documentationSync[1] ?? ""), signal));
       }
 
       const match = /^\/v1\/workspaces\/([^/]+)(\/.*)$/.exec(url.pathname);
@@ -192,8 +248,8 @@ export function createAbcmRestHandler(
         if (dependencies.documentation === undefined) {
           throw new AbcmError("DOCUMENTATION_SYNC_DISABLED", "Documentation synchronization is not configured.");
         }
-        const body = await readJson(request, restDocumentationPreviewInputSchema, maxRequestBodyBytes);
-        return json(await dependencies.documentation.preview(workspaceId, body.sourceId));
+        const body = await readJson(request, restDocumentationPreviewInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.documentation.preview(workspaceId, body.sourceId, signal));
       }
 
       if (endpoint === "/files" && request.method === "GET") {
@@ -201,10 +257,10 @@ export function createAbcmRestHandler(
         if (recursiveValue !== "true" && recursiveValue !== "false") {
           throw new AbcmError("REQUEST_INVALID", "Query parameter 'recursive' must be true or false.");
         }
-        return json(await dependencies.files.list(workspaceId, url.searchParams.get("path") ?? "", recursiveValue === "true"));
+        return json(await dependencies.files.list(workspaceId, url.searchParams.get("path") ?? "", recursiveValue === "true", signal));
       }
       if (endpoint === "/files/content" && request.method === "GET") {
-        const result = await dependencies.files.read(workspaceId, requiredPath(url));
+        const result = await dependencies.files.read(workspaceId, requiredPath(url), signal);
         return new Response(responseBody(result.content), {
           headers: {
             "content-type": result.contentType,
@@ -226,31 +282,32 @@ export function createAbcmRestHandler(
         const entry = await dependencies.files.write(
           workspaceId,
           requiredPath(url),
-          await readBytes(request, maxRequestBodyBytes),
+          await readBoundedBytes(request, maxRequestBodyBytes, signal),
           preconditions,
+          signal,
         );
         return json(entry, 200, { etag: `"${entry.checksum}"` });
       }
       if (endpoint === "/files" && request.method === "DELETE") {
         const ifMatch = parseEtag(request.headers.get("if-match"));
-        await dependencies.files.delete(workspaceId, requiredPath(url), ifMatch === undefined || ifMatch === "*" ? {} : { ifMatch });
+        await dependencies.files.delete(workspaceId, requiredPath(url), ifMatch === undefined || ifMatch === "*" ? {} : { ifMatch }, signal);
         return new Response(null, { status: 204 });
       }
       if (endpoint === "/files/move" && request.method === "POST") {
-        const body = await readJson(request, restMoveFileInputSchema, maxRequestBodyBytes);
+        const body = await readJson(request, restMoveFileInputSchema, maxRequestBodyBytes, signal);
         return json(
           await dependencies.files.move(workspaceId, body.from, body.to, {
             ...(body.overwrite === undefined ? {} : { overwrite: body.overwrite }),
             ...(body.ifMatch === undefined ? {} : { ifMatch: body.ifMatch }),
-          }),
+          }, signal),
         );
       }
       if (endpoint === "/directories" && request.method === "POST") {
-        const body = await readJson(request, restCreateDirectoryInputSchema, maxRequestBodyBytes);
-        return json(await dependencies.files.createDirectory(workspaceId, body.path), 201);
+        const body = await readJson(request, restCreateDirectoryInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.files.createDirectory(workspaceId, body.path, signal), 201);
       }
       if (endpoint === "/scope-map/scan" && request.method === "POST") {
-        return json(dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(workspaceId)));
+        return json(dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(workspaceId, signal)));
       }
       if (endpoint === "/scope-map" && request.method === "GET") {
         const view = url.searchParams.get("view") ?? "agent";
@@ -279,7 +336,16 @@ export function createAbcmRestHandler(
       }
       return problem(new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found."));
     } catch (error) {
+      if (deadline !== undefined) {
+        try {
+          deadline.mapAbort(error);
+        } catch (mappedError) {
+          return problem(mappedError);
+        }
+      }
       return problem(error);
+    } finally {
+      deadline?.finish();
     }
   };
 }

@@ -85,6 +85,8 @@ export { createAbcmRestHandler } from "./rest/create-rest-handler.js";
 export type { AbcmRestDependencies, AbcmRestOptions } from "./rest/create-rest-handler.js";
 export { createAbcmOpenApiDocument } from "./rest/openapi.js";
 export { REST_SHARED_SCHEMAS } from "./rest/schemas.js";
+export { DEFAULT_REST_LIMITS, parseRestLimitEnvironment, resolveRestLimitOptions } from "./rest/config.js";
+export type { AbcmRestLimitOptions, ResolvedAbcmRestLimitOptions } from "./rest/config.js";
 export { requireStaticBearerToken } from "./rest/static-bearer-auth.js";
 export { ScopeMapService } from "./scope-map/scope-map-service.js";
 export {

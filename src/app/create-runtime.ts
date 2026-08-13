@@ -11,6 +11,7 @@ import { DomainLanguageService, type DomainLanguageServiceOptions } from "../dom
 import { ScopePathResolver } from "../domain-language/scope-path-resolver.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
 import { createAbcmRestHandler } from "../rest/create-rest-handler.js";
+import type { AbcmRestLimitOptions } from "../rest/config.js";
 import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
 import { ScopeMapReconcileCoordinator, type ScopeMapReconcileOptions } from "../scope-map/reconcile-coordinator.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
@@ -28,6 +29,7 @@ export interface AbcmRuntimeOptions {
   mcpAllowedHostnames?: string[];
   mcpAllowedOrigins?: string[];
   mcpOperationTimeoutMs?: number;
+  restLimits?: AbcmRestLimitOptions;
   workspaceStoreRoot?: string;
   scopeMapStore?: ScopeMapStore;
   sqliteDerivedStoreEnabled?: boolean;
@@ -93,16 +95,19 @@ export function createAbcmRuntime(
     options.workspaceStoreRoot === undefined
       ? undefined
       : new WorkspaceProvisioningService({ registry, files, scopeMap, storeRoot: options.workspaceStoreRoot });
-  const baseRestHandler = createAbcmRestHandler({
-    files,
-    scopeMap,
-    domainLanguage,
-    contextBuilder,
-    ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
-    ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
-    ...(documentation === undefined ? {} : { documentation }),
-    ...(workspaceProvisioning === undefined ? {} : { workspaces: workspaceProvisioning }),
-  });
+  const baseRestHandler = createAbcmRestHandler(
+    {
+      files,
+      scopeMap,
+      domainLanguage,
+      contextBuilder,
+      ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
+      ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
+      ...(documentation === undefined ? {} : { documentation }),
+      ...(workspaceProvisioning === undefined ? {} : { workspaces: workspaceProvisioning }),
+    },
+    options.restLimits,
+  );
   const mcp =
     options.mcpHttpEnabled === false
       ? undefined

@@ -13,6 +13,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 - one-way Markdown mirroring from server-configured local or mounted network directories, with preview/apply/sync, provenance, tombstones, and read-only mirror protection;
 - runtime-owned periodic full ScopeMap reconciliation, per-workspace scan serialization, and debounced mutation rebuilds for missed network-filesystem events;
 - REST access with ETags, stable problem responses, and static Bearer authentication;
+- process-local REST rate limiting, bounded streamed request bodies, and cooperative request deadlines/cancellation;
 - MCP tools and the `abcm://map` resource over stdio and authenticated Streamable HTTP, backed by the same application services;
 - principal-bound workflow-plus-project DomainLanguageBootstrap through REST and MCP before task path resolution;
 - deterministic access-bounded ScopePath resolution with exact/artifact/path/language/relation/keyword tiers and one local-language retry;
@@ -48,6 +49,8 @@ Every runtime performs a full reconcile of all currently registered workspaces e
 The reference HTTP token and stdio client use a deployment-owned principal profile. Override its id with `ABCM_CONTEXT_PRINCIPAL_ID` and its comma-separated permissions with `ABCM_CONTEXT_PERMISSIONS`; the default alpha profile grants all six declared permissions. Library consumers can supply narrower global or per-scope grants through `contextPrincipal` and `scopeMapAccess`.
 
 `GET /health` is public. All `/v1` routes and the `/mcp` Streamable HTTP endpoint require `Authorization: Bearer <token>`. See the [REST API](docs/api/rest-file-api.md), [HTTP MCP API](docs/api/mcp-http-api.md), and [quickstart](docs/operations/quickstart.md).
+
+REST defaults are 1 MiB per request body, 30 seconds per request, and 600 protected requests per process-local minute. Override them with `ABCM_REST_MAX_REQUEST_BODY_BYTES`, `ABCM_REST_REQUEST_TIMEOUT_MS`, and `ABCM_REST_MAX_REQUESTS_PER_MINUTE`.
 
 ## Run MCP stdio
 

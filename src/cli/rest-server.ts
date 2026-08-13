@@ -5,6 +5,7 @@ import { installGracefulShutdown } from "./graceful-shutdown.js";
 import { parseDocumentationSources } from "../documentation/config.js";
 import { parseContextPrincipalEnvironment } from "../domain-language/context-principal-config.js";
 import { parseScopeMapReconcileEnvironment } from "../scope-map/reconcile-config.js";
+import { parseRestLimitEnvironment } from "../rest/config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
 
 const workspaceId = process.env.ABCM_WORKSPACE_ID ?? "default";
@@ -23,6 +24,7 @@ const runtimeOwnerTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_TTL_
 const runtimeOwnerRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS");
 const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENTATION_SOURCES);
 const scopeMapReconcile = parseScopeMapReconcileEnvironment(process.env);
+const restLimits = parseRestLimitEnvironment(process.env);
 const contextPrincipal = parseContextPrincipalEnvironment(process.env, "static-bearer");
 
 function commaSeparated(value: string | undefined): string[] | undefined {
@@ -61,6 +63,7 @@ const runtime = createAbcmRuntime(
     bearerToken,
     mcpHttpEnabled,
     mcpEndpointPath,
+    restLimits,
     ...(mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs }),
     contextPrincipal,
     scopeMapAccess: contextPrincipal.access,

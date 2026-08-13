@@ -12,6 +12,8 @@ To persist rebuildable ScopeMap revisions in `<workspace>/.abcm/abcm.sqlite`, ad
 
 The runtime also performs a mandatory full ScopeMap reconcile every 300000 milliseconds, including for workspaces registered after startup. Set `ABCM_SCOPE_MAP_FULL_RECONCILE_INTERVAL_MS` to a positive integer and `ABCM_SCOPE_MAP_RECONCILE_DEBOUNCE_MS` to a non-negative integer when a different network-filesystem recovery interval or mutation debounce is required. SIGINT/SIGTERM stops the timer and waits for pending reconcile work before releasing SQLite ownership.
 
+Protected REST requests default to 600 per process-local fixed minute, a 1 MiB streamed body, and a 30000 ms cooperative deadline. Set `ABCM_REST_MAX_REQUESTS_PER_MINUTE`, `ABCM_REST_MAX_REQUEST_BODY_BYTES`, and `ABCM_REST_REQUEST_TIMEOUT_MS` to bounded positive integers when deployment capacity requires different limits. Health checks are exempt; a reverse proxy remains responsible for aggregate limiting across replicas.
+
 The same process serves REST and authenticated Streamable HTTP MCP at `/mcp`. Then call:
 
 ```bash

@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { stringify } from "yaml";
 
 import { AbcmError } from "../core/errors.js";
+import { throwIfAborted } from "../core/operation.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { WorkspaceFileService } from "./file-service.js";
 import type { WorkspaceRegistry } from "./registry.js";
@@ -25,10 +26,10 @@ export class WorkspaceProvisioningService {
     this.#dependencies = dependencies;
   }
 
-  create(input: { id: string; name?: string }): Promise<{ id: string }> {
+  create(input: { id: string; name?: string }, signal?: AbortSignal): Promise<{ id: string }> {
     const result = this.#creationTail.then(
-      () => this.#create(input),
-      () => this.#create(input),
+      () => this.#create(input, signal),
+      () => this.#create(input, signal),
     );
     this.#creationTail = result.then(
       () => undefined,
@@ -37,7 +38,8 @@ export class WorkspaceProvisioningService {
     return result;
   }
 
-  async #create(input: { id: string; name?: string }): Promise<{ id: string }> {
+  async #create(input: { id: string; name?: string }, signal?: AbortSignal): Promise<{ id: string }> {
+    throwIfAborted(signal);
     if (!WORKSPACE_ID.test(input.id)) {
       throw new AbcmError("REQUEST_INVALID", "Workspace id must be a lowercase portable identifier.", {
         workspaceId: input.id,
@@ -56,6 +58,7 @@ export class WorkspaceProvisioningService {
     }
 
     await mkdir(storeRoot, { recursive: true });
+    throwIfAborted(signal);
     try {
       await mkdir(workspaceRoot);
     } catch (error) {
@@ -76,16 +79,21 @@ export class WorkspaceProvisioningService {
         name: input.name ?? input.id,
       });
       const convention = "---\napiVersion: abcm/v1\nkind: DomainLanguageConvention\nmode: inherit-only\n---\n";
-      await this.#dependencies.files.write(input.id, "scope.yaml", new TextEncoder().encode(scopeManifest), {
-        ifNoneMatch: "*",
-      });
+      await this.#dependencies.files.write(
+        input.id,
+        "scope.yaml",
+        new TextEncoder().encode(scopeManifest),
+        { ifNoneMatch: "*" },
+        signal,
+      );
       await this.#dependencies.files.write(
         input.id,
         "domain-language/DomainLanguageConvention.md",
         new TextEncoder().encode(convention),
         { ifNoneMatch: "*" },
+        signal,
       );
-      await this.#dependencies.scopeMap.scan(input.id);
+      await this.#dependencies.scopeMap.scan(input.id, signal);
       return { id: input.id };
     } catch (error) {
       this.#dependencies.registry.unregister(input.id);

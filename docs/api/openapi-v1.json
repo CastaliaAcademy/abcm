@@ -104,6 +104,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -189,6 +192,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -261,6 +267,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -335,6 +344,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -436,6 +448,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -510,6 +525,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -584,6 +602,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -648,6 +669,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -750,6 +774,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -813,6 +840,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -876,6 +906,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -950,6 +983,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -1014,6 +1050,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -1078,6 +1117,9 @@
             "$ref": "#/components/responses/Problem"
           },
           "429": {
+            "$ref": "#/components/responses/RateLimitProblem"
+          },
+          "499": {
             "$ref": "#/components/responses/Problem"
           },
           "500": {
@@ -2085,6 +2127,26 @@
           "application/problem+json": {
             "schema": {
               "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "RateLimitProblem": {
+        "description": "ABCM rate-limit Problem Details",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        },
+        "headers": {
+          "Retry-After": {
+            "description": "Seconds until the current fixed rate-limit window resets.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60
             }
           }
         }

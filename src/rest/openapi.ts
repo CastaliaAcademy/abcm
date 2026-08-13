@@ -33,7 +33,8 @@ const problemResponses = {
   "412": { $ref: "#/components/responses/Problem" },
   "413": { $ref: "#/components/responses/Problem" },
   "415": { $ref: "#/components/responses/Problem" },
-  "429": { $ref: "#/components/responses/Problem" },
+  "429": { $ref: "#/components/responses/RateLimitProblem" },
+  "499": { $ref: "#/components/responses/Problem" },
   "500": { $ref: "#/components/responses/Problem" },
   "503": { $ref: "#/components/responses/Problem" },
   "504": { $ref: "#/components/responses/Problem" },
@@ -185,6 +186,15 @@ export function createAbcmOpenApiDocument(): JsonObject {
       },
       responses: {
         Problem: response("ABCM Problem Details", { $ref: "#/components/schemas/Problem" }, "application/problem+json"),
+        RateLimitProblem: {
+          ...response("ABCM rate-limit Problem Details", { $ref: "#/components/schemas/Problem" }, "application/problem+json"),
+          headers: {
+            "Retry-After": {
+              description: "Seconds until the current fixed rate-limit window resets.",
+              schema: { type: "integer", minimum: 1, maximum: 60 },
+            },
+          },
+        },
       },
     },
   };

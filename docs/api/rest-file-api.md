@@ -6,6 +6,8 @@ Configure the primary workspace with `ABCM_WORKSPACE_ID`, `ABCM_WORKSPACE_ROOT`,
 
 `GET /openapi.json` is authenticated and returns the same deterministic OpenAPI 3.1 document committed at `docs/api/openapi-v1.json`. Regenerate the snapshot with `bun run openapi:generate`.
 
+The reference server defaults to a 1 MiB request-body limit, a 30 second request deadline, and 600 protected REST requests per process-local fixed one-minute window. Configure them with `ABCM_REST_MAX_REQUEST_BODY_BYTES` (maximum 16 MiB), `ABCM_REST_REQUEST_TIMEOUT_MS` (maximum 300000), and `ABCM_REST_MAX_REQUESTS_PER_MINUTE` (maximum 100000). Exhaustion returns `REST_RATE_LIMIT_EXCEEDED`/429 plus `Retry-After`; pre-commit timeout and caller cancellation return `REST_REQUEST_TIMEOUT`/504 and `REST_REQUEST_CANCELLED`/499. Health probes do not consume the allowance.
+
 - `GET /v1/workspaces/{id}/files?path=&recursive=false`
 - `POST /v1/workspaces` with strict JSON `{ "id": "portable-id", "name": "Optional name" }`
 - `GET /v1/workspaces/{id}/files/content?path=...`
