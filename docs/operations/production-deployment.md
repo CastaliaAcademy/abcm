@@ -20,6 +20,8 @@ docker compose \
   up -d --build
 ```
 
+The release image tag is `abcm-mcp-server:0.1.0`. The Compose defaults use the service-owned `castalia-public` workspace at `/workspaces/castalia-public`; project documents live below `/workspaces/castalia-public/abcm` and are addressed through REST/MCP rather than the read-only source checkout. Override `ABCM_WORKSPACE_ID` and `ABCM_WORKSPACE_ROOT` only for a different managed workspace. Streamable HTTP MCP is enabled by default and can be disabled explicitly with `ABCM_MCP_ENABLED=false`.
+
 To attach an already mounted Obsidian vault as a read-only source, add `-f app/deploy/compose.obsidian.yaml` and the documentation variables described in the [Obsidian integration guide](../integrations/obsidian.md). The managed target workspace must exist before the source-enabled runtime starts.
 
 The Compose profile enables the default 50 ms mutation debounce and 300000 ms periodic full ScopeMap reconcile. A shorter interval repairs missed SMB/NFS metadata changes sooner but performs more complete filesystem scans. Keep the interval comfortably above the measured full-scan duration; overlapping ticks are coalesced per workspace.

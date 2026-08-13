@@ -2,7 +2,7 @@ name: abcm
 
 services:
   rest:
-    image: abcm-mcp-server:0.1.0-alpha.1
+    image: abcm-mcp-server:0.1.0
     build:
       context: ..
       dockerfile: Dockerfile
