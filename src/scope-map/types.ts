@@ -126,6 +126,28 @@ export interface ExecutableResourceRecord {
   permissionsProfile: "executable_resource.read";
 }
 
+export type SkillConnectionStrategy = "global" | "scope" | "by-link" | "by-description" | "manual";
+
+export interface SkillDescriptor {
+  skillId: string;
+  name: string;
+  description: string;
+  sourceScopeId: string;
+  relativePath: string;
+  checksum: string;
+  compatibility: string;
+  strategy: SkillConnectionStrategy;
+  lifecycle: string;
+  roles: readonly string[];
+  taskTypes: readonly string[];
+  domains: readonly string[];
+  tags: readonly string[];
+  requiredKinds: readonly string[];
+  requiredTags: readonly string[];
+  requiredLinks: readonly string[];
+  warnings: readonly ("SKILL_CONTEXT_STRATEGY_DEPRECATED" | "SKILL_CONTEXT_BASE_REMOVED")[];
+}
+
 export interface MapRevision {
   revision: string;
   digest: string;
@@ -135,6 +157,7 @@ export interface MapRevision {
   files: readonly FileRecord[];
   documents: readonly DocumentRecord[];
   executableResources: readonly ExecutableResourceRecord[];
+  skills: readonly SkillDescriptor[];
   diagnostics: readonly MapDiagnostic[];
 }
 

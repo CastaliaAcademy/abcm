@@ -15,6 +15,7 @@ function revision(id: number): MapRevision {
     files: [],
     documents: [],
     executableResources: [],
+    skills: [],
     diagnostics: [],
   };
 }

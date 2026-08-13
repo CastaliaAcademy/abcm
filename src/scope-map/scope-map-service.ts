@@ -33,6 +33,7 @@ import type {
   ScopeMapChangedListener,
   ScopeNode,
   ScopeRelation,
+  SkillDescriptor,
 } from "./types.js";
 
 const SCOPE_KINDS = ["workflow", "project", "service", "feature"] as const;
@@ -82,9 +83,10 @@ function normalizedDigest(
   files: readonly FileRecord[],
   documents: readonly DocumentRecord[],
   executableResources: readonly ExecutableResourceRecord[],
+  skills: readonly SkillDescriptor[],
   diagnostics: readonly MapDiagnostic[],
 ): string {
-  const normalized = JSON.stringify({ nodes, relations, files, documents, executableResources, diagnostics });
+  const normalized = JSON.stringify({ nodes, relations, files, documents, executableResources, skills, diagnostics });
   return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
@@ -260,6 +262,7 @@ export class ScopeMapService {
     const files: FileRecord[] = [];
     const documentCandidates: DocumentRecord[] = [];
     const executableResources: ExecutableResourceRecord[] = [];
+    const skills: SkillDescriptor[] = [];
     const indexes = await Promise.all(
       nodes.filter(node => node.status === "valid").map(node => this.#contentIndexer(workspace, node)),
     );
@@ -267,6 +270,7 @@ export class ScopeMapService {
       files.push(...index.files);
       documentCandidates.push(...index.documentCandidates);
       executableResources.push(...index.executableResources);
+      skills.push(...index.skills);
     }
     if (this.#documentationState !== undefined) {
       for (let index = 0; index < files.length; index++) {
@@ -284,6 +288,7 @@ export class ScopeMapService {
     }
     files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+    skills.sort((left, right) => `${left.skillId}/${left.sourceScopeId}`.localeCompare(`${right.skillId}/${right.sourceScopeId}`));
     const documents = resolveDocumentCandidates(documentCandidates, diagnostics);
     const explicit = await indexExplicitRelations(workspace, nodes, documents, diagnostics);
     relations.push(...explicit.relations);
@@ -297,7 +302,7 @@ export class ScopeMapService {
       ),
     );
     diagnostics.sort((left, right) => `${left.path}/${left.code}`.localeCompare(`${right.path}/${right.code}`));
-    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, diagnostics);
+    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, skills, diagnostics);
     const revision: MapRevision = {
       revision: digest,
       digest,
@@ -307,6 +312,7 @@ export class ScopeMapService {
       files,
       documents,
       executableResources,
+      skills,
       diagnostics,
     };
     return revision;
@@ -411,13 +417,16 @@ export class ScopeMapService {
     const files = previous.files.filter(file => !impacted.has(file.scopeId));
     const documentCandidates = previous.documents.filter(document => !impacted.has(document.scopeId));
     const executableResources = previous.executableResources.filter(resource => !impacted.has(resource.scopeId));
+    const skills = previous.skills.filter(skill => !impacted.has(skill.sourceScopeId));
     for (const content of indexed.values()) {
       files.push(...content.files);
       documentCandidates.push(...content.documentCandidates);
       executableResources.push(...content.executableResources);
+      skills.push(...content.skills);
     }
     files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+    skills.sort((left, right) => `${left.skillId}/${left.sourceScopeId}`.localeCompare(`${right.skillId}/${right.sourceScopeId}`));
     const documents = resolveDocumentCandidates(documentCandidates, diagnostics);
 
     const relations = previous.relations.filter(
@@ -435,7 +444,7 @@ export class ScopeMapService {
       ),
     );
     diagnostics.sort((left, right) => `${left.path}/${left.code}`.localeCompare(`${right.path}/${right.code}`));
-    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, diagnostics);
+    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, skills, diagnostics);
     return {
       revision: digest,
       digest,
@@ -445,6 +454,7 @@ export class ScopeMapService {
       files,
       documents,
       executableResources,
+      skills,
       diagnostics,
     };
   }
@@ -523,6 +533,7 @@ export class ScopeMapService {
         files: map.files.filter(file => file.scopeId === scopeId),
         documents: map.documents.filter(document => document.scopeId === scopeId),
         executableResources: map.executableResources.filter(resource => resource.scopeId === scopeId),
+        skills: map.skills.filter(skill => skill.sourceScopeId === scopeId),
         diagnostics: map.diagnostics.filter(diagnostic => diagnostic.scopeId === scopeId),
       });
     return [...ids].filter(scopeId => snapshot(previous, scopeId) !== snapshot(revision, scopeId)).sort();

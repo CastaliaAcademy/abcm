@@ -1,0 +1,53 @@
+apiVersion: abcm.dev/spec/v1alpha1
+kind: SpecificationExtension
+metadata:
+  name: skill-connection-resolution
+  version: 0.1.0
+  status: approved-for-alpha
+  extends: abcm-file-workspace-mvp@0.5.0
+  changeReason: Define executable alpha SkillDescriptor fields, filtering, scoring, materialization, and diagnostics.
+
+requirements:
+  - id: SCR-001
+    level: MUST
+    statement: ScopeMap indexing MUST parse only strict SKILL.md frontmatter into SkillDescriptor and MUST NOT retain the skill body in MapRevision.
+  - id: SCR-002
+    level: MUST
+    statement: Skill directory name and frontmatter name MUST match; strategy MUST be one of global, scope, by-link, by-description, or manual.
+  - id: SCR-003
+    level: MUST
+    statement: The discoverable catalog MUST filter inactive, incompatible, role/task-ineligible, invalid-scope, and inaccessible skills before connection.
+  - id: SCR-004
+    level: MUST
+    statement: Global skills MUST be workflow-owned; scope skills MUST apply to primary or affected descendants; by-link and manual skills MUST require explicit inputs.
+  - id: SCR-005
+    level: MUST
+    statement: By-description scoring MUST use descriptor metadata only and equal top scores across different skill ids MUST fail with SKILL_CONNECTION_AMBIGUOUS.
+  - id: SCR-006
+    level: MUST
+    statement: Duplicate skill ids MUST resolve by feature-service-project-workflow precedence while preserving independent connection reasons.
+  - id: SCR-007
+    level: MUST
+    statement: Full SKILL.md bytes MUST be checksum-verified and loaded only for selected skills; scripts, references, and assets MUST remain separate resources.
+  - id: SCR-008
+    level: MUST
+    statement: Skill-declared required kinds, tags, and links MUST produce additive SkillContextRequirement records and MUST NOT replace mandatory context selection.
+  - id: SCR-009
+    level: MUST
+    statement: Legacy context-strategy MUST map to the current strategy with a deprecation diagnostic and context-base MUST be ignored with a removal diagnostic.
+
+acceptanceScenarios:
+  - id: AC-SCR-FIVE-STRATEGIES
+    given: Eligible global, scope, by-link, by-description, and manual skills exist.
+    when: matching path, role, task, link, description, and approval inputs are supplied.
+    then:
+      - every strategy connects exactly as declared
+      - local duplicate precedence is deterministic
+      - all bodies are loaded only after selection
+  - id: AC-SCR-PROGRESSIVE-DISCLOSURE
+    given: Connected and unconnected skills contain bodies and one script contains a secret marker.
+    when: descriptors are indexed and connections resolve.
+    then:
+      - MapRevision contains no skill body
+      - the result contains only connected SKILL.md bodies
+      - no script body is returned

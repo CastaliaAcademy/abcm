@@ -13,6 +13,7 @@ import type {
   FileRecord,
   MapDiagnostic,
   ScopeNode,
+  SkillDescriptor,
 } from "./types.js";
 
 const MANAGED_DIRECTORIES = ["config", "domain-language", "agents", "artifacts", "architecture"] as const;
@@ -53,6 +54,55 @@ export interface ScopeContentIndex {
   files: FileRecord[];
   documentCandidates: DocumentRecord[];
   executableResources: ExecutableResourceRecord[];
+  skills: SkillDescriptor[];
+}
+
+const skillMetadataSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().min(1),
+  compatibility: z.string().default(""),
+  metadata: z.record(z.string(), z.string()).default({}),
+}).passthrough();
+
+function csv(value: string | undefined): string[] {
+  return [...new Set((value ?? "").split(",").map(entry => entry.trim()).filter(Boolean))].sort();
+}
+
+function skillDescriptor(scope: ScopeNode, scopeRelativePath: string, relativePath: string, fileChecksum: string, content: Uint8Array): SkillDescriptor | undefined {
+  if (!/^agents\/skills\/[^/]+\/SKILL\.md$/.test(scopeRelativePath)) return undefined;
+  const directoryName = scopeRelativePath.split("/")[2]!;
+  const text = new TextDecoder().decode(content);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
+  if (match === null) return undefined;
+  const parsed = skillMetadataSchema.parse(parse(match[1] ?? ""));
+  if (parsed.name !== directoryName) return undefined;
+  const metadata = parsed.metadata;
+  const current = metadata["abcm-skill-strategy"];
+  const legacy = metadata["abcm-context-strategy"];
+  const strategy = current ?? legacy;
+  if (!(["global", "scope", "by-link", "by-description", "manual"] as const).includes(strategy as never)) return undefined;
+  const warnings: SkillDescriptor["warnings"][number][] = [];
+  if (current === undefined && legacy !== undefined) warnings.push("SKILL_CONTEXT_STRATEGY_DEPRECATED");
+  if (metadata["abcm-context-base"] !== undefined) warnings.push("SKILL_CONTEXT_BASE_REMOVED");
+  return {
+    skillId: parsed.name,
+    name: parsed.name,
+    description: parsed.description,
+    sourceScopeId: scope.scopeId,
+    relativePath,
+    checksum: fileChecksum,
+    compatibility: parsed.compatibility,
+    strategy: strategy as SkillDescriptor["strategy"],
+    lifecycle: metadata["abcm-lifecycle"] ?? "active",
+    roles: csv(metadata["abcm-roles"]),
+    taskTypes: csv(metadata["abcm-task-types"]),
+    domains: csv(metadata["abcm-domains"]),
+    tags: csv(metadata["abcm-tags"]),
+    requiredKinds: csv(metadata["abcm-required-kinds"]),
+    requiredTags: csv(metadata["abcm-required-tags"]),
+    requiredLinks: csv(metadata["abcm-required-links"]),
+    warnings,
+  };
 }
 
 function checksum(content: Uint8Array): string {
@@ -150,6 +200,7 @@ export async function indexScopeContent(
   const files: FileRecord[] = [];
   const documentCandidates: DocumentRecord[] = [];
   const executableResources: ExecutableResourceRecord[] = [];
+  const skills: SkillDescriptor[] = [];
 
   const indexFile = async (absolutePath: string, scopeRelativePath: string): Promise<void> => {
     if (isIgnoredFile(basename(scopeRelativePath))) return;
@@ -183,6 +234,10 @@ export async function indexScopeContent(
         activationStatus: "required",
         permissionsProfile: "executable_resource.read",
       });
+    }
+    if (fileClassification === "agent_definition") {
+      const descriptor = skillDescriptor(scope, scopeRelativePath, relativePath, fileChecksum, content);
+      if (descriptor !== undefined) skills.push(descriptor);
     }
   };
 
@@ -221,7 +276,8 @@ export async function indexScopeContent(
   files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   documentCandidates.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-  return { files, documentCandidates, executableResources };
+  skills.sort((left, right) => `${left.skillId}/${left.sourceScopeId}`.localeCompare(`${right.skillId}/${right.sourceScopeId}`));
+  return { files, documentCandidates, executableResources, skills };
 }
 
 export function resolveDocumentCandidates(

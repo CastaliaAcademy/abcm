@@ -13,6 +13,15 @@ export { AbcmError } from "./core/errors.js";
 export { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "./core/server-info.js";
 export { DomainLanguageService } from "./domain-language/domain-language-service.js";
 export { ScopePathResolver } from "./domain-language/scope-path-resolver.js";
+export { SkillConnectionResolver } from "./skills/skill-connection-resolver.js";
+export type {
+  ConnectedSkillRecord,
+  ResolveSkillConnectionsRequest,
+  SkillConnectionReason,
+  SkillConnectionResult,
+  SkillContextRequirement,
+  SkillMatchEvidence,
+} from "./skills/types.js";
 export type { DomainLanguageServiceOptions } from "./domain-language/domain-language-service.js";
 export { parseContextPrincipalEnvironment } from "./domain-language/context-principal-config.js";
 export type {
@@ -77,6 +86,8 @@ export type {
   ScopeMapChangedListener,
   ScopeRelation,
   ScopeNode,
+  SkillConnectionStrategy,
+  SkillDescriptor,
 } from "./scope-map/types.js";
 export type { ScopeMapServiceOptions } from "./scope-map/scope-map-service.js";
 export { WorkspaceFileService } from "./workspace/file-service.js";

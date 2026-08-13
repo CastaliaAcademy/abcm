@@ -12,6 +12,7 @@ import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
 import { ScopeMapReconcileCoordinator, type ScopeMapReconcileOptions } from "../scope-map/reconcile-coordinator.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
+import { SkillConnectionResolver } from "../skills/skill-connection-resolver.js";
 import { WorkspaceFileService } from "../workspace/file-service.js";
 import { WorkspaceProvisioningService } from "../workspace/provisioning-service.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
@@ -57,6 +58,7 @@ export function createAbcmRuntime(
   const scopeMap = new ScopeMapService(registry, scopeMapStore, documentationState);
   const domainLanguage = new DomainLanguageService(registry, scopeMap, options.domainLanguage);
   const scopePathResolver = new ScopePathResolver(domainLanguage, scopeMap);
+  const skillConnectionResolver = new SkillConnectionResolver(registry, scopeMap);
   const scopeMapReconciler = new ScopeMapReconcileCoordinator(registry, scopeMap, options.scopeMapReconcile);
   let documentation: DirectoryDocumentationSyncService | undefined;
   const files = new WorkspaceFileService(registry, {
@@ -120,6 +122,7 @@ export function createAbcmRuntime(
     scopeMap,
     domainLanguage,
     scopePathResolver,
+    skillConnectionResolver,
     scopeMapReconciler,
     workspaceProvisioning,
     documentation,

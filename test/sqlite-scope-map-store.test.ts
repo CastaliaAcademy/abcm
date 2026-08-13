@@ -43,6 +43,7 @@ function revision(id: string): MapRevision {
     files: [],
     documents: [],
     executableResources: [],
+    skills: [],
     diagnostics: [],
   };
 }
