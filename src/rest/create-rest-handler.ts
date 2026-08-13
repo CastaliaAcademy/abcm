@@ -1,6 +1,8 @@
 import { z } from "zod/v4";
 
 import { AbcmError } from "../core/errors.js";
+import { buildTaskContextSchema, normalizeBuildTaskContextInput } from "../context/schema.js";
+import type { ContextBuilder } from "../context/context-builder.js";
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
@@ -15,6 +17,7 @@ export interface AbcmRestDependencies {
   scopeMapAccess?: ScopeMapAccess;
   domainLanguage?: DomainLanguageService;
   contextPrincipal?: ContextPrincipal;
+  contextBuilder?: ContextBuilder;
   workspaces?: WorkspaceRegistrationService;
   documentation?: DirectoryDocumentationSyncService;
 }
@@ -163,6 +166,14 @@ export function createAbcmRestHandler(
           ...(body.roleId === undefined ? {} : { roleId: body.roleId }),
           ...(body.projection === undefined ? {} : { projection: body.projection }),
         }, dependencies.contextPrincipal));
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/build-task-context") {
+        if (dependencies.contextBuilder === undefined || dependencies.contextPrincipal === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Context build access is not configured.");
+        }
+        const body = await readJson(request, buildTaskContextSchema, maxRequestBodyBytes);
+        return json(await dependencies.contextBuilder.build(normalizeBuildTaskContextInput(body), dependencies.contextPrincipal));
       }
 
       const documentationApply = /^\/v1\/documentation-imports\/([^/]+)\/apply$/.exec(url.pathname);

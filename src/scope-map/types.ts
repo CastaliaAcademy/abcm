@@ -111,8 +111,11 @@ export interface DocumentRecord {
   requiredSelectors: readonly string[];
   roleSelectors: readonly string[];
   taskSelectors: readonly string[];
+  tags?: readonly string[];
+  domain?: string;
   links: readonly string[];
   contextPolicy: string;
+  projectionPolicy?: "full" | "section" | "summary" | "metadata" | "reference";
   storageMode: "managed" | "mirror";
 }
 

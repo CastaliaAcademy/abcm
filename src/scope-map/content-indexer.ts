@@ -43,8 +43,12 @@ const documentMetadataSchema = z
     required: z.boolean().optional(),
     requiredFor: z.array(z.string()).optional(),
     audiences: z.array(z.string()).optional(),
+    taskTypes: z.array(z.string()).optional(),
+    tags: z.array(z.string()).optional(),
+    domain: z.string().min(1).optional(),
     links: z.array(z.string()).optional(),
     controlMode: z.string().optional(),
+    projection: z.enum(["full", "section", "summary", "metadata", "reference"]).optional(),
   })
   .passthrough();
 
@@ -185,9 +189,12 @@ function documentFrom(
       ...(metadata.requiredFor ?? []),
     ],
     roleSelectors: metadata.audiences ?? [],
-    taskSelectors: [],
+    taskSelectors: metadata.taskTypes ?? [],
+    tags: metadata.tags ?? [],
+    ...(metadata.domain === undefined ? {} : { domain: metadata.domain }),
     links: metadata.links ?? [],
     contextPolicy: metadata.controlMode ?? "default",
+    ...(metadata.projection === undefined ? {} : { projectionPolicy: metadata.projection }),
     storageMode: "managed",
   };
 }

@@ -1,4 +1,22 @@
 export { createAbcmRuntime } from "./app/create-runtime.js";
+export { ContextBuilder } from "./context/context-builder.js";
+export { DirectoryContextFingerprintStore } from "./context/directory-context-fingerprint-store.js";
+export { buildTaskContextSchema, normalizeBuildTaskContextInput } from "./context/schema.js";
+export type {
+  BuildTaskContextRequest,
+  ContextBudgetProfile,
+  ContextBuilderOptions,
+  ContextBundle,
+  ContextExecutionBinding,
+  ContextFingerprint,
+  ContextFingerprintDocument,
+  ContextFingerprintStore,
+  ContextOmission,
+  DocumentProjectionMode,
+  MaterializedDocumentProjection,
+  SelectedContextDocument,
+  SelectionReason,
+} from "./context/types.js";
 export type { AbcmRuntimeOptions } from "./app/create-runtime.js";
 export { SqliteScopeMapStore } from "./derived-store/sqlite-scope-map-store.js";
 export { SqliteWorkspaceMapStore } from "./derived-store/sqlite-workspace-map-store.js";

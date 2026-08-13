@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod/v4";
 
 import { AbcmError } from "../core/errors.js";
+import { buildTaskContextSchema, normalizeBuildTaskContextInput } from "../context/schema.js";
+import type { ContextBuilder } from "../context/context-builder.js";
 import { ABCM_SERVER_INFO } from "../core/server-info.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
@@ -17,6 +19,7 @@ export interface AbcmMcpDependencies {
   scopeMapAccess?: ScopeMapAccess;
   domainLanguage?: DomainLanguageService;
   contextPrincipal?: ContextPrincipal;
+  contextBuilder?: ContextBuilder;
   documentation?: DirectoryDocumentationSyncService;
 }
 
@@ -177,6 +180,21 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         ...(input.roleId === undefined ? {} : { roleId: input.roleId }),
         ...(input.projection === undefined ? {} : { projection: input.projection }),
       }, dependencies.contextPrincipal!)) })),
+    );
+  }
+  if (dependencies.contextBuilder !== undefined && dependencies.contextPrincipal !== undefined) {
+    server.registerTool(
+      "context.build_task_context",
+      {
+        title: "Build task context",
+        description: "Resolve a task path and return one immutable, bounded, reproducible context bundle.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: buildTaskContextSchema,
+      },
+      async input => toolResult(async () => ({ ...(await dependencies.contextBuilder!.build(
+        normalizeBuildTaskContextInput(input),
+        dependencies.contextPrincipal!,
+      )) })),
     );
   }
   if (dependencies.documentation !== undefined) {

@@ -1,0 +1,62 @@
+apiVersion: abcm.dev/spec/v1alpha1
+kind: SpecificationExtension
+metadata:
+  name: context-bundle-construction
+  version: 0.1.0
+  status: approved-for-alpha
+  extends: abcm-file-workspace-mvp@0.5.0
+  changeReason: Define deterministic alpha materialization, budget, fingerprint persistence, and adapter schemas for buildTaskContext.
+
+requirements:
+  - id: CBC-001
+    level: MUST
+    statement: One build MUST validate a principal-bound DomainLanguageBootstrap and use its pinned active MapRevision for path, skill, and document decisions.
+  - id: CBC-002
+    level: MUST
+    statement: Required, role-required, task-required, explicit-link, and skill-required documents MUST form the mandatory set before optional candidates.
+  - id: CBC-003
+    level: MUST
+    statement: An unreadable mandatory document MUST fail with REQUIRED_CONTEXT_ACCESS_DENIED; an unreadable optional document MUST be omitted without exposing metadata beyond its stable id and reason.
+  - id: CBC-004
+    level: MUST
+    statement: Mandatory projected content MUST be reserved before optional content and MUST fail with REQUIRED_CONTEXT_EXCEEDS_LIMIT when it exceeds the hard token limit.
+  - id: CBC-005
+    level: MUST
+    statement: Every selected document MUST record all deterministic selection reasons, its projection mode, stable source id, relative path, and checksum.
+  - id: CBC-006
+    level: MUST
+    statement: The alpha optional frontmatter projection field MUST accept full, section, summary, metadata, or reference; summary MUST be deterministic, non-authoritative, and bound to the authoritative source id and checksum.
+  - id: CBC-007
+    level: MUST
+    statement: Bundle digest MUST cover a normalized manifest and the exact materialized document and selected-skill content while excluding generated ids, locations, and timestamps.
+  - id: CBC-008
+    level: MUST
+    statement: ContextFingerprint persistence MUST be atomic, contain actual projection records and pinned configuration inputs, and MUST NOT contain document or skill bodies.
+  - id: CBC-009
+    level: MUST
+    statement: REST and MCP buildTaskContext adapters MUST invoke the same application service and preserve semantic result and error parity.
+  - id: CBC-010
+    level: MUST_NOT
+    statement: ContextBundle responses MUST NOT include the full ScopeMap, invalid inaccessible branches, unselected document bodies, or executable resource bodies.
+
+acceptanceScenarios:
+  - id: AC-CBC-DETERMINISTIC
+    given: The same pinned map, bootstrap, principal, request, and workspace bytes.
+    when: buildTaskContext is called twice.
+    then:
+      - bundleDigest is identical
+      - selected documents and projections are identical
+      - fingerprints contain no materialized bodies
+  - id: AC-CBC-BUDGET-ACCESS
+    given: Mandatory and optional documents with distinct access and projected sizes.
+    when: authorization and a hard token limit are applied.
+    then:
+      - unreadable mandatory content fails closed
+      - mandatory overflow fails closed with contributing sources
+      - optional overflow is recorded as an omission
+  - id: AC-CBC-ADAPTER-PARITY
+    given: One configured principal and valid bootstrap.
+    when: REST and MCP build the same request.
+    then:
+      - bundle digests and bounded manifests match
+      - neither response contains the full map

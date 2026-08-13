@@ -14,6 +14,7 @@ Configure the primary workspace with `ABCM_WORKSPACE_ID`, `ABCM_WORKSPACE_ROOT`,
 - `POST /v1/workspaces/{id}/scope-map/scan`
 - `GET /v1/workspaces/{id}/scope-map?view=agent|admin`
 - `POST /v1/context/domain-language` with strict JSON `{ "anchor": { "workspaceId": "id", "projectId": "id-or-alias" }, "roleId": "optional" }`
+- `POST /v1/context/build-task-context` with strict JSON `{ "domainLanguageBootstrapId": "...", "roleId": "executor-agent", "taskType": "feature-implementation", "goal": "..." }`
 - `POST /v1/workspaces/{id}/documentation-sources/preview` with strict JSON `{ "sourceId": "configured-id" }`
 - `POST /v1/documentation-imports/{importId}/apply`
 - `POST /v1/documentation-sources/{sourceId}/sync`
@@ -21,6 +22,8 @@ Configure the primary workspace with `ABCM_WORKSPACE_ID`, `ABCM_WORKSPACE_ROOT`,
 The scan endpoint returns the published revision summary plus aggregate `resourceSummary` counts. Internal `FileRecord`, `DocumentRecord`, and `ExecutableResourceRecord` arrays are not exposed through REST map responses.
 
 The domain-language endpoint requires an active ScopeMap plus `scope.discover`, `scope.read_metadata`, and `context.build`. It returns a short-lived principal-, revision-, and checksum-bound workflow-plus-project bootstrap without loading service/feature conventions or raw source bodies.
+
+The context-build endpoint validates that bootstrap against the same principal and active revision, resolves service/feature language and skills, applies `document.read`, projection, lifecycle, and mandatory-first budget rules, then atomically writes a body-free fingerprint under the reserved `.abcm` tree. Mandatory access failures return `REQUIRED_CONTEXT_ACCESS_DENIED`; mandatory hard-limit overflow returns `REQUIRED_CONTEXT_EXCEEDS_LIMIT`. REST and MCP invoke the same `ContextBuilder` service.
 
 Reads return strong SHA-256 ETags. Writes accept `If-Match`; creates accept `If-None-Match: *`. File bodies are raw bytes. JSON errors use `application/problem+json` and stable ABCM codes.
 

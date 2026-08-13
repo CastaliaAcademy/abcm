@@ -1,5 +1,8 @@
 import { createAbcmMcpHttpHandler } from "../mcp/create-http-handler.js";
 import { createAbcmMcpServer } from "../mcp/create-server.js";
+import { ContextBuilder } from "../context/context-builder.js";
+import { DirectoryContextFingerprintStore } from "../context/directory-context-fingerprint-store.js";
+import type { ContextBuilderOptions } from "../context/types.js";
 import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-store.js";
 import type { ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "../derived-store/types.js";
 import { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
@@ -33,6 +36,7 @@ export interface AbcmRuntimeOptions {
   scopeMapAccess?: ScopeMapAccess;
   contextPrincipal?: ContextPrincipal;
   domainLanguage?: DomainLanguageServiceOptions;
+  context?: ContextBuilderOptions;
 }
 
 export function createAbcmRuntime(
@@ -65,6 +69,16 @@ export function createAbcmRuntime(
     onMutation: async (workspaceId, changedPaths) => void (await scopeMapReconciler.requestMutation(workspaceId, changedPaths)),
     authorizeMutation: async (workspaceId, paths) => documentation?.authorizeMutation(workspaceId, paths),
   });
+  const contextFingerprintStore = new DirectoryContextFingerprintStore(registry);
+  const contextBuilder = new ContextBuilder({
+    files,
+    scopeMap,
+    domainLanguage,
+    scopePathResolver,
+    skillConnectionResolver,
+    fingerprintStore: contextFingerprintStore,
+    ...(options.context === undefined ? {} : { options: options.context }),
+  });
   if (documentationState !== undefined && options.documentationSources !== undefined) {
     documentation = new DirectoryDocumentationSyncService({
       registry,
@@ -82,6 +96,7 @@ export function createAbcmRuntime(
     files,
     scopeMap,
     domainLanguage,
+    contextBuilder,
     ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
     ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
     ...(documentation === undefined ? {} : { documentation }),
@@ -96,6 +111,7 @@ export function createAbcmRuntime(
             scopeMap,
             defaultWorkspaceId: defaultWorkspace.id,
             domainLanguage,
+            contextBuilder,
             ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
             ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
             ...(documentation === undefined ? {} : { documentation }),
@@ -123,6 +139,8 @@ export function createAbcmRuntime(
     domainLanguage,
     scopePathResolver,
     skillConnectionResolver,
+    contextBuilder,
+    contextFingerprintStore,
     scopeMapReconciler,
     workspaceProvisioning,
     documentation,
@@ -136,6 +154,7 @@ export function createAbcmRuntime(
         scopeMap,
         defaultWorkspaceId: defaultWorkspace.id,
         domainLanguage,
+        contextBuilder,
         ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
         ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
         ...(documentation === undefined ? {} : { documentation }),
