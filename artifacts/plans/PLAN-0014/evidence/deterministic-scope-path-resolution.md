@@ -24,3 +24,7 @@ Result: PASS
 - `ScopePathResolver` is an application-core use case and is intentionally not exposed as an ad-hoc REST/MCP operation; M7 `buildTaskContext` will consume it.
 - Optional semantic providers, persisted SourceLocatorIndex, and role/task scoring profiles remain later hardening work.
 - Existing `abcm-local` and `abcm-tunnel` containers were not replaced or restarted.
+
+## Workspace documentation publication
+
+The existing local service received seven PLAN-0014 documents under `castalia-public/abcm` through authenticated REST: five creates and two checksum-protected updates. Byte-for-byte verification passed and a live ScopeMap scan completed with zero diagnostics. The preserved older runtime retained legacy digest `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a`; neither running container was replaced.
