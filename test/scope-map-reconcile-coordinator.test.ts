@@ -29,6 +29,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<voi
 
 class ObservedScanner {
   calls: string[] = [];
+  changedPaths: string[][] = [];
   active = 0;
   maxActive = 0;
   failuresRemaining = 0;
@@ -49,6 +50,11 @@ class ObservedScanner {
       this.active--;
     }
   }
+
+  async reconcile(workspaceId: string, changedPaths: readonly string[]): Promise<MapRevision> {
+    this.changedPaths.push([...changedPaths]);
+    return this.scan(workspaceId);
+  }
 }
 
 describe("ScopeMapReconcileCoordinator", () => {
@@ -61,12 +67,53 @@ describe("ScopeMapReconcileCoordinator", () => {
     });
     try {
       const results = await Promise.all([
-        coordinator.requestMutation("test"),
-        coordinator.requestMutation("test"),
-        coordinator.requestMutation("test"),
+        coordinator.requestMutation("test", ["b.md"]),
+        coordinator.requestMutation("test", ["a.md", "b.md"]),
+        coordinator.requestMutation("test", ["c.md"]),
       ]);
       expect(scanner.calls).toEqual(["test"]);
+      expect(scanner.changedPaths).toEqual([["a.md", "b.md", "c.md"]]);
       expect(results.map(result => result.digest)).toEqual(["sha256:1", "sha256:1", "sha256:1"]);
+    } finally {
+      await coordinator.close();
+    }
+  });
+
+  test("queues a later mutation behind in-flight work instead of reusing the older result", async () => {
+    const registry = new WorkspaceRegistry([{ id: "test", root: "/tmp/test" }]);
+    const scanner = new ObservedScanner();
+    scanner.delayMs = 30;
+    const coordinator = new ScopeMapReconcileCoordinator(registry, scanner, {
+      debounceMs: 0,
+      fullReconcileIntervalMs: 60_000,
+    });
+    try {
+      const first = coordinator.requestMutation("test", ["first.md"]);
+      await waitFor(() => scanner.active === 1);
+      const second = coordinator.requestMutation("test", ["second.md"]);
+      expect((await first).digest).toBe("sha256:1");
+      expect((await second).digest).toBe("sha256:2");
+      expect(scanner.changedPaths).toEqual([["first.md"], ["second.md"]]);
+      expect(scanner.maxActive).toBe(1);
+    } finally {
+      await coordinator.close();
+    }
+  });
+
+  test("keeps explicit reconcileNow as a full-scan safety path when a mutation is pending", async () => {
+    const registry = new WorkspaceRegistry([{ id: "test", root: "/tmp/test" }]);
+    const scanner = new ObservedScanner();
+    const coordinator = new ScopeMapReconcileCoordinator(registry, scanner, {
+      debounceMs: 10_000,
+      fullReconcileIntervalMs: 60_000,
+    });
+    try {
+      const pending = coordinator.requestMutation("test", ["changed.md"]);
+      const full = coordinator.reconcileNow("test");
+      expect((await full).digest).toBe("sha256:1");
+      expect((await pending).digest).toBe("sha256:1");
+      expect(scanner.changedPaths).toEqual([]);
+      expect(scanner.calls).toEqual(["test"]);
     } finally {
       await coordinator.close();
     }

@@ -1,0 +1,62 @@
+apiVersion: abcm.dev/spec/v1alpha1
+kind: SpecificationExtension
+metadata:
+  name: incremental-scope-map-reconcile
+  version: 0.1.0
+  status: approved-for-alpha
+  extends: abcm-file-workspace-mvp@0.5.0
+  changeReason: Define deterministic impact-set reconciliation and the in-process ScopeMapChanged delivery boundary.
+
+requirements:
+  - id: ISR-001
+    level: MUST
+    statement: Mutation reconciliation MUST coalesce and retain every normalized changed path received inside one debounce window.
+  - id: ISR-002
+    level: MUST
+    statement: The nearest active scope MUST be selected by the longest scope-relative path boundary match; scope.yaml changes and missing active state MUST fall back to a full scan.
+  - id: ISR-003
+    level: MUST
+    statement: The impact set MUST include changed scopes, direct descendants, sources of reverse explicit relations, and descendant readiness dependants for domain-language changes.
+  - id: ISR-004
+    level: MUST
+    statement: Only impacted scope content indexes and relation configurations MUST be reread during targeted reconcile; the result MUST still be a complete immutable MapRevision.
+  - id: ISR-005
+    level: MUST
+    statement: Mutations arriving during an in-flight reconcile MUST run in a subsequent serialized reconcile and MUST NOT be satisfied by the older result.
+  - id: ISR-006
+    level: MUST
+    statement: ScopeMapChanged MUST be emitted only after successful atomic publication when the normalized digest changes.
+  - id: ISR-007
+    level: MUST
+    statement: ScopeMapChanged MUST contain workspaceId, revision, digest, sorted changedScopeIds, and diagnostic counts by severity; one failing subscriber MUST NOT fail publication or suppress other subscribers.
+  - id: ISR-008
+    level: MUST
+    statement: Periodic reconciliation and explicit reconcileNow MUST remain full scans and repair any targeted-reconcile miss.
+
+acceptanceScenarios:
+  - id: AC-ISR-IMPACT-SET
+    given: A document changes in one service referenced by a sibling service.
+    when: mutation reconcile runs.
+    then:
+      - the changed service and reverse-reference source are reindexed
+      - unrelated scope content is reused
+      - a complete revision is atomically published
+  - id: AC-ISR-TOPOLOGY-FALLBACK
+    given: scope.yaml is created, modified, moved, or deleted.
+    when: mutation reconcile runs.
+    then:
+      - a complete topology scan runs
+      - the active revision is never patched in place
+  - id: AC-ISR-INFLIGHT-MUTATION
+    given: a second mutation arrives while the first reconcile is in flight.
+    when: both calls complete.
+    then:
+      - two serialized reconciles have run
+      - the second caller receives the second revision
+  - id: AC-ISR-MAP-CHANGED
+    given: one changed and one unchanged scan are published.
+    when: subscribers observe map events.
+    then:
+      - one event follows the changed publication
+      - no event follows the equivalent digest
+      - subscriber failure does not affect publication

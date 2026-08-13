@@ -51,7 +51,7 @@ export function createAbcmRuntime(
   const scopeMapReconciler = new ScopeMapReconcileCoordinator(registry, scopeMap, options.scopeMapReconcile);
   let documentation: DirectoryDocumentationSyncService | undefined;
   const files = new WorkspaceFileService(registry, {
-    onMutation: async workspaceId => void (await scopeMapReconciler.requestMutation(workspaceId)),
+    onMutation: async (workspaceId, changedPaths) => void (await scopeMapReconciler.requestMutation(workspaceId, changedPaths)),
     authorizeMutation: async (workspaceId, paths) => documentation?.authorizeMutation(workspaceId, paths),
   });
   if (documentationState !== undefined && options.documentationSources !== undefined) {

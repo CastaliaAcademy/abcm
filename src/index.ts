@@ -47,8 +47,12 @@ export type {
   MapRevision,
   MapRevisionSummary,
   ScopeMapProjection,
+  ScopeMapChanged,
+  ScopeMapChangedListener,
+  ScopeRelation,
   ScopeNode,
 } from "./scope-map/types.js";
+export type { ScopeMapServiceOptions } from "./scope-map/scope-map-service.js";
 export { WorkspaceFileService } from "./workspace/file-service.js";
 export { discoverManagedWorkspaces, WorkspaceProvisioningService } from "./workspace/provisioning-service.js";
 export type { WorkspaceProvisioningDependencies } from "./workspace/provisioning-service.js";

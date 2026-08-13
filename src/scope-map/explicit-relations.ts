@@ -62,6 +62,7 @@ export async function indexExplicitRelations(
   nodes: readonly ScopeNode[],
   documents: readonly DocumentRecord[],
   diagnostics: MapDiagnostic[],
+  sourceScopeIds?: ReadonlySet<string>,
 ): Promise<ExplicitRelationIndex> {
   const scopeIds = new Map<string, string>();
   for (const node of nodes.filter(node => node.status === "valid")) {
@@ -122,13 +123,15 @@ export async function indexExplicitRelations(
     }
   };
 
-  for (const document of documents) {
+  for (const document of documents.filter(document => sourceScopeIds === undefined || sourceScopeIds.has(document.scopeId))) {
     for (const target of document.links) {
       add(document.scopeId, target, "explicit-link", `document:${document.documentId}`, false, `document:${document.documentId}`);
     }
   }
 
-  for (const node of nodes.filter(node => node.status === "valid")) {
+  for (const node of nodes.filter(
+    node => node.status === "valid" && (sourceScopeIds === undefined || sourceScopeIds.has(node.scopeId)),
+  )) {
     const configurationPath = join(workspace.root, node.relativePath, "config", "relations.yaml");
     let source: string;
     try {

@@ -10,7 +10,11 @@ import type { ScopeMapStore } from "../derived-store/types.js";
 import type { DocumentationStateStore } from "../documentation/types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
-import { indexScopeContent, resolveDocumentCandidates } from "./content-indexer.js";
+import {
+  indexScopeContent,
+  resolveDocumentCandidates,
+  type ScopeContentIndex,
+} from "./content-indexer.js";
 import { indexExplicitRelations } from "./explicit-relations.js";
 import type {
   DocumentRecord,
@@ -21,6 +25,8 @@ import type {
   MapRevisionSummary,
   ScopeKind,
   ScopeMapProjection,
+  ScopeMapChanged,
+  ScopeMapChangedListener,
   ScopeNode,
   ScopeRelation,
 } from "./types.js";
@@ -43,6 +49,11 @@ const scopeManifestSchema = z
   .strict();
 
 type ScopeManifest = z.infer<typeof scopeManifestSchema>;
+type ContentIndexer = (workspace: ResolvedWorkspace, scope: ScopeNode) => Promise<ScopeContentIndex>;
+
+export interface ScopeMapServiceOptions {
+  contentIndexer?: ContentIndexer;
+}
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -76,17 +87,38 @@ export class ScopeMapService {
   readonly #documentationState: DocumentationStateStore | undefined;
   readonly #active = new Map<string, MapRevision>();
   readonly #scanTails = new Map<string, Promise<void>>();
+  readonly #contentIndexer: ContentIndexer;
+  readonly #listeners = new Set<ScopeMapChangedListener>();
 
-  constructor(registry: WorkspaceRegistry, store?: ScopeMapStore, documentationState?: DocumentationStateStore) {
+  constructor(
+    registry: WorkspaceRegistry,
+    store?: ScopeMapStore,
+    documentationState?: DocumentationStateStore,
+    options: ScopeMapServiceOptions = {},
+  ) {
     this.#registry = registry;
     this.#store = store;
     this.#documentationState = documentationState;
+    this.#contentIndexer = options.contentIndexer ?? indexScopeContent;
   }
 
   scan(workspaceId: string): Promise<MapRevision> {
+    return this.#enqueue(workspaceId, () => this.#scanOnce(workspaceId));
+  }
+
+  reconcile(workspaceId: string, changedPaths: readonly string[]): Promise<MapRevision> {
+    return this.#enqueue(workspaceId, () => this.#scanOnce(workspaceId, changedPaths));
+  }
+
+  subscribe(listener: ScopeMapChangedListener): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  #enqueue(workspaceId: string, operation: () => Promise<MapRevision>): Promise<MapRevision> {
     const previous = this.#scanTails.get(workspaceId) ?? Promise.resolve();
-    const operation = previous.then(() => this.#scanOnce(workspaceId));
-    const tail = operation.then(
+    const result = previous.then(operation);
+    const tail = result.then(
       () => undefined,
       () => undefined,
     );
@@ -94,10 +126,10 @@ export class ScopeMapService {
     void tail.then(() => {
       if (this.#scanTails.get(workspaceId) === tail) this.#scanTails.delete(workspaceId);
     });
-    return operation;
+    return result;
   }
 
-  async #scanOnce(workspaceId: string): Promise<MapRevision> {
+  async #scanOnce(workspaceId: string, changedPaths?: readonly string[]): Promise<MapRevision> {
     const store = this.#store;
     let lease = store?.beginScan(workspaceId);
     let renewalError: unknown;
@@ -114,10 +146,13 @@ export class ScopeMapService {
           }, store.scanLeaseRenewalIntervalMs);
     heartbeat?.unref();
     try {
-      const revision = await this.#build(workspaceId);
+      const previous = this.#active.get(workspaceId);
+      const revision =
+        changedPaths === undefined ? await this.#build(workspaceId) : await this.#buildIncremental(workspaceId, changedPaths);
       if (renewalError !== undefined) throw renewalError;
       if (lease !== undefined) store?.publish(lease, revision);
       this.#active.set(workspaceId, revision);
+      this.#emitChanged(workspaceId, previous, revision);
       return revision;
     } catch (error) {
       if (lease !== undefined) {
@@ -219,7 +254,7 @@ export class ScopeMapService {
     const documentCandidates: DocumentRecord[] = [];
     const executableResources: ExecutableResourceRecord[] = [];
     const indexes = await Promise.all(
-      nodes.filter(node => node.status === "valid").map(node => indexScopeContent(workspace, node)),
+      nodes.filter(node => node.status === "valid").map(node => this.#contentIndexer(workspace, node)),
     );
     for (const index of indexes) {
       files.push(...index.files);
@@ -268,6 +303,222 @@ export class ScopeMapService {
       diagnostics,
     };
     return revision;
+  }
+
+  async #buildIncremental(workspaceId: string, changedPaths: readonly string[]): Promise<MapRevision> {
+    const previous = this.#active.get(workspaceId);
+    const normalizedPaths = this.#normalizeChangedPaths(changedPaths);
+    if (
+      previous === undefined ||
+      normalizedPaths === undefined ||
+      normalizedPaths.length === 0 ||
+      normalizedPaths.some(path => posix.basename(path) === "scope.yaml") ||
+      previous.diagnostics.some(diagnostic => diagnostic.code === "DOCUMENT_ID_DUPLICATE")
+    ) {
+      return this.#build(workspaceId);
+    }
+
+    const workspace = this.#registry.get(workspaceId);
+    const validNodes = previous.nodes.filter(node => node.status === "valid");
+    const nodesById = new Map(validNodes.map(node => [node.scopeId, node]));
+    const changedScopeIds = new Set<string>();
+    const readinessRoots = new Set<string>();
+    for (const path of normalizedPaths) {
+      const scope = this.#nearestScope(validNodes, path);
+      if (scope === undefined) return this.#build(workspaceId);
+      changedScopeIds.add(scope.scopeId);
+      const insideScope = scope.relativePath === "" ? path : path.slice(scope.relativePath.length + 1);
+      if (insideScope === "domain-language" || insideScope.startsWith("domain-language/")) {
+        readinessRoots.add(scope.scopeId);
+      }
+    }
+
+    const impacted = new Set(changedScopeIds);
+    for (const node of validNodes) {
+      if (node.parentScopeId !== undefined && changedScopeIds.has(node.parentScopeId)) impacted.add(node.scopeId);
+      if (this.#isDescendantOf(node, readinessRoots, nodesById)) impacted.add(node.scopeId);
+    }
+
+    const indexed = new Map<string, ScopeContentIndex>();
+    while (true) {
+      for (const scopeId of impacted) {
+        if (indexed.has(scopeId)) continue;
+        const node = nodesById.get(scopeId);
+        if (node === undefined) continue;
+        const content = await this.#contentIndexer(workspace, node);
+        const documentationState = this.#documentationState;
+        if (documentationState !== undefined) {
+          content.files = content.files.map(file => ({
+            ...file,
+            ...documentationState.resolveDocumentStorage(workspaceId, file.relativePath),
+          }));
+          content.documentCandidates = content.documentCandidates.map(document => ({
+            ...document,
+            ...documentationState.resolveDocumentStorage(workspaceId, document.relativePath),
+          }));
+        }
+        indexed.set(scopeId, content);
+      }
+
+      const targetIds = new Set<string>();
+      for (const node of validNodes.filter(node => impacted.has(node.scopeId))) {
+        targetIds.add(node.scopeId);
+        for (const alias of node.aliases) targetIds.add(alias);
+      }
+      for (const document of previous.documents.filter(document => impacted.has(document.scopeId))) {
+        targetIds.add(document.documentId);
+      }
+      for (const content of indexed.values()) {
+        for (const document of content.documentCandidates) {
+          targetIds.add(document.documentId);
+          for (const previousDocument of previous.documents) {
+            if (previousDocument.documentId === document.documentId) impacted.add(previousDocument.scopeId);
+          }
+        }
+      }
+
+      let expanded = false;
+      for (const relation of previous.relations) {
+        if (relation.relationType === "parent-child") continue;
+        const stableTarget = /^abcm:\/\/(?:scope|artifact|plan|architecture)\/([^/?#]+)$/.exec(relation.toId)?.[1] ?? relation.toId;
+        if (targetIds.has(stableTarget) && !impacted.has(relation.fromId) && nodesById.has(relation.fromId)) {
+          impacted.add(relation.fromId);
+          expanded = true;
+        }
+      }
+      if (!expanded && [...impacted].every(scopeId => indexed.has(scopeId))) break;
+    }
+
+    const diagnostics = previous.diagnostics.filter(
+      diagnostic => diagnostic.code !== "DOCUMENT_ID_DUPLICATE" &&
+        (diagnostic.scopeId === undefined || !impacted.has(diagnostic.scopeId)),
+    );
+    const nodes = await Promise.all(
+      previous.nodes.map(node =>
+        node.status === "valid" && impacted.has(node.scopeId)
+          ? this.#refreshReadiness(node, workspace.root, diagnostics)
+          : Promise.resolve(node),
+      ),
+    );
+
+    const files = previous.files.filter(file => !impacted.has(file.scopeId));
+    const documentCandidates = previous.documents.filter(document => !impacted.has(document.scopeId));
+    const executableResources = previous.executableResources.filter(resource => !impacted.has(resource.scopeId));
+    for (const content of indexed.values()) {
+      files.push(...content.files);
+      documentCandidates.push(...content.documentCandidates);
+      executableResources.push(...content.executableResources);
+    }
+    files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+    executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+    const documents = resolveDocumentCandidates(documentCandidates, diagnostics);
+
+    const relations = previous.relations.filter(
+      relation => relation.relationType === "parent-child" || !impacted.has(relation.fromId),
+    );
+    const explicit = await indexExplicitRelations(workspace, nodes, documents, diagnostics, impacted);
+    relations.push(...explicit.relations);
+    for (let index = 0; index < nodes.length; index++) {
+      const node = nodes[index];
+      if (node !== undefined && explicit.warningScopeIds.has(node.scopeId)) nodes[index] = { ...node, readiness: "warning" };
+    }
+    relations.sort((left, right) =>
+      `${left.fromId}/${left.toId}/${left.relationType}/${left.source}`.localeCompare(
+        `${right.fromId}/${right.toId}/${right.relationType}/${right.source}`,
+      ),
+    );
+    diagnostics.sort((left, right) => `${left.path}/${left.code}`.localeCompare(`${right.path}/${right.code}`));
+    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, diagnostics);
+    return {
+      revision: digest,
+      digest,
+      createdAt: new Date().toISOString(),
+      nodes,
+      relations,
+      files,
+      documents,
+      executableResources,
+      diagnostics,
+    };
+  }
+
+  #normalizeChangedPaths(paths: readonly string[]): string[] | undefined {
+    const normalized = new Set<string>();
+    for (const path of paths) {
+      if (path === "" || path.includes("\\") || path.startsWith("/") || /^[A-Za-z]:/.test(path)) return undefined;
+      const candidate = posix.normalize(path);
+      if (candidate === ".." || candidate.startsWith("../") || candidate.includes("\0")) return undefined;
+      normalized.add(candidate);
+    }
+    return [...normalized].sort();
+  }
+
+  #nearestScope(nodes: readonly ScopeNode[], path: string): ScopeNode | undefined {
+    return nodes
+      .filter(node => node.relativePath === "" || path === node.relativePath || path.startsWith(`${node.relativePath}/`))
+      .sort((left, right) => right.relativePath.length - left.relativePath.length)[0];
+  }
+
+  #isDescendantOf(node: ScopeNode, ancestors: ReadonlySet<string>, nodesById: ReadonlyMap<string, ScopeNode>): boolean {
+    let parentScopeId = node.parentScopeId;
+    while (parentScopeId !== undefined) {
+      if (ancestors.has(parentScopeId)) return true;
+      parentScopeId = nodesById.get(parentScopeId)?.parentScopeId;
+    }
+    return false;
+  }
+
+  async #refreshReadiness(node: ScopeNode, workspaceRoot: string, diagnostics: MapDiagnostic[]): Promise<ScopeNode> {
+    const conventionExists = await exists(
+      join(workspaceRoot, node.relativePath, "domain-language/DomainLanguageConvention.md"),
+    );
+    if (!conventionExists) {
+      diagnostics.push({
+        code: "DOMAIN_LANGUAGE_CONFIGURATION_INVALID",
+        severity: "warning",
+        path: node.relativePath,
+        scopeId: node.scopeId,
+        message: "DomainLanguageConvention.md is missing.",
+      });
+    }
+    return { ...node, readiness: conventionExists ? "ready" : "warning" };
+  }
+
+  #emitChanged(workspaceId: string, previous: MapRevision | undefined, revision: MapRevision): void {
+    if (previous?.digest === revision.digest) return;
+    const event: ScopeMapChanged = {
+      workspaceId,
+      revision: revision.revision,
+      digest: revision.digest,
+      changedScopeIds: this.#changedScopeIds(previous, revision),
+      diagnosticsSummary: {
+        branchErrors: revision.diagnostics.filter(diagnostic => diagnostic.severity === "branch_error").length,
+        scopeErrors: revision.diagnostics.filter(diagnostic => diagnostic.severity === "scope_error").length,
+        warnings: revision.diagnostics.filter(diagnostic => diagnostic.severity === "warning").length,
+      },
+    };
+    for (const listener of this.#listeners) {
+      try {
+        void Promise.resolve(listener(event)).catch(() => undefined);
+      } catch {
+        // A subscriber cannot roll back a revision that was already published.
+      }
+    }
+  }
+
+  #changedScopeIds(previous: MapRevision | undefined, revision: MapRevision): string[] {
+    if (previous === undefined) return revision.nodes.map(node => node.scopeId).sort();
+    const ids = new Set([...previous.nodes, ...revision.nodes].map(node => node.scopeId));
+    const snapshot = (map: MapRevision, scopeId: string): string =>
+      JSON.stringify({
+        node: map.nodes.find(node => node.scopeId === scopeId),
+        relations: map.relations.filter(relation => relation.fromId === scopeId),
+        files: map.files.filter(file => file.scopeId === scopeId),
+        documents: map.documents.filter(document => document.scopeId === scopeId),
+        executableResources: map.executableResources.filter(resource => resource.scopeId === scopeId),
+        diagnostics: map.diagnostics.filter(diagnostic => diagnostic.scopeId === scopeId),
+      });
+    return [...ids].filter(scopeId => snapshot(previous, scopeId) !== snapshot(revision, scopeId)).sort();
   }
 
   getProjection(workspaceId: string, view: "agent" | "admin" = "agent"): ScopeMapProjection {

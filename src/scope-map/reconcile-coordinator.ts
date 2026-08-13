@@ -7,6 +7,7 @@ import type { MapRevision } from "./types.js";
 
 export interface ScopeMapScanner {
   scan(workspaceId: string): Promise<MapRevision>;
+  reconcile?(workspaceId: string, changedPaths: readonly string[]): Promise<MapRevision>;
 }
 
 export interface ScopeMapReconcileOptions {
@@ -20,6 +21,7 @@ interface PendingMutation {
   resolve: (revision: MapRevision) => void;
   reject: (error: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
+  changedPaths: Set<string>;
 }
 
 function validateTiming(value: number, minimum: number, name: string): void {
@@ -56,11 +58,14 @@ export class ScopeMapReconcileCoordinator {
     this.#periodicTimer.unref();
   }
 
-  requestMutation(workspaceId: string): Promise<MapRevision> {
+  requestMutation(workspaceId: string, changedPaths: readonly string[] = []): Promise<MapRevision> {
     if (this.#closed) return Promise.reject(new Error("ScopeMap reconcile coordinator is closed."));
     this.#registry.get(workspaceId);
     const existing = this.#pendingMutations.get(workspaceId);
-    if (existing !== undefined) return existing.promise;
+    if (existing !== undefined) {
+      for (const path of changedPaths) existing.changedPaths.add(path);
+      return existing.promise;
+    }
 
     let resolvePromise!: (revision: MapRevision) => void;
     let rejectPromise!: (error: unknown) => void;
@@ -73,6 +78,7 @@ export class ScopeMapReconcileCoordinator {
       resolve: resolvePromise,
       reject: rejectPromise,
       timer: setTimeout(() => this.#flushMutation(workspaceId), this.#debounceMs),
+      changedPaths: new Set(changedPaths),
     };
     this.#pendingMutations.set(workspaceId, pending);
     return promise;
@@ -81,7 +87,7 @@ export class ScopeMapReconcileCoordinator {
   reconcileNow(workspaceId: string): Promise<MapRevision> {
     if (this.#closed) return Promise.reject(new Error("ScopeMap reconcile coordinator is closed."));
     this.#registry.get(workspaceId);
-    return this.#start(workspaceId);
+    return this.#start(workspaceId, true);
   }
 
   close(): Promise<void> {
@@ -101,7 +107,7 @@ export class ScopeMapReconcileCoordinator {
     if (this.#closed) return;
     for (const workspace of this.#registry.list()) {
       if (this.#inFlight.has(workspace.id)) continue;
-      void this.#start(workspace.id).catch(error => {
+      void this.#start(workspace.id, true).catch(error => {
         try {
           this.#onBackgroundError?.(asError(error), workspace.id);
         } catch {
@@ -116,21 +122,27 @@ export class ScopeMapReconcileCoordinator {
     void this.#start(workspaceId);
   }
 
-  #start(workspaceId: string): Promise<MapRevision> {
+  #start(workspaceId: string, forceFull = false): Promise<MapRevision> {
     const pending = this.#pendingMutations.get(workspaceId);
     if (pending !== undefined) {
       clearTimeout(pending.timer);
       this.#pendingMutations.delete(workspaceId);
     }
-    const operation = this.#run(workspaceId);
+    const operation = this.#run(
+      workspaceId,
+      forceFull || pending === undefined ? undefined : [...pending.changedPaths].sort(),
+    );
     if (pending !== undefined) operation.then(pending.resolve, pending.reject);
     return operation;
   }
 
-  #run(workspaceId: string): Promise<MapRevision> {
+  #run(workspaceId: string, changedPaths?: readonly string[]): Promise<MapRevision> {
     const existing = this.#inFlight.get(workspaceId);
-    if (existing !== undefined) return existing;
-    const operation = Promise.resolve().then(() => this.#scanner.scan(workspaceId));
+    const operation = (existing ?? Promise.resolve()).then(() =>
+      changedPaths !== undefined && changedPaths.length > 0 && this.#scanner.reconcile !== undefined
+        ? this.#scanner.reconcile(workspaceId, changedPaths)
+        : this.#scanner.scan(workspaceId),
+    );
     this.#inFlight.set(workspaceId, operation);
     void operation.then(
       () => {

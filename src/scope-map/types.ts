@@ -119,3 +119,17 @@ export interface MapRevisionSummary {
   diagnostics: readonly MapDiagnostic[];
   resourceSummary: ScopeMapProjection["resourceSummary"];
 }
+
+export interface ScopeMapChanged {
+  workspaceId: string;
+  revision: string;
+  digest: string;
+  changedScopeIds: readonly string[];
+  diagnosticsSummary: {
+    branchErrors: number;
+    scopeErrors: number;
+    warnings: number;
+  };
+}
+
+export type ScopeMapChangedListener = (event: ScopeMapChanged) => void | Promise<void>;
