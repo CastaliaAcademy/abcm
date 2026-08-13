@@ -1,9 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { parse } from "yaml";
 import { z } from "zod/v4";
 
+import { parseSafeYaml } from "../core/safe-yaml.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
 import type { DocumentRecord, MapDiagnostic, ScopeNode, ScopeRelation } from "./types.js";
 
@@ -135,6 +135,17 @@ export async function indexExplicitRelations(
     const configurationPath = join(workspace.root, node.relativePath, "config", "relations.yaml");
     let source: string;
     try {
+      const metadata = await stat(configurationPath);
+      if (metadata.size > workspace.maxIndexBytes) {
+        diagnostics.push({
+          code: "FILE_TOO_LARGE",
+          severity: "warning",
+          path: node.relativePath === "" ? "config/relations.yaml" : `${node.relativePath}/config/relations.yaml`,
+          scopeId: node.scopeId,
+          message: `Relations configuration was not parsed because it exceeds maxIndexBytes=${workspace.maxIndexBytes}.`,
+        });
+        continue;
+      }
       source = await readFile(configurationPath, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
@@ -142,7 +153,7 @@ export async function indexExplicitRelations(
     }
     let configuration: z.infer<typeof relationsConfigurationSchema>;
     try {
-      configuration = relationsConfigurationSchema.parse(parse(source));
+      configuration = relationsConfigurationSchema.parse(parseSafeYaml(source));
     } catch (error) {
       diagnostics.push({
         code: "RELATIONS_CONFIGURATION_INVALID",

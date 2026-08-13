@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 
 import { AbcmError } from "../core/errors.js";
+import { observeOperation, type AbcmObservability } from "../core/observability.js";
 import { throwIfAborted } from "../core/operation.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { AbcmPermission, MapRevision, ScopeNode } from "../scope-map/types.js";
@@ -42,13 +43,23 @@ function normalized(value: string): string {
 export class ScopePathResolver {
   readonly #domainLanguage: DomainLanguageService;
   readonly #scopeMap: ScopeMapService;
+  readonly #observability: AbcmObservability | undefined;
 
-  constructor(domainLanguage: DomainLanguageService, scopeMap: ScopeMapService) {
+  constructor(domainLanguage: DomainLanguageService, scopeMap: ScopeMapService, observability?: AbcmObservability) {
     this.#domainLanguage = domainLanguage;
     this.#scopeMap = scopeMap;
+    this.#observability = observability;
   }
 
   async resolve(request: ResolveTaskPathRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ResolvedScopePath> {
+    return observeOperation(this.#observability, {
+      operation: "scope_path.resolve",
+      principalId: principal.principalId,
+      durationMetric: "abcm_scope_path_resolution_duration_ms",
+    }, () => this.#resolve(request, principal, signal));
+  }
+
+  async #resolve(request: ResolveTaskPathRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ResolvedScopePath> {
     throwIfAborted(signal);
     const bootstrap = this.#domainLanguage.validateBootstrap(request.domainLanguageBootstrapId, principal);
     const revision = this.#scopeMap.getActiveRevision(bootstrap.anchor.workspaceId);

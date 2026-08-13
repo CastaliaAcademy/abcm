@@ -1,6 +1,7 @@
 import { createAbcmMcpHttpHandler } from "../mcp/create-http-handler.js";
 import { createAbcmMcpServer } from "../mcp/create-server.js";
 import { ContextBuilder } from "../context/context-builder.js";
+import type { AbcmObservability } from "../core/observability.js";
 import { DirectoryContextFingerprintStore } from "../context/directory-context-fingerprint-store.js";
 import type { ContextBuilderOptions } from "../context/types.js";
 import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-store.js";
@@ -40,6 +41,7 @@ export interface AbcmRuntimeOptions {
   contextPrincipal?: ContextPrincipal;
   domainLanguage?: DomainLanguageServiceOptions;
   context?: ContextBuilderOptions;
+  observability?: AbcmObservability;
 }
 
 export function createAbcmRuntime(
@@ -62,15 +64,18 @@ export function createAbcmRuntime(
   }
   const scopeMapStore = options.scopeMapStore ?? ownedScopeMapStore;
   const documentationState = (options.documentationSources?.length ?? 0) > 0 ? ownedScopeMapStore : undefined;
-  const scopeMap = new ScopeMapService(registry, scopeMapStore, documentationState);
+  const scopeMap = new ScopeMapService(registry, scopeMapStore, documentationState, {
+    ...(options.observability === undefined ? {} : { observability: options.observability }),
+  });
   const domainLanguage = new DomainLanguageService(registry, scopeMap, options.domainLanguage);
-  const scopePathResolver = new ScopePathResolver(domainLanguage, scopeMap);
+  const scopePathResolver = new ScopePathResolver(domainLanguage, scopeMap, options.observability);
   const skillConnectionResolver = new SkillConnectionResolver(registry, scopeMap);
   const scopeMapReconciler = new ScopeMapReconcileCoordinator(registry, scopeMap, options.scopeMapReconcile);
   let documentation: DirectoryDocumentationSyncService | undefined;
   const files = new WorkspaceFileService(registry, {
     onMutation: async (workspaceId, changedPaths) => void (await scopeMapReconciler.requestMutation(workspaceId, changedPaths)),
     authorizeMutation: async (workspaceId, paths) => documentation?.authorizeMutation(workspaceId, paths),
+    ...(options.observability === undefined ? {} : { observability: options.observability }),
   });
   const contextFingerprintStore = new DirectoryContextFingerprintStore(registry);
   const contextBuilder = new ContextBuilder({
@@ -81,6 +86,7 @@ export function createAbcmRuntime(
     skillConnectionResolver,
     fingerprintStore: contextFingerprintStore,
     ...(options.context === undefined ? {} : { options: options.context }),
+    ...(options.observability === undefined ? {} : { observability: options.observability }),
   });
   if (documentationState !== undefined && options.documentationSources !== undefined) {
     documentation = new DirectoryDocumentationSyncService({
@@ -89,6 +95,7 @@ export function createAbcmRuntime(
       scopeMap,
       state: documentationState,
       sources: options.documentationSources,
+      ...(options.observability === undefined ? {} : { observability: options.observability }),
     });
   }
   const workspaceProvisioning =
@@ -130,13 +137,13 @@ export function createAbcmRuntime(
           },
         );
   const restHandler =
-    options.bearerToken === undefined ? baseRestHandler : requireStaticBearerToken(baseRestHandler, options.bearerToken);
+    options.bearerToken === undefined ? baseRestHandler : requireStaticBearerToken(baseRestHandler, options.bearerToken, options.observability);
   const mcpHandler =
     mcp === undefined
       ? async () => Response.json({ code: "FILE_NOT_FOUND", detail: "HTTP endpoint was not found." }, { status: 404 })
       : options.bearerToken === undefined
         ? mcp.fetch
-        : requireStaticBearerToken(mcp.fetch, options.bearerToken);
+        : requireStaticBearerToken(mcp.fetch, options.bearerToken, options.observability);
   const mcpEndpointPath = options.mcpEndpointPath ?? "/mcp";
 
   return {

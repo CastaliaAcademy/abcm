@@ -73,7 +73,8 @@ export interface MapDiagnostic {
     | "DOCUMENT_ID_DUPLICATE"
     | "RELATIONS_CONFIGURATION_INVALID"
     | "EXPLICIT_LINK_INVALID"
-    | "EXPLICIT_LINK_UNRESOLVED";
+    | "EXPLICIT_LINK_UNRESOLVED"
+    | "FILE_TOO_LARGE";
   severity: "branch_error" | "scope_error" | "warning";
   path: string;
   message: string;

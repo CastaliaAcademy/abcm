@@ -3,6 +3,7 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { posix, relative, resolve, sep } from "node:path";
 
 import { AbcmError } from "../core/errors.js";
+import { observeOperation, type AbcmObservability } from "../core/observability.js";
 import { throwIfAborted } from "../core/operation.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
@@ -27,6 +28,7 @@ interface DirectoryDocumentationSyncDependencies {
   state: DocumentationStateStore;
   sources: readonly DirectoryDocumentationSourceDefinition[];
   clock?: () => Date;
+  observability?: AbcmObservability;
 }
 
 interface ResolvedSource extends DirectoryDocumentationSourceDefinition {
@@ -119,6 +121,7 @@ export class DirectoryDocumentationSyncService {
   readonly #plans = new Map<string, DocumentationImportPlan>();
   readonly #reservedTargets = new Set<string>();
   readonly #clock: () => Date;
+  readonly #observability: AbcmObservability | undefined;
 
   constructor(dependencies: DirectoryDocumentationSyncDependencies) {
     this.#registry = dependencies.registry;
@@ -126,6 +129,7 @@ export class DirectoryDocumentationSyncService {
     this.#scopeMap = dependencies.scopeMap;
     this.#state = dependencies.state;
     this.#clock = dependencies.clock ?? (() => new Date());
+    this.#observability = dependencies.observability;
     for (const source of dependencies.sources) {
       validateSourceId(source.id);
       validateTargetBasePath(source.targetBasePath);
@@ -141,6 +145,21 @@ export class DirectoryDocumentationSyncService {
   }
 
   async preview(workspaceId: string, sourceId: string, signal?: AbortSignal): Promise<DocumentationImportPlan> {
+    return observeOperation(this.#observability, {
+      operation: "documentation.preview",
+      workspaceId,
+      durationMetric: "abcm_documentation_operation_duration_ms",
+      successMetrics: result => [{
+        name: "abcm_documentation_sync_conflicts",
+        value: (result as DocumentationImportPlan).operations.filter(operation => operation.operation === "conflict").length,
+        unit: "count",
+        operation: "documentation.preview",
+        outcome: "success",
+      }],
+    }, () => this.#preview(workspaceId, sourceId, signal));
+  }
+
+  async #preview(workspaceId: string, sourceId: string, signal?: AbortSignal): Promise<DocumentationImportPlan> {
     throwIfAborted(signal);
     if (this.#state.getDocumentationSource(workspaceId, sourceId)?.storageMode === "managed") {
       throw new AbcmError("DOCUMENTATION_SOURCE_ALREADY_MANAGED", "Documentation source has already cut over to managed storage.");
@@ -293,6 +312,15 @@ export class DirectoryDocumentationSyncService {
   }
 
   async apply(importId: string, signal?: AbortSignal): Promise<DocumentationSyncResult> {
+    const workspaceId = this.#plans.get(importId)?.workspaceId;
+    return observeOperation(this.#observability, {
+      operation: "documentation.apply",
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+      durationMetric: "abcm_documentation_operation_duration_ms",
+    }, () => this.#apply(importId, signal));
+  }
+
+  async #apply(importId: string, signal?: AbortSignal): Promise<DocumentationSyncResult> {
     throwIfAborted(signal);
     const plan = this.#plans.get(importId);
     if (plan === undefined) throw new AbcmError("DOCUMENTATION_IMPORT_NOT_FOUND", `Documentation import '${importId}' was not found.`);
@@ -480,15 +508,37 @@ export class DirectoryDocumentationSyncService {
   }
 
   async sync(sourceId: string, signal?: AbortSignal): Promise<DocumentationSyncResult> {
+    const workspaceId = this.#sources.get(sourceId)?.workspaceId;
+    return observeOperation(this.#observability, {
+      operation: "documentation.sync",
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+      durationMetric: "abcm_documentation_operation_duration_ms",
+    }, () => this.#sync(sourceId, signal));
+  }
+
+  async #sync(sourceId: string, signal?: AbortSignal): Promise<DocumentationSyncResult> {
     const configured = this.#sources.get(sourceId);
     if (configured !== undefined && this.#state.getDocumentationSource(configured.workspaceId, sourceId)?.storageMode === "managed") {
       throw new AbcmError("DOCUMENTATION_SOURCE_ALREADY_MANAGED", "Documentation source has already cut over to managed storage.");
     }
     const source = await this.#source(sourceId, signal);
-    return this.apply((await this.preview(source.workspaceId, sourceId, signal)).importId, signal);
+    return this.#apply((await this.#preview(source.workspaceId, sourceId, signal)).importId, signal);
   }
 
   async cutover(
+    sourceId: string,
+    input: { operatorApproved: true; expectedSnapshotDigest: string },
+    signal?: AbortSignal,
+  ): Promise<DocumentationCutoverResult> {
+    const workspaceId = this.#sources.get(sourceId)?.workspaceId;
+    return observeOperation(this.#observability, {
+      operation: "documentation.cutover",
+      ...(workspaceId === undefined ? {} : { workspaceId }),
+      durationMetric: "abcm_documentation_operation_duration_ms",
+    }, () => this.#cutover(sourceId, input, signal));
+  }
+
+  async #cutover(
     sourceId: string,
     input: { operatorApproved: true; expectedSnapshotDigest: string },
     signal?: AbortSignal,
@@ -511,7 +561,7 @@ export class DirectoryDocumentationSyncService {
     if (state?.storageMode === "managed") {
       throw new AbcmError("DOCUMENTATION_SOURCE_ALREADY_MANAGED", "Documentation source has already cut over to managed storage.");
     }
-    await this.sync(sourceId, signal);
+    await this.#sync(sourceId, signal);
     const snapshot = await this.#snapshot(source, signal);
     const snapshotDigest = this.#snapshotDigest(snapshot);
     if (snapshotDigest !== input.expectedSnapshotDigest) {

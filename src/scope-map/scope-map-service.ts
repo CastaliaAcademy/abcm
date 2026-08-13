@@ -3,10 +3,10 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, posix } from "node:path";
 
 import { z } from "zod/v4";
-import { parse } from "yaml";
-
 import { AbcmError } from "../core/errors.js";
+import { observeOperation, type AbcmObservability } from "../core/observability.js";
 import { throwIfAborted } from "../core/operation.js";
+import { parseSafeYaml } from "../core/safe-yaml.js";
 import type { ScopeMapStore } from "../derived-store/types.js";
 import type { DocumentationStateStore } from "../documentation/types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
@@ -62,6 +62,7 @@ type ContentIndexer = (workspace: ResolvedWorkspace, scope: ScopeNode, signal?: 
 
 export interface ScopeMapServiceOptions {
   contentIndexer?: ContentIndexer;
+  observability?: AbcmObservability;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -99,6 +100,7 @@ export class ScopeMapService {
   readonly #scanTails = new Map<string, Promise<void>>();
   readonly #contentIndexer: ContentIndexer;
   readonly #listeners = new Set<ScopeMapChangedListener>();
+  readonly #observability: AbcmObservability | undefined;
 
   constructor(
     registry: WorkspaceRegistry,
@@ -110,15 +112,24 @@ export class ScopeMapService {
     this.#store = store;
     this.#documentationState = documentationState;
     this.#contentIndexer = options.contentIndexer ?? indexScopeContent;
+    this.#observability = options.observability;
   }
 
   scan(workspaceId: string, signal?: AbortSignal): Promise<MapRevision> {
     throwIfAborted(signal);
-    return this.#enqueue(workspaceId, () => this.#scanOnce(workspaceId, undefined, signal));
+    return observeOperation(this.#observability, {
+      operation: "scope_map.scan",
+      workspaceId,
+      durationMetric: "abcm_scope_map_scan_duration_ms",
+    }, () => this.#enqueue(workspaceId, () => this.#scanOnce(workspaceId, undefined, signal)));
   }
 
   reconcile(workspaceId: string, changedPaths: readonly string[]): Promise<MapRevision> {
-    return this.#enqueue(workspaceId, () => this.#scanOnce(workspaceId, changedPaths));
+    return observeOperation(this.#observability, {
+      operation: "scope_map.scan",
+      workspaceId,
+      durationMetric: "abcm_scope_map_scan_duration_ms",
+    }, () => this.#enqueue(workspaceId, () => this.#scanOnce(workspaceId, changedPaths)));
   }
 
   subscribe(listener: ScopeMapChangedListener): () => void {
@@ -184,7 +195,7 @@ export class ScopeMapService {
   async #build(workspaceId: string, signal?: AbortSignal): Promise<MapRevision> {
     throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
-    const rootManifest = await this.#readManifest(workspace.root, "", true);
+    const rootManifest = await this.#readManifest(workspace.root, "", true, workspace.maxIndexBytes);
     if (rootManifest.kind !== "workflow") {
       throw new AbcmError("WORKSPACE_ROOT_MUST_BE_WORKFLOW", "Workspace root scope must have kind=workflow.", {
         actual: rootManifest.kind,
@@ -214,7 +225,7 @@ export class ScopeMapService {
 
         let manifest: ScopeManifest;
         try {
-          manifest = await this.#readManifest(childAbsolute, childRelative, false);
+          manifest = await this.#readManifest(childAbsolute, childRelative, false, workspace.maxIndexBytes);
         } catch (error) {
           diagnostics.push({
             code: "SCOPE_MANIFEST_INVALID",
@@ -279,6 +290,7 @@ export class ScopeMapService {
       documentCandidates.push(...index.documentCandidates);
       executableResources.push(...index.executableResources);
       skills.push(...index.skills);
+      diagnostics.push(...(index.diagnostics ?? []));
     }
     if (this.#documentationState !== undefined) {
       for (let index = 0; index < files.length; index++) {
@@ -436,6 +448,7 @@ export class ScopeMapService {
       documentCandidates.push(...content.documentCandidates);
       executableResources.push(...content.executableResources);
       skills.push(...content.skills);
+      diagnostics.push(...(content.diagnostics ?? []));
     }
     files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
@@ -764,10 +777,13 @@ export class ScopeMapService {
     };
   }
 
-  async #readManifest(absoluteDirectory: string, relativePath: string, root: boolean): Promise<ScopeManifest> {
+  async #readManifest(absoluteDirectory: string, relativePath: string, root: boolean, maxBytes: number): Promise<ScopeManifest> {
     try {
-      const source = await readFile(join(absoluteDirectory, "scope.yaml"), "utf8");
-      return scopeManifestSchema.parse(parse(source));
+      const manifestPath = join(absoluteDirectory, "scope.yaml");
+      const metadata = await stat(manifestPath);
+      if (metadata.size > maxBytes) throw new AbcmError("FILE_TOO_LARGE", `scope.yaml exceeds maxIndexBytes=${maxBytes}.`);
+      const source = await readFile(manifestPath, "utf8");
+      return scopeManifestSchema.parse(parseSafeYaml(source));
     } catch (error) {
       if (root) {
         throw new AbcmError("SCOPE_MANIFEST_INVALID", "Workspace root scope.yaml is missing or invalid.", {

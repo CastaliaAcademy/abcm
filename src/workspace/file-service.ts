@@ -4,6 +4,7 @@ import { mkdir, open, readdir, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, posix } from "node:path";
 
 import { AbcmError } from "../core/errors.js";
+import { observeOperation, type AbcmObservability } from "../core/observability.js";
 import { throwIfAborted } from "../core/operation.js";
 import { WorkspaceRegistry } from "./registry.js";
 import { SafeWorkspacePath } from "./safe-path.js";
@@ -21,6 +22,7 @@ import type {
 interface WorkspaceFileServiceOptions {
   onMutation?: MutationReconciler;
   authorizeMutation?: MutationAuthorizer;
+  observability?: AbcmObservability;
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -45,12 +47,14 @@ export class WorkspaceFileService {
   readonly #registry: WorkspaceRegistry;
   readonly #onMutation: MutationReconciler | undefined;
   readonly #authorizeMutation: MutationAuthorizer | undefined;
+  readonly #observability: AbcmObservability | undefined;
   #mutationTail: Promise<void> = Promise.resolve();
 
   constructor(registry: WorkspaceRegistry, options: WorkspaceFileServiceOptions = {}) {
     this.#registry = registry;
     this.#onMutation = options.onMutation;
     this.#authorizeMutation = options.authorizeMutation;
+    this.#observability = options.observability;
   }
 
   async list(workspaceId: string, path = "", recursive = false, signal?: AbortSignal): Promise<FileEntry[]> {
@@ -135,7 +139,11 @@ export class WorkspaceFileService {
   }
 
   async write(workspaceId: string, path: string, content: Uint8Array, preconditions: WritePreconditions = {}, signal?: AbortSignal): Promise<FileEntry & { checksum: string }> {
-    return this.#write(workspaceId, path, content, preconditions, true, true, signal);
+    return observeOperation(this.#observability, {
+      operation: "file.write",
+      workspaceId,
+      successMetrics: () => [{ name: "abcm_file_mutation_total", value: 1, unit: "count", operation: "file.write", outcome: "success" }],
+    }, () => this.#write(workspaceId, path, content, preconditions, true, true, signal));
   }
 
   async writeMirror(
@@ -211,7 +219,11 @@ export class WorkspaceFileService {
   }
 
   async delete(workspaceId: string, path: string, preconditions: DeletePreconditions = {}, signal?: AbortSignal): Promise<void> {
-    await this.#delete(workspaceId, path, preconditions, true, true, signal);
+    await observeOperation(this.#observability, {
+      operation: "file.delete",
+      workspaceId,
+      successMetrics: () => [{ name: "abcm_file_mutation_total", value: 1, unit: "count", operation: "file.delete", outcome: "success" }],
+    }, () => this.#delete(workspaceId, path, preconditions, true, true, signal));
   }
 
   async deleteMirror(workspaceId: string, path: string, preconditions: DeletePreconditions = {}, signal?: AbortSignal): Promise<void> {
@@ -245,7 +257,11 @@ export class WorkspaceFileService {
   }
 
   async move(workspaceId: string, from: string, to: string, options: MoveOptions = {}, signal?: AbortSignal): Promise<FileEntry & { checksum: string }> {
-    return this.#move(workspaceId, from, to, options, true, true, signal);
+    return observeOperation(this.#observability, {
+      operation: "file.move",
+      workspaceId,
+      successMetrics: () => [{ name: "abcm_file_mutation_total", value: 1, unit: "count", operation: "file.move", outcome: "success" }],
+    }, () => this.#move(workspaceId, from, to, options, true, true, signal));
   }
 
   async moveMirror(

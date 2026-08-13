@@ -192,6 +192,7 @@ REST handlers ----------/          |                    |
 - PLAN-0022 добавляет deterministic include/exclude/mapping rules, pre-mutation ambiguity conflicts и checksum/provenance identity-preserving mirror moves без tombstone.
 - PLAN-0023 завершает M10: operator-approved checksum-pinned final sync, SQLite v6 atomic mirror→managed cutover, managed MapRevision и durable body-free recovery journals между filesystem/metadata/publication phases.
 - M3-M10 закрыты; Obsidian готов для mounted folder и private REST plugin, включая irreversible managed cutover.
+- PLAN-0024 начинает M11: fixed body-free audit/metrics port, critical-operation instrumentation, safe YAML parsing, pre-allocation indexing limit и threat model.
 
 ## 5. Риски и открытые решения до M1
 

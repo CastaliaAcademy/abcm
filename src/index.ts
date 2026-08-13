@@ -1,6 +1,16 @@
 export { createAbcmRuntime } from "./app/create-runtime.js";
 export { ContextBuilder } from "./context/context-builder.js";
 export { DirectoryContextFingerprintStore } from "./context/directory-context-fingerprint-store.js";
+export { emitAudit, emitMetric, InMemoryAbcmObservability, observeOperation } from "./core/observability.js";
+export type {
+  AbcmAuditEvent,
+  AbcmMetricName,
+  AbcmMetricPoint,
+  AbcmObservability,
+  AbcmOperation,
+  AbcmOperationOutcome,
+  ObserveOperationOptions,
+} from "./core/observability.js";
 export { buildTaskContextSchema, normalizeBuildTaskContextInput } from "./context/schema.js";
 export type {
   BuildTaskContextRequest,

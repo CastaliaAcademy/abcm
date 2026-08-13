@@ -3,9 +3,8 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join, posix } from "node:path";
 
 import { z } from "zod/v4";
-import { parse } from "yaml";
-
 import { throwIfAborted } from "../core/operation.js";
+import { parseSafeYaml } from "../core/safe-yaml.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
 import type {
   DocumentRecord,
@@ -60,6 +59,7 @@ export interface ScopeContentIndex {
   documentCandidates: DocumentRecord[];
   executableResources: ExecutableResourceRecord[];
   skills: SkillDescriptor[];
+  diagnostics?: MapDiagnostic[];
 }
 
 const skillMetadataSchema = z.object({
@@ -79,7 +79,7 @@ function skillDescriptor(scope: ScopeNode, scopeRelativePath: string, relativePa
   const text = new TextDecoder().decode(content);
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
   if (match === null) return undefined;
-  const parsed = skillMetadataSchema.parse(parse(match[1] ?? ""));
+  const parsed = skillMetadataSchema.parse(parseSafeYaml(match[1] ?? ""));
   if (parsed.name !== directoryName) return undefined;
   const metadata = parsed.metadata;
   const current = metadata["abcm-skill-strategy"];
@@ -165,7 +165,7 @@ function frontmatter(content: Uint8Array): DocumentMetadata | undefined {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
   if (match === null) return undefined;
   try {
-    return documentMetadataSchema.parse(parse(match[1] ?? ""));
+    return documentMetadataSchema.parse(parseSafeYaml(match[1] ?? ""));
   } catch {
     return undefined;
   }
@@ -211,17 +211,28 @@ export async function indexScopeContent(
   const documentCandidates: DocumentRecord[] = [];
   const executableResources: ExecutableResourceRecord[] = [];
   const skills: SkillDescriptor[] = [];
+  const diagnostics: MapDiagnostic[] = [];
 
   const indexFile = async (absolutePath: string, scopeRelativePath: string): Promise<void> => {
     throwIfAborted(signal);
     if (isIgnoredFile(basename(scopeRelativePath))) return;
     const metadata = await stat(absolutePath);
     if (!metadata.isFile()) return;
+    const relativePath = scope.relativePath === "" ? scopeRelativePath : posix.join(scope.relativePath, scopeRelativePath);
+    if (metadata.size > workspace.maxIndexBytes) {
+      diagnostics.push({
+        code: "FILE_TOO_LARGE",
+        severity: "warning",
+        path: relativePath,
+        scopeId: scope.scopeId,
+        message: `File was not indexed because it exceeds maxIndexBytes=${workspace.maxIndexBytes}.`,
+      });
+      return;
+    }
     const content = new Uint8Array(await readFile(absolutePath));
     throwIfAborted(signal);
     const fileChecksum = checksum(content);
     const fileClassification = classification(scopeRelativePath);
-    const relativePath = scope.relativePath === "" ? scopeRelativePath : posix.join(scope.relativePath, scopeRelativePath);
     const parsedMetadata = fileClassification === "context_document" ? frontmatter(content) : undefined;
     files.push({
       scopeId: scope.scopeId,
@@ -293,7 +304,7 @@ export async function indexScopeContent(
   documentCandidates.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   skills.sort((left, right) => `${left.skillId}/${left.sourceScopeId}`.localeCompare(`${right.skillId}/${right.sourceScopeId}`));
-  return { files, documentCandidates, executableResources, skills };
+  return { files, documentCandidates, executableResources, skills, diagnostics };
 }
 
 export function resolveDocumentCandidates(

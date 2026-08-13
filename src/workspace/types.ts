@@ -5,6 +5,7 @@ export interface WorkspaceDefinition {
   maxReadBytes?: number;
   maxWriteBytes?: number;
   maxListEntries?: number;
+  maxIndexBytes?: number;
 }
 
 export interface ResolvedWorkspace extends Required<Omit<WorkspaceDefinition, "deniedDirectories">> {

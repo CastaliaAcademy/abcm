@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { AbcmError } from "../core/errors.js";
+import { observeOperation, type AbcmObservability } from "../core/observability.js";
 import { throwIfAborted } from "../core/operation.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
@@ -49,6 +50,7 @@ export interface ContextBuilderDependencies {
   skillConnectionResolver: SkillConnectionResolver;
   fingerprintStore: ContextFingerprintStore;
   options?: ContextBuilderOptions;
+  observability?: AbcmObservability;
 }
 
 function stable(value: unknown): string {
@@ -133,6 +135,21 @@ export class ContextBuilder {
   }
 
   async build(request: BuildTaskContextRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ContextBundle> {
+    return observeOperation(this.#dependencies.observability, {
+      operation: "context.build",
+      principalId: principal.principalId,
+      durationMetric: "abcm_context_build_duration_ms",
+      successMetrics: result => {
+        const bundle = result as ContextBundle;
+        return [
+          { name: "abcm_context_bundle_tokens", value: bundle.tokenEstimate, unit: "tokens", operation: "context.build", outcome: "success" },
+          { name: "abcm_context_bundle_omissions", value: bundle.omissions.length, unit: "count", operation: "context.build", outcome: "success" },
+        ];
+      },
+    }, () => this.#build(request, principal, signal));
+  }
+
+  async #build(request: BuildTaskContextRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ContextBundle> {
     throwIfAborted(signal);
     if (!principal.access.workspacePermissions.includes("context.build") && !Object.values(principal.access.scopeGrants ?? {}).some(grants => grants.includes("context.build"))) {
       throw new AbcmError("ACCESS_DENIED", "Context build permission is required.");

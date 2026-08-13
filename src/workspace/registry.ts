@@ -25,6 +25,7 @@ export class WorkspaceRegistry {
       maxReadBytes: definition.maxReadBytes ?? 1_048_576,
       maxWriteBytes: definition.maxWriteBytes ?? 1_048_576,
       maxListEntries: definition.maxListEntries ?? 10_000,
+      maxIndexBytes: definition.maxIndexBytes ?? 1_048_576,
     };
     this.#workspaces.set(definition.id, workspace);
     return workspace;

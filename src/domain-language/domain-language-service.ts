@@ -4,9 +4,9 @@ import { join, posix } from "node:path";
 import { promisify } from "node:util";
 
 import { z } from "zod/v4";
-import { parse } from "yaml";
 
 import { AbcmError } from "../core/errors.js";
+import { parseSafeYaml } from "../core/safe-yaml.js";
 import { throwIfAborted } from "../core/operation.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { AbcmPermission, MapRevision, ScopeNode } from "../scope-map/types.js";
@@ -103,7 +103,7 @@ function stableDigest(value: unknown): string {
 function frontmatter(source: string): unknown {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source);
   if (match === null) throw new Error("DomainLanguageConvention.md requires YAML frontmatter.");
-  return parse(match[1] ?? "");
+  return parseSafeYaml(match[1] ?? "");
 }
 
 function equalDefinition(left: unknown, right: unknown): boolean {
@@ -301,7 +301,7 @@ export class DomainLanguageService {
       throw new Error(`Inherit-only scope '${node.scopeId}' cannot define structured domain language.`);
     }
     for (const source of structured) {
-      const value = parse(new TextDecoder().decode(source.content));
+      const value = parseSafeYaml(new TextDecoder().decode(source.content));
       if (source.path.endsWith("domains.yaml")) {
         for (const domain of domainsSchema.parse(value).domains) this.#mergeLocked(language.domains, domain, node.scopeId);
       } else if (source.path.endsWith("glossary.yaml")) {

@@ -19,6 +19,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 - deterministic access-bounded ScopePath resolution with exact/artifact/path/language/relation/keyword tiers and one local-language retry;
 - compact SkillDescriptor indexing and deterministic global/scope/by-link/by-description/manual connection with post-selection body loading;
 - deterministic `buildTaskContext` over REST and MCP with mandatory-first authorization/budgeting, per-document projections, immutable bundle digests, and body-free fingerprints under the reserved `.abcm` derived tree;
+- fixed body-free audit events and bounded metrics through an optional failure-isolated `AbcmObservability` port;
 - self-hosting ABCM metadata, feature plans, verification plans, and reusable project skills.
 
 The normative baseline is specification 0.5.0 plus the extensions in [docs/spec/extensions](docs/spec/extensions). The executed plan is [PLAN-0001](docs/plans/v0.1/plan.md).
@@ -52,6 +53,8 @@ The reference HTTP token and stdio client use a deployment-owned principal profi
 
 REST defaults are 1 MiB per request body, 30 seconds per request, and 600 protected requests per process-local minute. Override them with `ABCM_REST_MAX_REQUEST_BODY_BYTES`, `ABCM_REST_REQUEST_TIMEOUT_MS`, and `ABCM_REST_MAX_REQUESTS_PER_MINUTE`.
 
+Library workspaces also default to a 1 MiB indexing limit. Set `WorkspaceDefinition.maxIndexBytes` to skip larger managed files before body allocation. See the [threat model](docs/security/threat-model.md) and [observability guide](docs/operations/observability.md).
+
 ## Run MCP stdio
 
 ```bash
@@ -75,7 +78,7 @@ Directory sources require SQLite persistence and are configured only by the depl
 
 ## Alpha boundaries
 
-Scope-map revisions and MAP-P4 metadata indexes can be persisted in rebuildable SQLite when explicitly enabled. DomainLanguageBootstrap is currently in-memory and deployment-principal-bound; ContextBundle fingerprints are atomically persisted as derived metadata under `.abcm` but are not yet catalogued in SQLite. External identity providers, durable bootstrap/audit records, executable-resource activation, and automatic documentation watchers remain later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
+Scope-map revisions and MAP-P4 metadata indexes can be persisted in rebuildable SQLite when explicitly enabled. DomainLanguageBootstrap is currently in-memory and deployment-principal-bound; ContextBundle fingerprints are atomically persisted as derived metadata under `.abcm` but are not yet catalogued in SQLite. External identity providers, durable audit storage, executable-resource activation, and automatic documentation watchers remain later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
 
 ## License
 
