@@ -25,3 +25,7 @@ Status: PASS
 - Manifest list: `sha256:5ed979b9c7f90856ea9cf0e27179ec00b1878ada5ae070339176d1e472653e82`.
 - Final-image composition accepted the configured 5 ms deadline and constructed the production `McpServer`.
 - Existing `abcm-local` and `abcm-tunnel` containers were not restarted or replaced.
+
+## Workspace documentation publication
+
+The preserved local service received six PLAN-0019 documents under `castalia-public/abcm` through authenticated REST: five creates and one checksum-protected update. Byte-for-byte verification passed and a live ScopeMap scan completed with zero diagnostics. The intentionally preserved older runtime retained legacy digest `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a`; neither running container was restarted or replaced.
