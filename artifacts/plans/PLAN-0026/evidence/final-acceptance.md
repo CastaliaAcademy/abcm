@@ -2,7 +2,7 @@
 id: PLAN-0026-FINAL-ACCEPTANCE
 kind: report
 title: PLAN-0026 final acceptance evidence
-status: draft
+status: accepted
 ---
 
 # PLAN-0026 final acceptance evidence
@@ -21,4 +21,6 @@ status: draft
 
 ## Publication boundary
 
-Authenticated ABCM REST publication receipt and final clean-main commit are appended after local integration. GitHub push/tag/release, package/image publication, deployment, and replacement of the running legacy containers remain unperformed.
+Authenticated REST publication to `castalia-public/abcm` processed 18 files: 8 created, 7 updated, and 3 already byte-identical. All 18 files were reread byte-for-byte. The post-publication ScopeMap scan returned digest `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a` with zero diagnostics.
+
+GitHub push/tag/release, package/image publication, deployment, and replacement of the running legacy containers remain unperformed.

@@ -1,6 +1,6 @@
 # PLAN-0026 — Normative closure and final acceptance
 
-Status: local implementation and release gates complete; documentation publication pending
+Status: complete
 Milestone: M11 / 0.1.0 final gate
 Requirements: 76 normative MUST/MUST_NOT, 22 baseline acceptance scenarios, NCC-001..004, AC-NORMATIVE-PLACEMENT, AC-ACCEPTED-ARTIFACT-IMMUTABLE
 
