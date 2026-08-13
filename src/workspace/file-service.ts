@@ -11,6 +11,7 @@ import { SafeWorkspacePath } from "./safe-path.js";
 import type {
   DeletePreconditions,
   FileEntry,
+  FileMutationOperation,
   MoveOptions,
   MutationReconciler,
   MutationAuthorizer,
@@ -175,7 +176,7 @@ export class WorkspaceFileService {
     }
     return this.#mutate(async () => {
       throwIfAborted(signal);
-      if (authorize) await this.#authorize(workspaceId, [path]);
+      if (authorize) await this.#authorize(workspaceId, [path], "write");
       throwIfAborted(signal);
       const safePath = await this.#safePath(workspace);
       let resolved = await safePath.resolve(path, { allowMissing: true });
@@ -242,7 +243,7 @@ export class WorkspaceFileService {
     const workspace = this.#registry.get(workspaceId);
     await this.#mutate(async () => {
       throwIfAborted(signal);
-      if (authorize) await this.#authorize(workspaceId, [path]);
+      if (authorize) await this.#authorize(workspaceId, [path], "delete");
       throwIfAborted(signal);
       const safePath = await this.#safePath(workspace);
       const resolved = await safePath.resolve(path);
@@ -287,7 +288,7 @@ export class WorkspaceFileService {
     const workspace = this.#registry.get(workspaceId);
     return this.#mutate(async () => {
       throwIfAborted(signal);
-      if (authorize) await this.#authorize(workspaceId, [from, to]);
+      if (authorize) await this.#authorize(workspaceId, [from, to], "move");
       throwIfAborted(signal);
       const safePath = await this.#safePath(workspace);
       const source = await safePath.resolve(from);
@@ -393,8 +394,8 @@ export class WorkspaceFileService {
     if (this.#onMutation) await this.#onMutation(workspaceId, paths);
   }
 
-  async #authorize(workspaceId: string, paths: readonly string[]): Promise<void> {
-    if (this.#authorizeMutation) await this.#authorizeMutation(workspaceId, paths);
+  async #authorize(workspaceId: string, paths: readonly string[], operation: FileMutationOperation): Promise<void> {
+    if (this.#authorizeMutation) await this.#authorizeMutation(workspaceId, paths, operation);
   }
 
   #mutate<T>(operation: () => Promise<T>): Promise<T> {

@@ -26,7 +26,7 @@ const sbom = JSON.parse(await readFile("docs/release/sbom.cdx.json", "utf8")) as
 if (sbom.bomFormat !== "CycloneDX" || sbom.specVersion !== "1.6") throw new Error("SBOM format is invalid.");
 if (sbom.metadata.component.version !== packageJson.version) throw new Error("SBOM package version differs.");
 if (sbom.components.length !== Object.keys(lock.packages).length) throw new Error("SBOM does not cover every locked package.");
-for (const path of ["CHANGELOG.md", "docs/release/provenance.md", "examples/README.md", "examples/library.ts", "examples/rest-server.sh", "examples/mcp-stdio.sh"]) {
+for (const path of ["CHANGELOG.md", "docs/release/provenance.md", "docs/release/traceability-v0.1.0.yaml", "examples/README.md", "examples/library.ts", "examples/rest-server.sh", "examples/mcp-stdio.sh"]) {
   if ((await readFile(path)).byteLength === 0) throw new Error(`Release artifact '${path}' is empty.`);
 }
 console.log(JSON.stringify({ version: packageJson.version, lockedPackages: Object.keys(lock.packages).length, packageFiles: packageJson.files.length }));

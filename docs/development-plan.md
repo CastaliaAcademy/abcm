@@ -1,7 +1,7 @@
 # План разработки ABCM MVP
 
-Статус: in progress
-Нормативная база: `docs/spec/abcm-mvp-agent-spec-v0.5.yaml`, версия 0.5.0, draft; `docs/spec/extensions/rest-file-management-v0.1.yaml`
+Статус: complete for local 0.1.0 release candidate
+Нормативная база: `docs/spec/abcm-mvp-agent-spec-v0.5.yaml`, версия 0.5.0, draft, и все спецификации `docs/spec/extensions/*.yaml`
 Цель: библиотека MCP-сервера с transport-independent ядром; MCP и REST являются адаптерами одних use case.
 
 ## 1. Границы MVP
@@ -43,7 +43,7 @@ REST handlers ----------/          |                    |
 - Ввести traceability manifest: `requirement id -> unit/contract/integration/acceptance tests`.
 - Подготовить fixture workspaces: минимальный valid tree, каждая invalid hierarchy, duplicate ids, missing convention, mirror/cutover cases.
 - Добавить CI для typecheck, unit, integration, package build и dependency audit.
-- Gate: все 28 acceptance scenarios представлены пропущенными/красными тестами с явными ссылками на AC-id; публичные схемы проходят snapshot review.
+- Gate: все 22 baseline acceptance scenarios и acceptance расширений представлены исполняемыми тестами с явными ссылками на AC-id; публичные схемы проходят snapshot review.
 
 ### M1. FileWorkspace и безопасный I/O
 
@@ -151,7 +151,7 @@ REST handlers ----------/          |                    |
 - Structured audit events без document bodies/secrets; metrics для scan, resolver, bundle budget, sync conflicts.
 - Benchmarks на large fixtures с отдельно измеренными scan/hash/parse/SQLite/resolver/projection costs.
 - Package provenance, SBOM, locked dependencies, release notes, API docs и runnable examples.
-- Финальный gate: все MUST/MUST_NOT и acceptance scenarios зелёные; известные MAY/SHOULD gaps перечислены; clean install/build/test на Bun и поддерживаемом Node.js.
+- Финальный gate: все MUST/MUST_NOT и acceptance scenarios зелёные; известные MAY/SHOULD gaps перечислены; clean install/build/test на объявленном Bun runtime. Node.js не объявлен поддерживаемым для reference SQLite adapter.
 
 ## 4. Порядок поставки
 
@@ -194,8 +194,10 @@ REST handlers ----------/          |                    |
 - M3-M10 закрыты; Obsidian готов для mounted folder и private REST plugin, включая irreversible managed cutover.
 - PLAN-0024 начинает M11: fixed body-free audit/metrics port, critical-operation instrumentation, safe YAML parsing, pre-allocation indexing limit и threat model.
 - PLAN-0025 закрывает оставшийся M2 gap и release-packaging часть M11: schema v7 context catalog, benchmark harness, frozen package gate, CycloneDX SBOM, provenance, release notes и runnable examples.
+- PLAN-0026 завершает M11: placement validation, API-level immutability accepted ADR/RFC, schema v8 worker metadata, полная машинно-проверяемая traceability для 78 baseline requirements, 22 baseline acceptance scenarios, 196 extension requirements и 56 extension acceptance scenarios, а также финальный release checklist.
+- M0-M11 закрыты для локального release candidate 0.1.0; GitHub/package/image публикация и замена запущенного legacy-контейнера остаются отдельными операторскими действиями.
 
-## 5. Риски и открытые решения до M1
+## 5. Зафиксированные границы после M11
 
 - Уточнить lifecycle draft-спецификации 0.5: какие изменения считаются breaking до 1.0.
 - Зафиксировать поддерживаемые ОС/filesystems и способ надёжного определения network filesystem.
@@ -205,4 +207,4 @@ REST handlers ----------/          |                    |
 - Определить token estimator/model profiles; digest не должен зависеть от нестабильного внешнего tokenizer без version pinning.
 - Выбрать REST framework и HTTP deployment model после проверки Streamable HTTP adapter SDK.
 
-Эти решения оформляются ADR до кода соответствующего milestone; они не должны расширять product boundary спецификации.
+Текущие ограничения и отложенные решения сведены в `docs/release/known-gaps-v0.1.0.md`; они не расширяют product boundary спецификации.

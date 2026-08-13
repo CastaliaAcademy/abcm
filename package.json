@@ -38,7 +38,8 @@
     "openapi:generate": "bun run src/cli/generate-openapi.ts",
     "bench": "bun run benchmarks/large-fixture.ts",
     "sbom:generate": "bun run scripts/generate-sbom.ts",
-    "release:check": "bun x tsc -p tsconfig.release.json && bun run scripts/check-release.ts",
+    "traceability:check": "bun run scripts/check-traceability.ts",
+    "release:check": "bun x tsc -p tsconfig.release.json && bun run traceability:check && bun run scripts/check-release.ts",
     "test": "bun test"
   },
   "dependencies": {

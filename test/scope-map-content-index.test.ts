@@ -58,6 +58,7 @@ describe("ScopeMap content indexes", () => {
         scopeId: "project",
         relativePath: "project/artifacts/adr/ADR-0001--old-name.md",
         lifecycle: "accepted",
+        worker: null,
         requiredSelectors: ["always"],
         roleSelectors: ["executor-agent"],
         links: ["abcm://scope/project"],

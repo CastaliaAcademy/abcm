@@ -20,6 +20,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 - compact SkillDescriptor indexing and deterministic global/scope/by-link/by-description/manual connection with post-selection body loading;
 - deterministic `buildTaskContext` over REST and MCP with mandatory-first authorization/budgeting, per-document projections, immutable bundle digests, and body-free fingerprints under the reserved `.abcm` derived tree;
 - fixed body-free audit events and bounded metrics through an optional failure-isolated `AbcmObservability` port;
+- normative placement diagnostics and API-level mutation protection for accepted ADR/RFC content while preserving checksum-stable rename identity;
 - self-hosting ABCM metadata, feature plans, verification plans, and reusable project skills.
 
 The normative baseline is specification 0.5.0 plus the extensions in [docs/spec/extensions](docs/spec/extensions). The executed plan is [PLAN-0001](docs/plans/v0.1/plan.md).
@@ -63,7 +64,7 @@ ABCM_WORKSPACE_STORE_ROOT="$PWD/.local-workspaces" ABCM_WORKSPACE_ID=self ABCM_W
 
 See the [MCP API](docs/api/mcp-api.md).
 
-Release consumers can also inspect the [0.1.0 changelog](CHANGELOG.md), [package provenance](docs/release/provenance.md), [CycloneDX SBOM](docs/release/sbom.cdx.json), [large-fixture benchmark](docs/performance/benchmark-v0.1.md), and [runnable examples](examples/README.md).
+Release consumers can also inspect the [0.1.0 changelog](CHANGELOG.md), [complete traceability manifest](docs/release/traceability-v0.1.0.yaml), [known gaps](docs/release/known-gaps-v0.1.0.md), [package provenance](docs/release/provenance.md), [CycloneDX SBOM](docs/release/sbom.cdx.json), [large-fixture benchmark](docs/performance/benchmark-v0.1.md), and [runnable examples](examples/README.md).
 
 ## Library entrypoint
 

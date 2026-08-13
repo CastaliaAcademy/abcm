@@ -32,6 +32,8 @@ The context-build endpoint validates that bootstrap against the same principal a
 
 Reads return strong SHA-256 ETags. Writes accept `If-Match`; creates accept `If-None-Match: *`. File bodies are raw bytes. JSON errors use `application/problem+json` and stable ABCM codes.
 
+Accepted ADR/RFC bytes are immutable through the runtime file service. Write, delete, and overwrite-target move attempts return `409 ACCEPTED_ARTIFACT_IMMUTABLE`; a non-overwriting rename is permitted and preserves id/checksum. Draft artifacts remain editable. Direct host filesystem edits are outside this API control.
+
 Workspace registration returns `201` after creating a minimal workflow scaffold. It returns `409 WORKSPACE_ALREADY_EXISTS` without changing a registered or pre-existing target. Supplying `root`, `path`, or any unknown field returns `400 REQUEST_INVALID`; if no managed store is configured, registration returns `503 WORKSPACE_REGISTRATION_DISABLED`.
 
 Directory documentation sources are deployment-owned and require SQLite persistence. Preview is non-mutating and returns checksum-pinned create/update/move/delete/unchanged/conflict operations after configured include/exclude/mapping rules. Ambiguous rules or duplicate mapped targets return `DOCUMENTATION_MAPPING_AMBIGUOUS`. Apply rejects stale snapshots or targets. `sync` performs an immediate preview/apply. Active mirrors remain readable but general write/delete/move endpoints return `409 MIRROR_DOCUMENT_READ_ONLY`. See the [Obsidian integration guide](../integrations/obsidian.md).

@@ -33,6 +33,20 @@ const IGNORED_DIRECTORIES = new Set([
   "tmp",
 ]);
 const EXECUTABLE_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts", ".py", ".sh", ".bash", ".rb", ".pl"]);
+const ARTIFACT_KINDS = new Set([
+  "adr",
+  "rfc",
+  "technical-debt",
+  "technicaldebt",
+  "convention",
+  "conventions",
+  "template",
+  "plan",
+  "report",
+  "eval",
+  "evaluation",
+]);
+const ARCHITECTURE_KINDS = new Set(["architecture", "architecture-document", "plantuml"]);
 
 const documentMetadataSchema = z
   .object({
@@ -46,6 +60,7 @@ const documentMetadataSchema = z
     taskTypes: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
     domain: z.string().min(1).optional(),
+    worker: z.string().min(1).optional(),
     links: z.array(z.string()).optional(),
     controlMode: z.string().optional(),
     projection: z.enum(["full", "section", "summary", "metadata", "reference"]).optional(),
@@ -159,16 +174,36 @@ function languageFor(path: string): string {
   )[extension] ?? "unknown";
 }
 
-function frontmatter(content: Uint8Array): DocumentMetadata | undefined {
+function frontmatterData(content: Uint8Array): Record<string, unknown> | undefined {
   const text = new TextDecoder().decode(content);
   if (!text.startsWith("---\n") && !text.startsWith("---\r\n")) return undefined;
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
   if (match === null) return undefined;
   try {
-    return documentMetadataSchema.parse(parseSafeYaml(match[1] ?? ""));
+    const value = parseSafeYaml(match[1] ?? "");
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
   } catch {
     return undefined;
   }
+}
+
+function placementIssue(scopeRelativePath: string, frontmatter: Record<string, unknown> | undefined): string | undefined {
+  const declaredKind = typeof frontmatter?.kind === "string"
+    ? frontmatter.kind.trim().toLocaleLowerCase("en-US").replaceAll("_", "-")
+    : undefined;
+  if (declaredKind === "agentrole" || declaredKind === "agent-role") {
+    if (!/^agents\/roles\/[^/]+\.md$/.test(scopeRelativePath)) return "AgentRole documents must be stored under agents/roles.";
+  }
+  if (declaredKind !== undefined && ARTIFACT_KINDS.has(declaredKind) && !scopeRelativePath.startsWith("artifacts/")) {
+    return `Artifact kind '${declaredKind}' must be stored under artifacts.`;
+  }
+  if (declaredKind !== undefined && ARCHITECTURE_KINDS.has(declaredKind) && !scopeRelativePath.startsWith("architecture/")) {
+    return `Architecture kind '${declaredKind}' must be stored under architecture.`;
+  }
+  if (extname(scopeRelativePath).toLocaleLowerCase("en-US") === ".puml" && !scopeRelativePath.startsWith("architecture/")) {
+    return "PlantUML sources must be stored under architecture.";
+  }
+  return undefined;
 }
 
 function documentFrom(
@@ -193,6 +228,7 @@ function documentFrom(
     taskSelectors: metadata.taskTypes ?? [],
     tags: metadata.tags ?? [],
     ...(metadata.domain === undefined ? {} : { domain: metadata.domain }),
+    worker: metadata.worker ?? null,
     links: metadata.links ?? [],
     contextPolicy: metadata.controlMode ?? "default",
     ...(metadata.projection === undefined ? {} : { projectionPolicy: metadata.projection }),
@@ -233,7 +269,11 @@ export async function indexScopeContent(
     throwIfAborted(signal);
     const fileChecksum = checksum(content);
     const fileClassification = classification(scopeRelativePath);
-    const parsedMetadata = fileClassification === "context_document" ? frontmatter(content) : undefined;
+    const rawFrontmatter = frontmatterData(content);
+    const parsedMetadata = fileClassification === "context_document"
+      ? documentMetadataSchema.safeParse(rawFrontmatter).data
+      : undefined;
+    const invalidPlacement = placementIssue(scopeRelativePath, rawFrontmatter);
     files.push({
       scopeId: scope.scopeId,
       relativePath,
@@ -244,7 +284,15 @@ export async function indexScopeContent(
       classification: fileClassification,
       storageMode: "managed",
     });
-    if (parsedMetadata !== undefined) {
+    if (invalidPlacement !== undefined) {
+      diagnostics.push({
+        code: "ARTIFACT_PLACEMENT_INVALID",
+        severity: "warning",
+        path: relativePath,
+        scopeId: scope.scopeId,
+        message: invalidPlacement,
+      });
+    } else if (parsedMetadata !== undefined) {
       documentCandidates.push(documentFrom(scope, relativePath, fileChecksum, parsedMetadata));
     }
     if (fileClassification === "executable_resource") {

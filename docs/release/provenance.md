@@ -17,6 +17,7 @@ bun install --frozen-lockfile
 bun run check
 bun run build
 bun run release:check
+bun run traceability:check
 bun pm pack --dry-run
 bun audit --audit-level=high
 ```

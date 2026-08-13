@@ -75,7 +75,10 @@ export function createAbcmRuntime(
   let documentation: DirectoryDocumentationSyncService | undefined;
   const files = new WorkspaceFileService(registry, {
     onMutation: async (workspaceId, changedPaths) => void (await scopeMapReconciler.requestMutation(workspaceId, changedPaths)),
-    authorizeMutation: async (workspaceId, paths) => documentation?.authorizeMutation(workspaceId, paths),
+    authorizeMutation: async (workspaceId, paths, operation) => {
+      await documentation?.authorizeMutation(workspaceId, paths);
+      await scopeMap.authorizeArtifactMutation(workspaceId, paths, operation);
+    },
     ...(options.observability === undefined ? {} : { observability: options.observability }),
   });
   const contextFingerprintCatalog = options.contextFingerprintCatalog ?? ownedScopeMapStore;

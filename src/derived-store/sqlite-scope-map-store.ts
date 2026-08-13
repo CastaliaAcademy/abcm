@@ -23,7 +23,7 @@ import type {
 import type { MapRevision } from "../scope-map/types.js";
 import type { RuntimeOwnerHandle, ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./types.js";
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 interface LeaseRow {
   owner_id: string;
@@ -265,8 +265,8 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
         this.#database.run(
           `INSERT OR IGNORE INTO map_documents
             (workspace_id, revision, document_id, kind, title, scope_id, relative_path, checksum, lifecycle,
-             required_selectors_json, role_selectors_json, task_selectors_json, links_json, context_policy, storage_mode)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             required_selectors_json, role_selectors_json, task_selectors_json, links_json, context_policy, storage_mode, worker)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             lease.workspaceId,
             revision.revision,
@@ -283,6 +283,7 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
             JSON.stringify(document.links),
             document.contextPolicy,
             document.storageMode,
+            document.worker ?? null,
           ],
         );
       }
@@ -1047,6 +1048,12 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
           PRIMARY KEY (workspace_id, fingerprint_id),
           FOREIGN KEY (workspace_id, bundle_digest) REFERENCES context_bundles(workspace_id, bundle_digest)
         )`);
+      }
+      if (currentVersion < 8) {
+        const workerColumn = this.#database
+          .query<{ name: string }, []>("SELECT name FROM pragma_table_info('map_documents') WHERE name = 'worker'")
+          .get();
+        if (workerColumn === null) this.#database.run("ALTER TABLE map_documents ADD COLUMN worker TEXT");
       }
       this.#database.run(
         `INSERT INTO schema_metadata (key, value) VALUES ('schema_version', ?)

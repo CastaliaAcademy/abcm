@@ -1,0 +1,34 @@
+apiVersion: abcm.dev/v1alpha1
+kind: RequirementExtension
+metadata:
+  id: normative-content-controls-v0.1
+  version: 0.1.0
+  status: draft
+requirements:
+  - id: NCC-001
+    level: MUST
+    statement: AgentRole frontmatter outside agents/roles MUST be excluded from the active document index with ARTIFACT_PLACEMENT_INVALID.
+  - id: NCC-002
+    level: MUST
+    statement: ADR, RFC, technical-debt, convention, template, plan, report, and eval documents outside artifacts MUST be excluded from the active document index.
+  - id: NCC-003
+    level: MUST
+    statement: Architecture documents outside architecture MUST be excluded from the active document index, and ADR/RFC/plan documents MUST NOT be stored under architecture.
+  - id: NCC-004
+    level: MUST
+    statement: Public API write/delete or overwrite-target operations MUST reject accepted ADR/RFC content with ACCEPTED_ARTIFACT_IMMUTABLE; a checksum-preserving rename remains allowed.
+acceptanceScenarios:
+  - id: AC-NORMATIVE-PLACEMENT
+    given: role, ADR, and architecture documents are placed outside their normative roots
+    when: ScopeMap is built
+    then:
+      - each invalid document is excluded
+      - metadata-only ARTIFACT_PLACEMENT_INVALID diagnostics are published
+      - valid sibling content remains indexed
+  - id: AC-ACCEPTED-ARTIFACT-IMMUTABLE
+    given: an accepted ADR or RFC exists in the active map
+    when: an API caller writes, deletes, or overwrites it
+    then:
+      - the mutation fails before filesystem commit
+      - exact bytes remain unchanged
+      - a non-overwriting rename retains stable frontmatter identity

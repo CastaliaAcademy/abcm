@@ -41,4 +41,9 @@ export interface MoveOptions extends DeletePreconditions {
 }
 
 export type MutationReconciler = (workspaceId: string, changedPaths: readonly string[]) => Promise<void>;
-export type MutationAuthorizer = (workspaceId: string, changedPaths: readonly string[]) => Promise<void>;
+export type FileMutationOperation = "write" | "delete" | "move";
+export type MutationAuthorizer = (
+  workspaceId: string,
+  changedPaths: readonly string[],
+  operation: FileMutationOperation,
+) => Promise<void>;

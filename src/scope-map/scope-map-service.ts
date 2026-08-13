@@ -10,7 +10,7 @@ import { parseSafeYaml } from "../core/safe-yaml.js";
 import type { ScopeMapStore } from "../derived-store/types.js";
 import type { DocumentationStateStore } from "../documentation/types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
-import type { ResolvedWorkspace } from "../workspace/types.js";
+import type { FileMutationOperation, ResolvedWorkspace } from "../workspace/types.js";
 import {
   indexScopeContent,
   resolveDocumentCandidates,
@@ -564,6 +564,31 @@ export class ScopeMapService {
         diagnostics: map.diagnostics.filter(diagnostic => diagnostic.scopeId === scopeId),
       });
     return [...ids].filter(scopeId => snapshot(previous, scopeId) !== snapshot(revision, scopeId)).sort();
+  }
+
+  async authorizeArtifactMutation(
+    workspaceId: string,
+    paths: readonly string[],
+    operation: FileMutationOperation,
+  ): Promise<void> {
+    const protectedPaths = operation === "move" ? paths.slice(1) : paths;
+    if (!protectedPaths.some(path => /(?:^|\/)artifacts\//.test(path))) return;
+    let revision = this.#active.get(workspaceId);
+    if (revision === undefined) revision = await this.scan(workspaceId);
+    for (const path of protectedPaths) {
+      const artifact = revision.documents.find(document =>
+        document.relativePath === path &&
+        ["adr", "rfc"].includes(document.kind.toLocaleLowerCase("en-US")) &&
+        document.lifecycle.toLocaleLowerCase("en-US") === "accepted"
+      );
+      if (artifact !== undefined) {
+        throw new AbcmError(
+          "ACCEPTED_ARTIFACT_IMMUTABLE",
+          `Accepted ${artifact.kind.toUpperCase()} '${artifact.documentId}' requires an explicit amendment workflow.`,
+          { documentId: artifact.documentId, path: artifact.relativePath },
+        );
+      }
+    }
   }
 
   getActiveRevision(workspaceId: string): MapRevision {

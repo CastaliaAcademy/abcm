@@ -74,7 +74,8 @@ export interface MapDiagnostic {
     | "RELATIONS_CONFIGURATION_INVALID"
     | "EXPLICIT_LINK_INVALID"
     | "EXPLICIT_LINK_UNRESOLVED"
-    | "FILE_TOO_LARGE";
+    | "FILE_TOO_LARGE"
+    | "ARTIFACT_PLACEMENT_INVALID";
   severity: "branch_error" | "scope_error" | "warning";
   path: string;
   message: string;
@@ -114,6 +115,7 @@ export interface DocumentRecord {
   taskSelectors: readonly string[];
   tags?: readonly string[];
   domain?: string;
+  worker?: string | null;
   links: readonly string[];
   contextPolicy: string;
   projectionPolicy?: "full" | "section" | "summary" | "metadata" | "reference";
