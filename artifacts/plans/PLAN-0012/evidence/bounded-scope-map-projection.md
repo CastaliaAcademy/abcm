@@ -27,3 +27,7 @@ The initial focused suite contained four failing scenarios: the service treated 
 - Admin and `includeInvalid` require workspace `scope_map.read_full`; invalid branches are rejected in the agent view.
 - Legacy string projections retain trusted in-process behavior; REST and MCP use the same configurable effective access object.
 - Existing `abcm-local` and `abcm-tunnel` containers were not replaced or restarted.
+
+## Workspace documentation publication
+
+The existing local service received the five PLAN-0012 specification, plan, traceability, verification, and evidence files under `castalia-public/abcm` through authenticated REST. Initial publication created all five files, byte-for-byte verification passed, and a live ScopeMap scan completed with zero diagnostics. The unchanged digest `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a` is expected from the intentionally preserved `workspace-registration` runtime image, whose older map digest does not include later content indexes. The running `abcm-local` and `abcm-tunnel` images were not replaced.

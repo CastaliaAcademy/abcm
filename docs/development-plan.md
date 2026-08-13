@@ -178,7 +178,7 @@ REST handlers ----------/          |                    |
 - PLAN-0010 добавил stable explicit ScopeMap relations, строгий relations config и нормализованную публикацию graph metadata/diagnostics в SQLite schema v5.
 - PLAN-0011 добавил targeted impact-set reconcile, безопасную очередь in-flight mutations и post-publication ScopeMapChanged events.
 - PLAN-0012 завершил M4 bounded projections: root/depth bounds, global/local access grants, path-only ancestors, admin invalid branches и единый REST/MCP disclosure boundary.
-- M2 остаётся незавершённым до context state и нормализованных relations/diagnostics.
+- M2 остаётся незавершённым до derived context/fingerprint state; relations и diagnostics нормализованы PLAN-0010.
 - M3 закрыт PLAN-0010 и PLAN-0011; следующий продуктовый этап — M5 DomainLanguageBootstrap и path resolver.
 - M10 остаётся незавершённым до mapping rules, identity-preserving moves, managed cutover и fault-injection recovery между filesystem и metadata phases.
 
