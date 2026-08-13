@@ -28,3 +28,9 @@ Status: complete
 - Image manifest digest: `sha256:95fc6bbfd6acc7c09e5207c14a140346df1f402c144fc1fbb425a6a3e973deb5`.
 - Final-image smoke: exact defaults exported; 429 references `RateLimitProblem`; 499/504 responses exist; invalid 300001 ms timeout is rejected.
 - `docker compose config --quiet` for the production overlays: PASS.
+
+## Workspace publication
+
+- Published 11 README/API/operations/plan/spec/evidence files through the preserved local REST runtime into `castalia-public/abcm`.
+- First publication: 5 creates, 6 conditional updates, 11 byte-for-byte verification reads.
+- Post-publication ScopeMap digest: `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a`; diagnostics: 0.
