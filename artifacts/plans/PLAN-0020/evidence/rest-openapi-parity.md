@@ -24,3 +24,9 @@ Status: complete
 - Production image: `abcm-mcp-server:plan-0020`.
 - Image manifest digest: `sha256:71e12ecff3c9496e51232d081ce5757c84b034079ff9b71331d54c33cf1fc6eb`.
 - Final-image composition-root smoke: OpenAPI `3.1.0`, 14 path objects, 16 operations, 13 shared schemas.
+
+## Workspace publication
+
+- Published 8 changed contract/evidence files through the preserved local REST runtime into `castalia-public/abcm`.
+- First publication: 6 creates, 2 conditional updates, 8 byte-for-byte verification reads.
+- Post-publication ScopeMap digest: `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a`; diagnostics: 0.
