@@ -29,3 +29,7 @@ The initial focused test could not load the absent `domain-language` module. The
 - Bootstrap state is in-memory; a durable port/schema will be added with ContextFingerprint state before release.
 - Final service/feature path resolution and local re-resolution remain PLAN-0014.
 - Existing `abcm-local` and `abcm-tunnel` containers were not replaced or restarted.
+
+## Workspace documentation publication
+
+The existing local service received all nine changed PLAN-0013 documents under `castalia-public/abcm` through authenticated REST: five files were created and four were checksum-protected updates. Byte-for-byte verification passed for README, both API references, master plan, specification extension, plan, traceability, verification, and evidence. A live ScopeMap scan completed with zero diagnostics. The intentionally preserved older runtime image retained its legacy digest `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a`; neither running container was replaced.
