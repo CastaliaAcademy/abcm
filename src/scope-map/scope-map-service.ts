@@ -24,7 +24,11 @@ import type {
   MapRevision,
   MapRevisionSummary,
   ScopeKind,
+  ScopeMapAccess,
+  ScopeMapPermission,
   ScopeMapProjection,
+  ScopeMapProjectionNode,
+  ScopeMapProjectionQuery,
   ScopeMapChanged,
   ScopeMapChangedListener,
   ScopeNode,
@@ -33,6 +37,9 @@ import type {
 
 const SCOPE_KINDS = ["workflow", "project", "service", "feature"] as const;
 const RESERVED_SCOPE_DIRECTORIES = new Set([".abcm", "config", "domain-language", "agents", "artifacts", "architecture"]);
+const TRUSTED_SCOPE_MAP_ACCESS: ScopeMapAccess = {
+  workspacePermissions: ["scope.discover", "scope.read_metadata", "scope_map.read_full"],
+};
 
 const scopeManifestSchema = z
   .object({
@@ -521,38 +528,193 @@ export class ScopeMapService {
     return [...ids].filter(scopeId => snapshot(previous, scopeId) !== snapshot(revision, scopeId)).sort();
   }
 
-  getProjection(workspaceId: string, view: "agent" | "admin" = "agent"): ScopeMapProjection {
+  getProjection(workspaceId: string, view?: "agent" | "admin"): ScopeMapProjection;
+  getProjection(workspaceId: string, query: ScopeMapProjectionQuery, access?: ScopeMapAccess): ScopeMapProjection;
+  getProjection(
+    workspaceId: string,
+    queryOrView: ScopeMapProjectionQuery | "agent" | "admin" = "agent",
+    access: ScopeMapAccess = TRUSTED_SCOPE_MAP_ACCESS,
+  ): ScopeMapProjection {
     const revision = this.#active.get(workspaceId);
     if (!revision) throw new AbcmError("MAP_NOT_BUILT", "ScopeMap has not been scanned for this workspace.");
-    const nodes = view === "admin" ? revision.nodes : revision.nodes.filter(node => node.status === "valid");
-    const visibleIds = new Set(nodes.map(node => node.scopeId));
-    const relations =
-      view === "admin"
-        ? revision.relations
-        : revision.relations.filter(relation => visibleIds.has(relation.fromId) && visibleIds.has(relation.toId));
-    const warnings =
-      view === "admin"
-        ? revision.diagnostics
-        : revision.diagnostics.filter(
-            diagnostic =>
-              (diagnostic.code === "DOMAIN_LANGUAGE_CONFIGURATION_INVALID" ||
-                diagnostic.code === "EXPLICIT_LINK_UNRESOLVED") &&
-              (diagnostic.scopeId === undefined || visibleIds.has(diagnostic.scopeId)),
-          );
-    return {
+    const legacy = typeof queryOrView === "string";
+    const query: ScopeMapProjectionQuery = legacy ? { view: queryOrView } : queryOrView;
+    const view = query.view ?? "agent";
+    const includeInvalid = query.includeInvalid ?? (legacy && view === "admin");
+    const depth = query.depth;
+    if (depth !== undefined && (!Number.isSafeInteger(depth) || depth < 0)) {
+      throw new AbcmError("REQUEST_INVALID", "ScopeMap depth must be a non-negative integer.");
+    }
+    if (includeInvalid && view !== "admin") {
+      throw new AbcmError("REQUEST_INVALID", "Invalid ScopeMap branches are available only in the admin view.");
+    }
+    if ((view === "admin" || includeInvalid) && !access.workspacePermissions.includes("scope_map.read_full")) {
+      throw new AbcmError("ACCESS_DENIED", "Full-map permission is required for admin or invalid ScopeMap projections.");
+    }
+
+    const eligibleNodes = includeInvalid ? revision.nodes : revision.nodes.filter(node => node.status === "valid");
+    const root = this.#resolveProjectionRoot(eligibleNodes, query.rootScopeId);
+    const boundedNodes = eligibleNodes.filter(node => {
+      const distance = this.#projectionDistance(root, node, eligibleNodes);
+      return distance !== undefined && (depth === undefined || distance <= depth);
+    });
+    const selectedNodes = boundedNodes.filter(
+      node =>
+        this.#hasScopePermission(access, node, "scope.discover") &&
+        this.#hasScopePermission(access, node, "scope.read_metadata"),
+    );
+    if (selectedNodes.length === 0) {
+      throw new AbcmError("ACCESS_DENIED", "Scope discovery and metadata permissions are required for this projection.");
+    }
+
+    const selectedIds = new Set(selectedNodes.map(node => node.scopeId));
+    const visibleIds = new Set(selectedIds);
+    const nodesById = new Map(revision.nodes.map(node => [node.scopeId, node]));
+    for (const selected of selectedNodes) {
+      let parentScopeId = selected.parentScopeId;
+      while (parentScopeId !== undefined) {
+        visibleIds.add(parentScopeId);
+        parentScopeId = nodesById.get(parentScopeId)?.parentScopeId;
+      }
+    }
+    const visibleNodes = revision.nodes.filter(node => visibleIds.has(node.scopeId));
+    const knownScopeIds = new Map<string, string>();
+    for (const node of revision.nodes) {
+      knownScopeIds.set(node.scopeId, node.scopeId);
+      for (const alias of node.aliases) knownScopeIds.set(alias, node.scopeId);
+    }
+    const targetScopeId = (relation: ScopeRelation): string | undefined => {
+      const stableScope = /^abcm:\/\/scope\/([^/?#]+)$/.exec(relation.toId)?.[1];
+      return knownScopeIds.get(stableScope ?? relation.toId);
+    };
+    const relationIsBounded = (relation: ScopeRelation): boolean => {
+      if (!visibleIds.has(relation.fromId)) return false;
+      const target = targetScopeId(relation);
+      if (target !== undefined) return visibleIds.has(target);
+      return view === "admin" && selectedIds.has(relation.fromId);
+    };
+    const relations = revision.relations.filter(
+      relation => relationIsBounded(relation) && (view === "admin" || relation.status === "resolved"),
+    );
+    const projectedNodes: ScopeMapProjectionNode[] = visibleNodes.map(node => {
+      const directChildScopeIds = revision.nodes
+        .filter(child => child.parentScopeId === node.scopeId && visibleIds.has(child.scopeId))
+        .map(child => child.scopeId)
+        .sort();
+      const relevantRelations = relations.filter(relation => relation.fromId === node.scopeId || relation.toId === node.scopeId);
+      const projected: ScopeMapProjectionNode = {
+        scopeId: node.scopeId,
+        kind: node.kind,
+        name: node.name,
+        relativePath: node.relativePath,
+        rank: node.rank,
+        status: node.status,
+        readiness: node.readiness,
+        pathOnly: !selectedIds.has(node.scopeId),
+        directChildScopeIds,
+        relationSummary: {
+          inbound: relevantRelations.filter(relation => relation.toId === node.scopeId).length,
+          outbound: relevantRelations.filter(relation => relation.fromId === node.scopeId).length,
+          unresolved: relevantRelations.filter(relation => relation.status !== "resolved").length,
+        },
+      };
+      return node.parentScopeId === undefined ? projected : { ...projected, parentScopeId: node.parentScopeId };
+    });
+    const warnings = revision.diagnostics.filter(diagnostic => {
+      if (diagnostic.scopeId === undefined || !selectedIds.has(diagnostic.scopeId)) return false;
+      return view === "admin" ||
+        diagnostic.code === "DOMAIN_LANGUAGE_CONFIGURATION_INVALID" ||
+        diagnostic.code === "EXPLICIT_LINK_UNRESOLVED";
+    });
+    const selectedFiles = revision.files.filter(file => selectedIds.has(file.scopeId));
+    const selectedDocuments = revision.documents.filter(document => selectedIds.has(document.scopeId));
+    const selectedExecutableResources = revision.executableResources.filter(resource => selectedIds.has(resource.scopeId));
+    const projection: ScopeMapProjection = {
       mapRevision: revision.revision,
       digest: revision.digest,
       view,
-      nodes,
+      rootScopeId: root.scopeId,
+      depth: depth ?? null,
+      includeInvalid,
+      nodes: projectedNodes,
       relations,
       warnings,
       resourceSummary: {
-        indexedFiles: revision.files.length,
-        documents: revision.documents.length,
-        executableResources: revision.executableResources.length,
+        indexedFiles: selectedFiles.length,
+        documents: selectedDocuments.length,
+        executableResources: selectedExecutableResources.length,
       },
       resolverEntrypoints: ["context.get_domain_language", "context.build_task_context"],
     };
+    if (view !== "admin") return projection;
+    const fileClassificationCounts = {
+      scope_manifest: 0,
+      configuration: 0,
+      domain_language: 0,
+      agent_definition: 0,
+      context_document: 0,
+      executable_resource: 0,
+    };
+    for (const file of selectedFiles) fileClassificationCounts[file.classification] += 1;
+    const sourceIds = [
+      ...new Set(
+        selectedFiles.flatMap(file => file.storageMode === "mirror" && file.sourceId !== undefined ? [file.sourceId] : []),
+      ),
+    ].sort();
+    return {
+      ...projection,
+      admin: {
+        scanCreatedAt: revision.createdAt,
+        diagnosticsSummary: {
+          branchErrors: warnings.filter(diagnostic => diagnostic.severity === "branch_error").length,
+          scopeErrors: warnings.filter(diagnostic => diagnostic.severity === "scope_error").length,
+          warnings: warnings.filter(diagnostic => diagnostic.severity === "warning").length,
+        },
+        fileClassificationCounts,
+        documentationSyncSummary: {
+          managedDocuments: selectedDocuments.filter(document => document.storageMode === "managed").length,
+          mirroredDocuments: selectedDocuments.filter(document => document.storageMode === "mirror").length,
+          sourceIds,
+        },
+      },
+    };
+  }
+
+  #resolveProjectionRoot(nodes: readonly ScopeNode[], requested: string | undefined): ScopeNode {
+    if (requested === undefined) {
+      const root = nodes.find(node => node.parentScopeId === undefined);
+      if (root !== undefined) return root;
+      throw new AbcmError("REQUEST_INVALID", "ScopeMap does not contain an eligible root scope.");
+    }
+    const canonical = nodes.find(node => node.scopeId === requested);
+    if (canonical !== undefined) return canonical;
+    const aliases = nodes.filter(node => node.aliases.includes(requested));
+    if (aliases.length === 1) return aliases[0]!;
+    throw new AbcmError("REQUEST_INVALID", "ScopeMap rootScopeId does not resolve to one eligible scope.", {
+      rootScopeId: requested,
+    });
+  }
+
+  #projectionDistance(root: ScopeNode, node: ScopeNode, nodes: readonly ScopeNode[]): number | undefined {
+    if (root.scopeId === node.scopeId) return 0;
+    const byId = new Map(nodes.map(candidate => [candidate.scopeId, candidate]));
+    let distance = 0;
+    let current: ScopeNode | undefined = node;
+    while (current.parentScopeId !== undefined) {
+      distance += 1;
+      if (current.parentScopeId === root.scopeId) return distance;
+      current = byId.get(current.parentScopeId);
+      if (current === undefined) return undefined;
+    }
+    return undefined;
+  }
+
+  #hasScopePermission(access: ScopeMapAccess, node: ScopeNode, permission: ScopeMapPermission): boolean {
+    if (access.workspacePermissions.includes(permission)) return true;
+    const grants = access.scopeGrants;
+    if (grants === undefined) return false;
+    if (grants[node.scopeId]?.includes(permission) === true) return true;
+    return node.aliases.some(alias => grants[alias]?.includes(permission) === true);
   }
 
   summarize(revision: MapRevision): MapRevisionSummary {

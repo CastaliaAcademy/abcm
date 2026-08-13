@@ -8,6 +8,7 @@ import { createAbcmRestHandler } from "../rest/create-rest-handler.js";
 import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
 import { ScopeMapReconcileCoordinator, type ScopeMapReconcileOptions } from "../scope-map/reconcile-coordinator.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
+import type { ScopeMapAccess } from "../scope-map/types.js";
 import { WorkspaceFileService } from "../workspace/file-service.js";
 import { WorkspaceProvisioningService } from "../workspace/provisioning-service.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
@@ -25,6 +26,7 @@ export interface AbcmRuntimeOptions {
   sqliteDerivedStoreOptions?: SqliteWorkspaceMapStoreOptions;
   documentationSources?: readonly DirectoryDocumentationSourceDefinition[];
   scopeMapReconcile?: ScopeMapReconcileOptions;
+  scopeMapAccess?: ScopeMapAccess;
 }
 
 export function createAbcmRuntime(
@@ -70,6 +72,7 @@ export function createAbcmRuntime(
   const baseRestHandler = createAbcmRestHandler({
     files,
     scopeMap,
+    ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
     ...(documentation === undefined ? {} : { documentation }),
     ...(workspaceProvisioning === undefined ? {} : { workspaces: workspaceProvisioning }),
   });
@@ -77,7 +80,13 @@ export function createAbcmRuntime(
     options.mcpHttpEnabled === false
       ? undefined
       : createAbcmMcpHttpHandler(
-          { files, scopeMap, defaultWorkspaceId: defaultWorkspace.id, ...(documentation === undefined ? {} : { documentation }) },
+          {
+            files,
+            scopeMap,
+            defaultWorkspaceId: defaultWorkspace.id,
+            ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
+            ...(documentation === undefined ? {} : { documentation }),
+          },
           {
             ...(options.mcpEndpointPath === undefined ? {} : { endpointPath: options.mcpEndpointPath }),
             ...(options.mcpAllowedHostnames === undefined ? {} : { allowedHostnames: options.mcpAllowedHostnames }),
@@ -110,6 +119,7 @@ export function createAbcmRuntime(
         files,
         scopeMap,
         defaultWorkspaceId: defaultWorkspace.id,
+        ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
         ...(documentation === undefined ? {} : { documentation }),
       }),
     close: async () => {

@@ -39,6 +39,7 @@ export {
 export { ScopeMapReconcileCoordinator } from "./scope-map/reconcile-coordinator.js";
 export type { ScopeMapReconcileOptions, ScopeMapScanner } from "./scope-map/reconcile-coordinator.js";
 export type {
+  AbcmPermission,
   DocumentRecord,
   ExecutableResourceRecord,
   FileClassification,
@@ -47,6 +48,10 @@ export type {
   MapRevision,
   MapRevisionSummary,
   ScopeMapProjection,
+  ScopeMapProjectionNode,
+  ScopeMapProjectionQuery,
+  ScopeMapAccess,
+  ScopeMapPermission,
   ScopeMapChanged,
   ScopeMapChangedListener,
   ScopeRelation,

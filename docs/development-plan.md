@@ -175,8 +175,11 @@ REST handlers ----------/          |                    |
 - PLAN-0007 добавил MAP-P4 FileRecord/DocumentRecord/ExecutableResourceRecord indexes и их атомарную публикацию в SQLite schema v3 без хранения тел документов и ordinary source paths.
 - PLAN-0008 добавил первый вертикальный срез M10: one-way directory/Obsidian mirror, preview/apply/sync, schema v4 provenance/sync/tombstone state, read-only mirror protection и REST/MCP parity.
 - PLAN-0009 добавил обязательный periodic full reconcile, debounce mutation-событий, in-process scan serialization и graceful timer/store shutdown.
+- PLAN-0010 добавил stable explicit ScopeMap relations, строгий relations config и нормализованную публикацию graph metadata/diagnostics в SQLite schema v5.
+- PLAN-0011 добавил targeted impact-set reconcile, безопасную очередь in-flight mutations и post-publication ScopeMapChanged events.
+- PLAN-0012 завершил M4 bounded projections: root/depth bounds, global/local access grants, path-only ancestors, admin invalid branches и единый REST/MCP disclosure boundary.
 - M2 остаётся незавершённым до context state и нормализованных relations/diagnostics.
-- M3 остаётся незавершённым до incremental impact-set reconcile, explicit-link/readiness dependency analysis и ScopeMapChanged events.
+- M3 закрыт PLAN-0010 и PLAN-0011; следующий продуктовый этап — M5 DomainLanguageBootstrap и path resolver.
 - M10 остаётся незавершённым до mapping rules, identity-preserving moves, managed cutover и fault-injection recovery между filesystem и metadata phases.
 
 ## 5. Риски и открытые решения до M1

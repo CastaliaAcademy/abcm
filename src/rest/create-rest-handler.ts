@@ -4,11 +4,13 @@ import { AbcmError } from "../core/errors.js";
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
+import type { ScopeMapAccess } from "../scope-map/types.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
 
 export interface AbcmRestDependencies {
   files: WorkspaceFileService;
   scopeMap: ScopeMapService;
+  scopeMapAccess?: ScopeMapAccess;
   workspaces?: WorkspaceRegistrationService;
   documentation?: DirectoryDocumentationSyncService;
 }
@@ -230,7 +232,27 @@ export function createAbcmRestHandler(
       if (endpoint === "/scope-map" && request.method === "GET") {
         const view = url.searchParams.get("view") ?? "agent";
         if (view !== "agent" && view !== "admin") throw new AbcmError("REQUEST_INVALID", "ScopeMap view must be agent or admin.");
-        return json(dependencies.scopeMap.getProjection(workspaceId, view));
+        const depthValue = url.searchParams.get("depth");
+        if (depthValue !== null && !/^(?:0|[1-9][0-9]*)$/.test(depthValue)) {
+          throw new AbcmError("REQUEST_INVALID", "ScopeMap depth must be a non-negative integer.");
+        }
+        const includeInvalidValue = url.searchParams.get("includeInvalid");
+        if (includeInvalidValue !== null && includeInvalidValue !== "true" && includeInvalidValue !== "false") {
+          throw new AbcmError("REQUEST_INVALID", "ScopeMap includeInvalid must be true or false.");
+        }
+        const rootScopeId = url.searchParams.get("rootScopeId");
+        return json(
+          dependencies.scopeMap.getProjection(
+            workspaceId,
+            {
+              view,
+              ...(rootScopeId === null ? {} : { rootScopeId }),
+              ...(depthValue === null ? {} : { depth: Number(depthValue) }),
+              ...(includeInvalidValue === null ? {} : { includeInvalid: includeInvalidValue === "true" }),
+            },
+            dependencies.scopeMapAccess,
+          ),
+        );
       }
       return problem(new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found."));
     } catch (error) {

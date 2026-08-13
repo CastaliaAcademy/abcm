@@ -5,12 +5,14 @@ import { AbcmError } from "../core/errors.js";
 import { ABCM_SERVER_INFO } from "../core/server-info.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
+import type { ScopeMapAccess } from "../scope-map/types.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
 
 export interface AbcmMcpDependencies {
   files: WorkspaceFileService;
   scopeMap: ScopeMapService;
   defaultWorkspaceId: string;
+  scopeMapAccess?: ScopeMapAccess;
   documentation?: DirectoryDocumentationSyncService;
 }
 
@@ -191,7 +193,11 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     { title: "ABCM agent ScopeMap", description: "Bounded agent projection of the default workspace.", mimeType: "application/json" },
     async uri => {
       try {
-        dependencies.scopeMap.getProjection(dependencies.defaultWorkspaceId, "agent");
+        dependencies.scopeMap.getProjection(
+          dependencies.defaultWorkspaceId,
+          { view: "agent" },
+          dependencies.scopeMapAccess,
+        );
       } catch (error) {
         if (!(error instanceof AbcmError) || error.code !== "MAP_NOT_BUILT") throw error;
         await dependencies.scopeMap.scan(dependencies.defaultWorkspaceId);
@@ -201,7 +207,13 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
           {
             uri: uri.href,
             mimeType: "application/json",
-            text: JSON.stringify(dependencies.scopeMap.getProjection(dependencies.defaultWorkspaceId, "agent")),
+            text: JSON.stringify(
+              dependencies.scopeMap.getProjection(
+                dependencies.defaultWorkspaceId,
+                { view: "agent" },
+                dependencies.scopeMapAccess,
+              ),
+            ),
           },
         ],
       };
