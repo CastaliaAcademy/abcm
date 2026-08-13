@@ -245,11 +245,33 @@ export class WorkspaceFileService {
   }
 
   async move(workspaceId: string, from: string, to: string, options: MoveOptions = {}, signal?: AbortSignal): Promise<FileEntry & { checksum: string }> {
+    return this.#move(workspaceId, from, to, options, true, true, signal);
+  }
+
+  async moveMirror(
+    workspaceId: string,
+    from: string,
+    to: string,
+    options: MoveOptions = {},
+    signal?: AbortSignal,
+  ): Promise<FileEntry & { checksum: string }> {
+    return this.#move(workspaceId, from, to, options, false, false, signal);
+  }
+
+  async #move(
+    workspaceId: string,
+    from: string,
+    to: string,
+    options: MoveOptions,
+    authorize: boolean,
+    notify: boolean,
+    signal?: AbortSignal,
+  ): Promise<FileEntry & { checksum: string }> {
     throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
     return this.#mutate(async () => {
       throwIfAborted(signal);
-      await this.#authorize(workspaceId, [from, to]);
+      if (authorize) await this.#authorize(workspaceId, [from, to]);
       throwIfAborted(signal);
       const safePath = await this.#safePath(workspace);
       const source = await safePath.resolve(from);
@@ -268,7 +290,7 @@ export class WorkspaceFileService {
       throwIfAborted(signal);
       if (targetChecksum !== undefined && options.overwrite) await unlink(target.absolutePath);
       await rename(source.absolutePath, target.absolutePath);
-      await this.#notify(workspaceId, [source.relativePath, target.relativePath]);
+      if (notify) await this.#notify(workspaceId, [source.relativePath, target.relativePath]);
       const targetStat = await stat(target.absolutePath);
       return {
         path: target.relativePath,

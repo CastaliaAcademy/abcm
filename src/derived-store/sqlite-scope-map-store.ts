@@ -412,6 +412,13 @@ export class SqliteScopeMapStore implements ScopeMapStore {
            target_base_path = excluded.target_base_path, storage_mode = excluded.storage_mode, status = excluded.status`,
         [commit.source.workspaceId, commit.source.id, commit.source.targetBasePath],
       );
+      for (const retirement of commit.retirements ?? []) {
+        this.#database.run(
+          `UPDATE document_provenance SET active = 0, last_synchronized_at = ?
+            WHERE workspace_id = ? AND source_id = ? AND source_path = ?`,
+          [retirement.lastSynchronizedAt, retirement.workspaceId, retirement.sourceId, retirement.sourcePath],
+        );
+      }
       for (const record of commit.upserts) {
         this.#database.run(
           `INSERT INTO document_provenance

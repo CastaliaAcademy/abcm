@@ -8,6 +8,9 @@ const sourceSchema = z
     workspaceId: z.string().min(1),
     root: z.string().min(1),
     targetBasePath: z.string().min(1),
+    include: z.array(z.string().min(1)).min(1).optional(),
+    exclude: z.array(z.string().min(1)).optional(),
+    mapping: z.array(z.object({ match: z.string().min(1), target: z.string().min(1) }).strict()).optional(),
   })
   .strict();
 
@@ -21,5 +24,13 @@ export function parseDocumentationSources(value: string | undefined): readonly D
   } catch (error) {
     throw new Error(`ABCM_DOCUMENTATION_SOURCES must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return sourcesSchema.parse(parsed);
+  return sourcesSchema.parse(parsed).map(source => ({
+    id: source.id,
+    workspaceId: source.workspaceId,
+    root: source.root,
+    targetBasePath: source.targetBasePath,
+    ...(source.include === undefined ? {} : { include: source.include }),
+    ...(source.exclude === undefined ? {} : { exclude: source.exclude }),
+    ...(source.mapping === undefined ? {} : { mapping: source.mapping }),
+  }));
 }

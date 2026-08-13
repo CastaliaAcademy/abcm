@@ -17,6 +17,21 @@ describe("documentation source configuration", () => {
         '[{"id":"obsidian","workspaceId":"castalia-public","root":"/vault","targetBasePath":"notes","unexpected":true}]',
       ),
     ).toThrow();
+    expect(
+      parseDocumentationSources(
+        '[{"id":"docs","workspaceId":"castalia-public","root":"/vault","targetBasePath":"fallback","include":["docs/**"],"exclude":["docs/drafts/**"],"mapping":[{"match":"docs/adr/**","target":"artifacts/adr/"}]}]',
+      ),
+    ).toEqual([
+      {
+        id: "docs",
+        workspaceId: "castalia-public",
+        root: "/vault",
+        targetBasePath: "fallback",
+        include: ["docs/**"],
+        exclude: ["docs/drafts/**"],
+        mapping: [{ match: "docs/adr/**", target: "artifacts/adr/" }],
+      },
+    ]);
   });
 
   test("requires SQLite when a documentation source is configured", () => {

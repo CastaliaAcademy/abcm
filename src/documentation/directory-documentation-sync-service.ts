@@ -37,6 +37,11 @@ interface SourceFile {
   checksum: string;
 }
 
+interface MappedSourceFile {
+  file: SourceFile;
+  candidateTargetPaths: readonly string[];
+}
+
 function sha256(content: Uint8Array | string): string {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
 }
@@ -63,6 +68,46 @@ function validateTargetBasePath(path: string): void {
   }
 }
 
+function validateGlob(pattern: string): void {
+  if (
+    pattern === "" ||
+    pattern.includes("\\") ||
+    pattern.includes("\0") ||
+    pattern.startsWith("/") ||
+    pattern.split("/").some(segment => segment === "" || segment === "." || segment === "..")
+  ) {
+    throw new Error("Documentation include/exclude/match patterns must be canonical relative globs.");
+  }
+}
+
+function globRegex(pattern: string): RegExp {
+  validateGlob(pattern);
+  let expression = "^";
+  for (let index = 0; index < pattern.length; index++) {
+    const character = pattern[index]!;
+    if (character === "*" && pattern[index + 1] === "*") {
+      if (pattern[index + 2] === "/") {
+        expression += "(?:.*/)?";
+        index += 2;
+      } else {
+        expression += ".*";
+        index += 1;
+      }
+    } else if (character === "*") expression += "[^/]*";
+    else if (character === "?") expression += "[^/]";
+    else expression += character.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+  }
+  return new RegExp(`${expression}$`);
+}
+
+function mappingTarget(sourcePath: string, match: string, target: string): string {
+  const wildcard = match.search(/[?*]/);
+  if (wildcard < 0) return target;
+  const prefix = match.slice(0, wildcard);
+  const suffix = sourcePath.slice(prefix.length);
+  return posix.join(target, suffix);
+}
+
 export class DirectoryDocumentationSyncService {
   readonly #registry: WorkspaceRegistry;
   readonly #files: WorkspaceFileService;
@@ -82,6 +127,11 @@ export class DirectoryDocumentationSyncService {
     for (const source of dependencies.sources) {
       validateSourceId(source.id);
       validateTargetBasePath(source.targetBasePath);
+      for (const pattern of [...(source.include ?? []), ...(source.exclude ?? [])]) validateGlob(pattern);
+      for (const rule of source.mapping ?? []) {
+        validateGlob(rule.match);
+        validateTargetBasePath(rule.target.endsWith("/") ? rule.target.slice(0, -1) : rule.target);
+      }
       this.#registry.get(source.workspaceId);
       if (this.#sources.has(source.id)) throw new Error(`Documentation source '${source.id}' is duplicated.`);
       this.#sources.set(source.id, { ...source, root: resolve(source.root) });
@@ -98,14 +148,76 @@ export class DirectoryDocumentationSyncService {
     const provenance = this.#state.listDocumentProvenance(workspaceId, sourceId);
     const activeBySourcePath = new Map(provenance.filter(record => record.active).map(record => [record.sourcePath, record]));
     const sourcePaths = new Set(snapshot.map(file => file.sourcePath));
+    const removed = provenance.filter(record => record.active && !sourcePaths.has(record.sourcePath));
+    const mapped = snapshot.map(file => ({ file, candidateTargetPaths: this.#mapTargets(source, file.sourcePath) }));
+    const targetUseCount = new Map<string, number>();
+    for (const entry of mapped) {
+      if (entry.candidateTargetPaths.length !== 1) continue;
+      const target = entry.candidateTargetPaths[0]!;
+      targetUseCount.set(target, (targetUseCount.get(target) ?? 0) + 1);
+    }
+    const movedSources = new Set<string>();
     const operations: DocumentationImportOperation[] = [];
 
-    for (const file of snapshot) {
+    for (const { file, candidateTargetPaths } of mapped) {
       throwIfAborted(signal);
-      const targetPath = posix.join(source.targetBasePath, file.sourcePath);
+      const targetPath = candidateTargetPaths[0] ?? posix.join(source.targetBasePath, file.sourcePath);
+      if (candidateTargetPaths.length > 1 || (targetUseCount.get(targetPath) ?? 0) > 1) {
+        operations.push({
+          operation: "conflict",
+          sourcePath: file.sourcePath,
+          targetPath,
+          sourceChecksum: file.checksum,
+          conflictCode: "DOCUMENTATION_MAPPING_AMBIGUOUS",
+          candidateTargetPaths,
+        });
+        continue;
+      }
       const previous = activeBySourcePath.get(file.sourcePath);
-      const current = await this.#readTarget(workspaceId, targetPath, signal);
-      if (previous === undefined) {
+      if (previous !== undefined && previous.targetPath !== targetPath) {
+        const oldTarget = await this.#readTarget(workspaceId, previous.targetPath, signal);
+        const newTarget = await this.#readTarget(workspaceId, targetPath, signal);
+        operations.push(
+          oldTarget?.checksum === previous.targetChecksum && newTarget === undefined
+            ? {
+                operation: "move",
+                sourcePath: file.sourcePath,
+                previousSourcePath: previous.sourcePath,
+                targetPath,
+                previousTargetPath: previous.targetPath,
+                sourceChecksum: file.checksum,
+                targetChecksum: previous.targetChecksum,
+              }
+            : {
+                operation: "conflict",
+                sourcePath: file.sourcePath,
+                targetPath,
+                sourceChecksum: file.checksum,
+                ...(newTarget === undefined ? {} : { targetChecksum: newTarget.checksum }),
+                conflictCode: "SOURCE_TARGET_CONFLICT",
+              },
+        );
+      } else if (previous === undefined) {
+        const moveCandidates = removed.filter(record => !movedSources.has(record.sourcePath) && record.sourceChecksum === file.checksum);
+        if (moveCandidates.length === 1) {
+          const move = moveCandidates[0]!;
+          const oldTarget = await this.#readTarget(workspaceId, move.targetPath, signal);
+          const newTarget = move.targetPath === targetPath ? oldTarget : await this.#readTarget(workspaceId, targetPath, signal);
+          if (oldTarget?.checksum === move.targetChecksum && (move.targetPath === targetPath || newTarget === undefined)) {
+            movedSources.add(move.sourcePath);
+            operations.push({
+              operation: "move",
+              sourcePath: file.sourcePath,
+              previousSourcePath: move.sourcePath,
+              targetPath,
+              previousTargetPath: move.targetPath,
+              sourceChecksum: file.checksum,
+              targetChecksum: move.targetChecksum,
+            });
+            continue;
+          }
+        }
+        const current = await this.#readTarget(workspaceId, targetPath, signal);
         operations.push(
           current === undefined
             ? { operation: "create", sourcePath: file.sourcePath, targetPath, sourceChecksum: file.checksum }
@@ -118,7 +230,9 @@ export class DirectoryDocumentationSyncService {
                 conflictCode: "SOURCE_TARGET_CONFLICT",
               },
         );
-      } else if (current === undefined || current.checksum !== previous.targetChecksum) {
+      } else {
+        const current = await this.#readTarget(workspaceId, targetPath, signal);
+        if (current === undefined || current.checksum !== previous.targetChecksum) {
         operations.push({
           operation: "conflict",
           sourcePath: file.sourcePath,
@@ -127,17 +241,18 @@ export class DirectoryDocumentationSyncService {
           ...(current === undefined ? {} : { targetChecksum: current.checksum }),
           conflictCode: "SOURCE_TARGET_CONFLICT",
         });
-      } else {
-        operations.push({
-          operation: file.checksum === previous.sourceChecksum ? "unchanged" : "update",
-          sourcePath: file.sourcePath,
-          targetPath,
-          sourceChecksum: file.checksum,
-          targetChecksum: current.checksum,
-        });
+        } else {
+          operations.push({
+            operation: file.checksum === previous.sourceChecksum ? "unchanged" : "update",
+            sourcePath: file.sourcePath,
+            targetPath,
+            sourceChecksum: file.checksum,
+            targetChecksum: current.checksum,
+          });
+        }
       }
     }
-    for (const previous of provenance.filter(record => record.active && !sourcePaths.has(record.sourcePath))) {
+    for (const previous of removed.filter(record => !movedSources.has(record.sourcePath))) {
       throwIfAborted(signal);
       const current = await this.#readTarget(workspaceId, previous.targetPath, signal);
       operations.push(
@@ -182,12 +297,20 @@ export class DirectoryDocumentationSyncService {
     }
     const conflicts = plan.operations.filter(operation => operation.operation === "conflict");
     if (conflicts.length > 0) {
-      throw new AbcmError("SOURCE_TARGET_CONFLICT", "Documentation import contains source-target conflicts.", {
+      const code = conflicts.some(operation => operation.conflictCode === "DOCUMENTATION_MAPPING_AMBIGUOUS")
+        ? "DOCUMENTATION_MAPPING_AMBIGUOUS"
+        : "SOURCE_TARGET_CONFLICT";
+      throw new AbcmError(code, "Documentation import contains mapping or source-target conflicts.", {
         importId,
         paths: conflicts.map(operation => operation.targetPath),
       });
     }
-    const reservedTargets = plan.operations.map(operation => this.#targetKey(plan.workspaceId, operation.targetPath));
+    const reservedTargets = plan.operations.flatMap(operation => [
+      this.#targetKey(plan.workspaceId, operation.targetPath),
+      ...(operation.previousTargetPath === undefined
+        ? []
+        : [this.#targetKey(plan.workspaceId, operation.previousTargetPath)]),
+    ]);
     if (reservedTargets.some(target => this.#reservedTargets.has(target))) {
       throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Another documentation import is applying to the same target.");
     }
@@ -206,6 +329,22 @@ export class DirectoryDocumentationSyncService {
         ) {
           throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Documentation target changed after preview.", { path: operation.targetPath });
         }
+        if (operation.operation === "move") {
+          if (operation.previousTargetPath === undefined || operation.previousSourcePath === undefined) {
+            throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Documentation move metadata is incomplete.");
+          }
+          const previousTarget = await this.#readTarget(plan.workspaceId, operation.previousTargetPath, signal);
+          if (previousTarget?.checksum !== operation.targetChecksum) {
+            throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Documentation move source changed after preview.", {
+              path: operation.previousTargetPath,
+            });
+          }
+          if (operation.previousTargetPath !== operation.targetPath && target !== undefined) {
+            throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Documentation move target changed after preview.", {
+              path: operation.targetPath,
+            });
+          }
+        }
       }
 
       // From this point the multi-file import is intentionally non-preemptible:
@@ -215,9 +354,14 @@ export class DirectoryDocumentationSyncService {
 
       const startedAt = this.#clock().toISOString();
       const upserts: DocumentProvenanceRecord[] = [];
+      const retirements: Pick<
+        DocumentProvenanceRecord,
+        "workspaceId" | "sourceId" | "sourcePath" | "lastSynchronizedAt"
+      >[] = [];
       const deletions: TombstoneRecord[] = [];
       let created = 0;
       let updated = 0;
+      let moved = 0;
       let deleted = 0;
       for (const operation of plan.operations) {
         if (operation.operation === "create" || operation.operation === "update") {
@@ -244,6 +388,42 @@ export class DirectoryDocumentationSyncService {
           });
           if (operation.operation === "create") created++;
           else updated++;
+        } else if (operation.operation === "move") {
+          const file = sourceFiles.get(operation.sourcePath);
+          if (
+            file === undefined ||
+            operation.targetChecksum === undefined ||
+            operation.previousSourcePath === undefined ||
+            operation.previousTargetPath === undefined
+          ) {
+            throw new Error("Move source is unavailable.");
+          }
+          const movedEntry = operation.previousTargetPath === operation.targetPath
+            ? { checksum: operation.targetChecksum }
+            : await this.#files.moveMirror(
+                plan.workspaceId,
+                operation.previousTargetPath,
+                operation.targetPath,
+                { ifMatch: operation.targetChecksum },
+              );
+          const synchronizedAt = this.#clock().toISOString();
+          retirements.push({
+            workspaceId: plan.workspaceId,
+            sourceId: plan.sourceId,
+            sourcePath: operation.previousSourcePath,
+            lastSynchronizedAt: synchronizedAt,
+          });
+          upserts.push({
+            workspaceId: plan.workspaceId,
+            sourceId: plan.sourceId,
+            sourcePath: operation.sourcePath,
+            targetPath: operation.targetPath,
+            sourceChecksum: file.checksum,
+            targetChecksum: movedEntry.checksum,
+            lastSynchronizedAt: synchronizedAt,
+            active: true,
+          });
+          moved++;
         } else if (operation.operation === "unchanged") {
           const file = sourceFiles.get(operation.sourcePath);
           if (file === undefined || operation.targetChecksum === undefined) throw new Error("Unchanged source is unavailable.");
@@ -281,7 +461,7 @@ export class DirectoryDocumentationSyncService {
         finishedAt: this.#clock().toISOString(),
         created,
         updated,
-        moved: 0,
+        moved,
         deleted,
         conflicts: 0,
         status: "succeeded",
@@ -290,6 +470,7 @@ export class DirectoryDocumentationSyncService {
         source: { id: source.id, workspaceId: source.workspaceId, targetBasePath: source.targetBasePath },
         run,
         upserts,
+        retirements,
         deletions,
       });
       this.#plans.delete(importId);
@@ -359,6 +540,7 @@ export class DirectoryDocumentationSyncService {
         if (child.isDirectory()) await visit(absolute);
         else if (child.isFile() && child.name.toLowerCase().endsWith(".md")) {
           const sourcePath = relative(source.root, absolute).split(sep).join("/");
+          if (!this.#matchesSourcePath(source, sourcePath)) continue;
           const content = new Uint8Array(await readFile(absolute));
           throwIfAborted(signal);
           files.push({ sourcePath, content, checksum: sha256(content) });
@@ -379,6 +561,19 @@ export class DirectoryDocumentationSyncService {
 
   #targetKey(workspaceId: string, targetPath: string): string {
     return `${workspaceId}\0${targetPath}`;
+  }
+
+  #matchesSourcePath(source: ResolvedSource, sourcePath: string): boolean {
+    const included = source.include === undefined || source.include.some(pattern => globRegex(pattern).test(sourcePath));
+    return included && !(source.exclude ?? []).some(pattern => globRegex(pattern).test(sourcePath));
+  }
+
+  #mapTargets(source: ResolvedSource, sourcePath: string): string[] {
+    const matches = (source.mapping ?? []).filter(rule => globRegex(rule.match).test(sourcePath));
+    if (matches.length === 0) return [posix.join(source.targetBasePath, sourcePath)];
+    return [...new Set(matches.map(rule => mappingTarget(sourcePath, rule.match, rule.target)))].sort((left, right) =>
+      left.localeCompare(right),
+    );
   }
 
   #snapshotDigest(snapshot: readonly SourceFile[]): string {

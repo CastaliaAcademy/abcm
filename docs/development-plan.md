@@ -189,7 +189,8 @@ REST handlers ----------/          |                    |
 - PLAN-0020 добавил первую половину M9: общий REST/MCP Zod schema source, deterministic OpenAPI 3.1 endpoint/snapshot и explicit canonical/result/error parity tests.
 - PLAN-0021 завершает M9: protected-request rate limiting, bounded streaming bodies, deployment deadline/client cancellation до application commit boundaries, стабильные 429/499/504 problems и validated runtime/env settings.
 - M3-M9 закрыты на alpha-контракте.
-- M10 остаётся незавершённым до mapping rules, identity-preserving moves, managed cutover и fault-injection recovery между filesystem и metadata phases.
+- PLAN-0022 добавляет deterministic include/exclude/mapping rules, pre-mutation ambiguity conflicts и checksum/provenance identity-preserving mirror moves без tombstone.
+- M10 остаётся незавершённым до managed cutover и fault-injection recovery между filesystem и metadata phases.
 
 ## 5. Риски и открытые решения до M1
 

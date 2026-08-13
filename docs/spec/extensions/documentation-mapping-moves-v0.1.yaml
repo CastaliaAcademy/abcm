@@ -1,0 +1,27 @@
+extension:
+  id: documentation-mapping-moves
+  version: 0.1.0
+  baseSpecVersion: 0.5.0
+  status: approved-for-alpha
+
+requirements:
+  DMM-001:
+    statement: A deployment-owned directory source may define canonical relative include and exclude globs; exclusion wins and hidden paths or symlinks remain forbidden.
+  DMM-002:
+    statement: Mapping rules map an exact match to an exact target and append the wildcard suffix to a directory target.
+  DMM-003:
+    statement: No matching rule falls back to targetBasePath plus sourcePath for backward compatibility.
+  DMM-004:
+    statement: Multiple matching rules or multiple selected source files resolving to one target produce DOCUMENTATION_MAPPING_AMBIGUOUS before mutation.
+  DMM-005:
+    statement: A unique removed provenance record with the same source checksum identifies a source rename and produces a move operation when both target preconditions hold.
+  DMM-006:
+    statement: Apply moves mirror bytes through the WorkspaceFile atomic rename boundary, retires old provenance, activates new provenance, and persists moved count in one metadata transaction.
+  DMM-007:
+    statement: An identity-preserving move creates no deletion tombstone and the next ScopeMap retains a frontmatter document id at the new target path.
+  DMM-008:
+    statement: If checksum/provenance identity is not unique, synchronization falls back to ordinary create/delete semantics or a target conflict.
+
+configuration:
+  sourceFields: [include, exclude, mapping]
+  mappingRuleFields: [match, target]

@@ -3,17 +3,28 @@ export interface DirectoryDocumentationSourceDefinition {
   workspaceId: string;
   root: string;
   targetBasePath: string;
+  include?: readonly string[];
+  exclude?: readonly string[];
+  mapping?: readonly DocumentationMappingRule[];
 }
 
-export type DocumentationOperationKind = "create" | "update" | "delete" | "unchanged" | "conflict";
+export interface DocumentationMappingRule {
+  match: string;
+  target: string;
+}
+
+export type DocumentationOperationKind = "create" | "update" | "move" | "delete" | "unchanged" | "conflict";
 
 export interface DocumentationImportOperation {
   operation: DocumentationOperationKind;
   sourcePath: string;
   targetPath: string;
+  previousSourcePath?: string;
+  previousTargetPath?: string;
   sourceChecksum?: string;
   targetChecksum?: string;
-  conflictCode?: "SOURCE_TARGET_CONFLICT";
+  conflictCode?: "SOURCE_TARGET_CONFLICT" | "DOCUMENTATION_MAPPING_AMBIGUOUS";
+  candidateTargetPaths?: readonly string[];
 }
 
 export interface DocumentationImportPlan {
@@ -77,6 +88,7 @@ export interface DocumentationStateCommit {
   source: Omit<DirectoryDocumentationSourceDefinition, "root">;
   run: SyncRunRecord;
   upserts: readonly DocumentProvenanceRecord[];
+  retirements?: readonly Pick<DocumentProvenanceRecord, "workspaceId" | "sourceId" | "sourcePath" | "lastSynchronizedAt">[];
   deletions: readonly TombstoneRecord[];
 }
 

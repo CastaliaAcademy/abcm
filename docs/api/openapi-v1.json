@@ -1785,6 +1785,7 @@
                   "enum": [
                     "create",
                     "update",
+                    "move",
                     "delete",
                     "unchanged",
                     "conflict"
@@ -1794,6 +1795,12 @@
                   "type": "string"
                 },
                 "targetPath": {
+                  "type": "string"
+                },
+                "previousSourcePath": {
+                  "type": "string"
+                },
+                "previousTargetPath": {
                   "type": "string"
                 },
                 "sourceChecksum": {
@@ -1806,7 +1813,16 @@
                 },
                 "conflictCode": {
                   "type": "string",
-                  "const": "SOURCE_TARGET_CONFLICT"
+                  "enum": [
+                    "SOURCE_TARGET_CONFLICT",
+                    "DOCUMENTATION_MAPPING_AMBIGUOUS"
+                  ]
+                },
+                "candidateTargetPaths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [

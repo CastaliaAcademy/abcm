@@ -43,6 +43,8 @@ export ABCM_DERIVED_STORE_ENABLED=true
 export ABCM_DOCUMENTATION_SOURCES='[{"id":"obsidian","workspaceId":"castalia-public","root":"/absolute/path/to/ObsidianVault","targetBasePath":"abcm/artifacts/notes/obsidian"}]'
 ```
 
+For selective routing, add deployment-owned `include`, `exclude`, and `mapping` fields. For example, `"include":["docs/**","README.md"]`, `"exclude":["docs/drafts/**"]`, and `"mapping":[{"match":"docs/adr/**","target":"abcm/artifacts/adr/"},{"match":"README.md","target":"abcm/README.md"}]`. Exact rules use the exact target; wildcard rules append the matched suffix to the target directory. Overlapping rules fail preview with `DOCUMENTATION_MAPPING_AMBIGUOUS`.
+
 The source `root` is deployment-owned configuration. REST and MCP requests accept only `sourceId`; they cannot select an arbitrary host path.
 
 ## REST flow
@@ -75,7 +77,7 @@ curl -sS \
   http://127.0.0.1:8787/v1/documentation-sources/obsidian/sync
 ```
 
-If either the source snapshot or a mirrored target changes after preview, apply fails rather than overwriting. Deleting a canonical Markdown file removes its active mirror and retains inactive provenance plus a tombstone. Direct REST/MCP write, delete, or move operations against active mirrors fail with `MIRROR_DOCUMENT_READ_ONLY`.
+If either the source snapshot or a mirrored target changes after preview, apply fails rather than overwriting. A unique checksum/provenance source rename moves the mirror while retaining its frontmatter document identity and creates no tombstone. Deleting a canonical Markdown file removes its active mirror and retains inactive provenance plus a tombstone. Direct REST/MCP write, delete, or move operations against active mirrors fail with `MIRROR_DOCUMENT_READ_ONLY`.
 
 ## Plugin contract
 

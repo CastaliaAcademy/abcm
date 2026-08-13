@@ -148,12 +148,15 @@ export const contextBuildOutputSchema = z.object({
 }).strict();
 
 const documentationOperationSchema = z.object({
-  operation: z.enum(["create", "update", "delete", "unchanged", "conflict"]),
+  operation: z.enum(["create", "update", "move", "delete", "unchanged", "conflict"]),
   sourcePath: z.string(),
   targetPath: z.string(),
+  previousSourcePath: z.string().optional(),
+  previousTargetPath: z.string().optional(),
   sourceChecksum: checksum.optional(),
   targetChecksum: checksum.optional(),
-  conflictCode: z.literal("SOURCE_TARGET_CONFLICT").optional(),
+  conflictCode: z.enum(["SOURCE_TARGET_CONFLICT", "DOCUMENTATION_MAPPING_AMBIGUOUS"]).optional(),
+  candidateTargetPaths: z.array(z.string()).optional(),
 }).strict();
 export const documentationPreviewInputSchema = z.object({ workspaceId, sourceId: z.string().min(1) }).strict();
 export const documentationPreviewOutputSchema = z.object({
