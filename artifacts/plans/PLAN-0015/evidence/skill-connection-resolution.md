@@ -26,3 +26,7 @@ Result: PASS
 - Scripts remain separate ExecutableResourceRecord entries; connection does not activate or authorize them.
 - SkillDescriptor normalized SQLite tables, dependency execution, semantic provider integration, and buildTaskContext exposure remain later work.
 - Existing `abcm-local` and `abcm-tunnel` containers were not replaced or restarted.
+
+## Workspace documentation publication
+
+The existing local service received seven PLAN-0015 documents under `castalia-public/abcm` through authenticated REST: five creates and two checksum-protected updates. Byte-for-byte verification passed and a live ScopeMap scan completed with zero diagnostics. The preserved older runtime retained legacy digest `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a`; neither running container was replaced.
