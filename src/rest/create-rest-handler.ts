@@ -2,6 +2,8 @@ import { z } from "zod/v4";
 
 import { AbcmError } from "../core/errors.js";
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
+import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
+import type { ContextPrincipal } from "../domain-language/types.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -11,6 +13,8 @@ export interface AbcmRestDependencies {
   files: WorkspaceFileService;
   scopeMap: ScopeMapService;
   scopeMapAccess?: ScopeMapAccess;
+  domainLanguage?: DomainLanguageService;
+  contextPrincipal?: ContextPrincipal;
   workspaces?: WorkspaceRegistrationService;
   documentation?: DirectoryDocumentationSyncService;
 }
@@ -31,6 +35,11 @@ const moveSchema = z.object({
 });
 const directorySchema = z.object({ path: z.string() });
 const documentationPreviewSchema = z.object({ sourceId: z.string().min(1) }).strict();
+const domainLanguageBootstrapSchema = z.object({
+  anchor: z.object({ workspaceId: z.string().min(1), projectId: z.string().min(1) }).strict(),
+  roleId: z.string().min(1).optional(),
+  projection: z.literal("agent").optional(),
+}).strict();
 const workspaceSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
@@ -142,6 +151,18 @@ export function createAbcmRestHandler(
           }),
           201,
         );
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/domain-language") {
+        if (dependencies.domainLanguage === undefined || dependencies.contextPrincipal === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Domain-language context access is not configured.");
+        }
+        const body = await readJson(request, domainLanguageBootstrapSchema, maxRequestBodyBytes);
+        return json(await dependencies.domainLanguage.createBootstrap({
+          anchor: body.anchor,
+          ...(body.roleId === undefined ? {} : { roleId: body.roleId }),
+          ...(body.projection === undefined ? {} : { projection: body.projection }),
+        }, dependencies.contextPrincipal));
       }
 
       const documentationApply = /^\/v1\/documentation-imports\/([^/]+)\/apply$/.exec(url.pathname);

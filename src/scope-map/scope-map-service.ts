@@ -528,6 +528,12 @@ export class ScopeMapService {
     return [...ids].filter(scopeId => snapshot(previous, scopeId) !== snapshot(revision, scopeId)).sort();
   }
 
+  getActiveRevision(workspaceId: string): MapRevision {
+    const revision = this.#active.get(workspaceId);
+    if (revision === undefined) throw new AbcmError("MAP_NOT_BUILT", "ScopeMap has not been scanned for this workspace.");
+    return revision;
+  }
+
   getProjection(workspaceId: string, view?: "agent" | "admin"): ScopeMapProjection;
   getProjection(workspaceId: string, query: ScopeMapProjectionQuery, access?: ScopeMapAccess): ScopeMapProjection;
   getProjection(

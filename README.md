@@ -14,6 +14,7 @@ TypeScript/Bun library and runnable server for exposing [Agent Build Context Man
 - runtime-owned periodic full ScopeMap reconciliation, per-workspace scan serialization, and debounced mutation rebuilds for missed network-filesystem events;
 - REST access with ETags, stable problem responses, and static Bearer authentication;
 - MCP tools and the `abcm://map` resource over stdio and authenticated Streamable HTTP, backed by the same application services;
+- principal-bound workflow-plus-project DomainLanguageBootstrap through REST and MCP before task path resolution;
 - self-hosting ABCM metadata, feature plans, verification plans, and reusable project skills.
 
 The normative baseline is specification 0.5.0 plus the extensions in [docs/spec/extensions](docs/spec/extensions). The executed plan is [PLAN-0001](docs/plans/v0.1/plan.md).
@@ -41,6 +42,8 @@ Set `ABCM_DERIVED_STORE_ENABLED=true` when the runtime has write access to `<wor
 
 Every runtime performs a full reconcile of all currently registered workspaces every 300000 milliseconds by default. Configure `ABCM_SCOPE_MAP_FULL_RECONCILE_INTERVAL_MS` with a positive safe integer and `ABCM_SCOPE_MAP_RECONCILE_DEBOUNCE_MS` with a non-negative safe integer. Reconcile rebuilds and atomically publishes a complete revision; it never patches the active map.
 
+The reference HTTP token and stdio client use a deployment-owned principal profile. Override its id with `ABCM_CONTEXT_PRINCIPAL_ID` and its comma-separated permissions with `ABCM_CONTEXT_PERMISSIONS`; the default alpha profile grants all six declared permissions. Library consumers can supply narrower global or per-scope grants through `contextPrincipal` and `scopeMapAccess`.
+
 `GET /health` is public. All `/v1` routes and the `/mcp` Streamable HTTP endpoint require `Authorization: Bearer <token>`. See the [REST API](docs/api/rest-file-api.md), [HTTP MCP API](docs/api/mcp-http-api.md), and [quickstart](docs/operations/quickstart.md).
 
 ## Run MCP stdio
@@ -66,7 +69,7 @@ Directory sources require SQLite persistence and are configured only by the depl
 
 ## Alpha boundaries
 
-Scope-map revisions and MAP-P4 metadata indexes can be persisted in rebuildable SQLite when explicitly enabled. ContextBundle assembly, domain resolution, managed-storage documentation cutover, automatic documentation watchers, per-principal authorization, and durable audit records are later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
+Scope-map revisions and MAP-P4 metadata indexes can be persisted in rebuildable SQLite when explicitly enabled. DomainLanguageBootstrap is currently in-memory and deployment-principal-bound; final path resolution, ContextBundle assembly, managed-storage documentation cutover, external identity providers, durable bootstrap/audit records, and automatic documentation watchers remain later milestones. Ordinary source files are not indexed by default, and public map responses expose only aggregate content-index counts.
 
 ## License
 

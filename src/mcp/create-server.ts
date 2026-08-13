@@ -3,6 +3,8 @@ import { z } from "zod/v4";
 
 import { AbcmError } from "../core/errors.js";
 import { ABCM_SERVER_INFO } from "../core/server-info.js";
+import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
+import type { ContextPrincipal } from "../domain-language/types.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -13,6 +15,8 @@ export interface AbcmMcpDependencies {
   scopeMap: ScopeMapService;
   defaultWorkspaceId: string;
   scopeMapAccess?: ScopeMapAccess;
+  domainLanguage?: DomainLanguageService;
+  contextPrincipal?: ContextPrincipal;
   documentation?: DirectoryDocumentationSyncService;
 }
 
@@ -155,6 +159,26 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     async input =>
       toolResult(async () => ({ revision: dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(input.workspaceId)) })),
   );
+  if (dependencies.domainLanguage !== undefined && dependencies.contextPrincipal !== undefined) {
+    server.registerTool(
+      "context.get_domain_language",
+      {
+        title: "Get domain language bootstrap",
+        description: "Build a principal-bound workflow-plus-project domain-language bootstrap before path resolution.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: z.object({
+          anchor: z.object({ workspaceId: z.string().min(1), projectId: z.string().min(1) }).strict(),
+          roleId: z.string().min(1).optional(),
+          projection: z.literal("agent").optional(),
+        }).strict(),
+      },
+      async input => toolResult(async () => ({ ...(await dependencies.domainLanguage!.createBootstrap({
+        anchor: input.anchor,
+        ...(input.roleId === undefined ? {} : { roleId: input.roleId }),
+        ...(input.projection === undefined ? {} : { projection: input.projection }),
+      }, dependencies.contextPrincipal!)) })),
+    );
+  }
   if (dependencies.documentation !== undefined) {
     server.registerTool(
       "documentation_source.preview",

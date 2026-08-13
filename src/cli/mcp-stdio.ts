@@ -5,6 +5,7 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { createAbcmRuntime } from "../app/create-runtime.js";
 import { installGracefulShutdown } from "./graceful-shutdown.js";
 import { parseDocumentationSources } from "../documentation/config.js";
+import { parseContextPrincipalEnvironment } from "../domain-language/context-principal-config.js";
 import { parseScopeMapReconcileEnvironment } from "../scope-map/reconcile-config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
 
@@ -18,6 +19,7 @@ const runtimeOwnerTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_TTL_
 const runtimeOwnerRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS");
 const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENTATION_SOURCES);
 const scopeMapReconcile = parseScopeMapReconcileEnvironment(process.env);
+const contextPrincipal = parseContextPrincipalEnvironment(process.env, "stdio-client");
 
 function optionalPositiveInteger(name: string): number | undefined {
   const value = process.env[name];
@@ -36,6 +38,8 @@ const discoveredWorkspaces =
 const runtime = createAbcmRuntime(
   [{ id: workspaceId, root: workspaceRoot }, ...discoveredWorkspaces],
   {
+    contextPrincipal,
+    scopeMapAccess: contextPrincipal.access,
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
     sqliteDerivedStoreEnabled,
     ...(documentationSources === undefined ? {} : { documentationSources }),

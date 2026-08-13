@@ -11,6 +11,21 @@ export type {
 } from "./derived-store/types.js";
 export { AbcmError } from "./core/errors.js";
 export { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "./core/server-info.js";
+export { DomainLanguageService } from "./domain-language/domain-language-service.js";
+export type { DomainLanguageServiceOptions } from "./domain-language/domain-language-service.js";
+export { parseContextPrincipalEnvironment } from "./domain-language/context-principal-config.js";
+export type {
+  ConceptDefinition,
+  ContextAnchor,
+  ContextPrincipal,
+  DomainAlias,
+  DomainDefinition,
+  DomainHomonym,
+  DomainLanguageBootstrap,
+  DomainLanguageBootstrapRequest,
+  DomainLanguageSource,
+  EffectiveDomainLanguage,
+} from "./domain-language/types.js";
 export { parseDocumentationSources } from "./documentation/config.js";
 export { DirectoryDocumentationSyncService } from "./documentation/directory-documentation-sync-service.js";
 export type {

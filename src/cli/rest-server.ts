@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { createAbcmRuntime } from "../app/create-runtime.js";
 import { installGracefulShutdown } from "./graceful-shutdown.js";
 import { parseDocumentationSources } from "../documentation/config.js";
+import { parseContextPrincipalEnvironment } from "../domain-language/context-principal-config.js";
 import { parseScopeMapReconcileEnvironment } from "../scope-map/reconcile-config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
 
@@ -21,6 +22,7 @@ const runtimeOwnerTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_TTL_
 const runtimeOwnerRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_OWNER_RENEWAL_INTERVAL_MS");
 const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENTATION_SOURCES);
 const scopeMapReconcile = parseScopeMapReconcileEnvironment(process.env);
+const contextPrincipal = parseContextPrincipalEnvironment(process.env, "static-bearer");
 
 function commaSeparated(value: string | undefined): string[] | undefined {
   if (value === undefined) return undefined;
@@ -58,6 +60,8 @@ const runtime = createAbcmRuntime(
     bearerToken,
     mcpHttpEnabled,
     mcpEndpointPath,
+    contextPrincipal,
+    scopeMapAccess: contextPrincipal.access,
     ...(allowedHostnames === undefined ? {} : { mcpAllowedHostnames: allowedHostnames }),
     ...(allowedOrigins === undefined ? {} : { mcpAllowedOrigins: allowedOrigins }),
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),

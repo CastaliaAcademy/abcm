@@ -4,6 +4,8 @@ import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-s
 import type { ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "../derived-store/types.js";
 import { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { DirectoryDocumentationSourceDefinition } from "../documentation/types.js";
+import { DomainLanguageService, type DomainLanguageServiceOptions } from "../domain-language/domain-language-service.js";
+import type { ContextPrincipal } from "../domain-language/types.js";
 import { createAbcmRestHandler } from "../rest/create-rest-handler.js";
 import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
 import { ScopeMapReconcileCoordinator, type ScopeMapReconcileOptions } from "../scope-map/reconcile-coordinator.js";
@@ -27,6 +29,8 @@ export interface AbcmRuntimeOptions {
   documentationSources?: readonly DirectoryDocumentationSourceDefinition[];
   scopeMapReconcile?: ScopeMapReconcileOptions;
   scopeMapAccess?: ScopeMapAccess;
+  contextPrincipal?: ContextPrincipal;
+  domainLanguage?: DomainLanguageServiceOptions;
 }
 
 export function createAbcmRuntime(
@@ -50,6 +54,7 @@ export function createAbcmRuntime(
   const scopeMapStore = options.scopeMapStore ?? ownedScopeMapStore;
   const documentationState = (options.documentationSources?.length ?? 0) > 0 ? ownedScopeMapStore : undefined;
   const scopeMap = new ScopeMapService(registry, scopeMapStore, documentationState);
+  const domainLanguage = new DomainLanguageService(registry, scopeMap, options.domainLanguage);
   const scopeMapReconciler = new ScopeMapReconcileCoordinator(registry, scopeMap, options.scopeMapReconcile);
   let documentation: DirectoryDocumentationSyncService | undefined;
   const files = new WorkspaceFileService(registry, {
@@ -72,6 +77,8 @@ export function createAbcmRuntime(
   const baseRestHandler = createAbcmRestHandler({
     files,
     scopeMap,
+    domainLanguage,
+    ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
     ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
     ...(documentation === undefined ? {} : { documentation }),
     ...(workspaceProvisioning === undefined ? {} : { workspaces: workspaceProvisioning }),
@@ -84,6 +91,8 @@ export function createAbcmRuntime(
             files,
             scopeMap,
             defaultWorkspaceId: defaultWorkspace.id,
+            domainLanguage,
+            ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
             ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
             ...(documentation === undefined ? {} : { documentation }),
           },
@@ -107,6 +116,7 @@ export function createAbcmRuntime(
     registry,
     files,
     scopeMap,
+    domainLanguage,
     scopeMapReconciler,
     workspaceProvisioning,
     documentation,
@@ -119,6 +129,8 @@ export function createAbcmRuntime(
         files,
         scopeMap,
         defaultWorkspaceId: defaultWorkspace.id,
+        domainLanguage,
+        ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
         ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
         ...(documentation === undefined ? {} : { documentation }),
       }),

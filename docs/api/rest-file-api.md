@@ -13,11 +13,14 @@ Configure the primary workspace with `ABCM_WORKSPACE_ID`, `ABCM_WORKSPACE_ROOT`,
 - `POST /v1/workspaces/{id}/directories`
 - `POST /v1/workspaces/{id}/scope-map/scan`
 - `GET /v1/workspaces/{id}/scope-map?view=agent|admin`
+- `POST /v1/context/domain-language` with strict JSON `{ "anchor": { "workspaceId": "id", "projectId": "id-or-alias" }, "roleId": "optional" }`
 - `POST /v1/workspaces/{id}/documentation-sources/preview` with strict JSON `{ "sourceId": "configured-id" }`
 - `POST /v1/documentation-imports/{importId}/apply`
 - `POST /v1/documentation-sources/{sourceId}/sync`
 
 The scan endpoint returns the published revision summary plus aggregate `resourceSummary` counts. Internal `FileRecord`, `DocumentRecord`, and `ExecutableResourceRecord` arrays are not exposed through REST map responses.
+
+The domain-language endpoint requires an active ScopeMap plus `scope.discover`, `scope.read_metadata`, and `context.build`. It returns a short-lived principal-, revision-, and checksum-bound workflow-plus-project bootstrap without loading service/feature conventions or raw source bodies.
 
 Reads return strong SHA-256 ETags. Writes accept `If-Match`; creates accept `If-None-Match: *`. File bodies are raw bytes. JSON errors use `application/problem+json` and stable ABCM codes.
 
@@ -25,4 +28,4 @@ Workspace registration returns `201` after creating a minimal workflow scaffold.
 
 Directory documentation sources are deployment-owned and require SQLite persistence. Preview is non-mutating and returns checksum-pinned create/update/delete/unchanged/conflict operations. Apply rejects stale snapshots or targets. `sync` performs an immediate preview/apply. Active mirrors remain readable but general write/delete/move endpoints return `409 MIRROR_DOCUMENT_READ_ONLY`. See the [Obsidian integration guide](../integrations/obsidian.md).
 
-The alpha server uses one static deployment token. Per-workspace principals, roles, and audit persistence remain later milestones.
+The alpha server uses one static deployment token mapped to a deployment-owned context principal. External identity-provider integration and audit persistence remain later milestones.
