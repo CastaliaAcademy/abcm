@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { AbcmError } from "../core/errors.js";
+import { throwIfAborted } from "../core/operation.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
 import type { ScopePathResolver } from "../domain-language/scope-path-resolver.js";
@@ -131,7 +132,8 @@ export class ContextBuilder {
     if (this.#budgets[this.#defaultBudget] === undefined) throw new Error("Default context budget profile is not configured.");
   }
 
-  async build(request: BuildTaskContextRequest, principal: ContextPrincipal): Promise<ContextBundle> {
+  async build(request: BuildTaskContextRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ContextBundle> {
+    throwIfAborted(signal);
     if (!principal.access.workspacePermissions.includes("context.build") && !Object.values(principal.access.scopeGrants ?? {}).some(grants => grants.includes("context.build"))) {
       throw new AbcmError("ACCESS_DENIED", "Context build permission is required.");
     }
@@ -154,7 +156,8 @@ export class ContextBuilder {
       ...(request.explicitLinks === undefined ? {} : { explicitLinks: request.explicitLinks }),
       ...(request.artifacts === undefined ? {} : { artifacts: request.artifacts }),
       ...(request.repositoryPaths === undefined ? {} : { repositoryPaths: request.repositoryPaths }),
-    }, principal);
+    }, principal, signal);
+    throwIfAborted(signal);
     const skills = await this.#dependencies.skillConnectionResolver.resolve({
       workspaceId: bootstrap.anchor.workspaceId,
       path,
@@ -164,7 +167,8 @@ export class ContextBuilder {
       ...(request.explicitLinks === undefined ? {} : { explicitSkillLinks: request.explicitLinks.filter(link => link.startsWith("abcm://skill/")) }),
       ...(request.requestedSkillIds === undefined ? {} : { requestedSkillIds: request.requestedSkillIds }),
       ...(request.approvalId === undefined ? {} : { approvalId: request.approvalId }),
-    }, principal);
+    }, principal, signal);
+    throwIfAborted(signal);
     const { candidates, omissions: lifecycleOmissions } = this.#collect(
       revision,
       bootstrap.anchor.projectId,
@@ -180,6 +184,7 @@ export class ContextBuilder {
     const nodes = new Map(revision.nodes.map(node => [node.scopeId, node]));
     const ordered = [...candidates.values()].sort((left, right) => Number(right.mandatory) - Number(left.mandatory) || this.#priority(left) - this.#priority(right) || left.document.documentId.localeCompare(right.document.documentId));
     for (const candidate of ordered) {
+      throwIfAborted(signal);
       const node = nodes.get(candidate.document.scopeId);
       const reasons = this.#reasons(candidate);
       if (node === undefined || !hasDocumentAccess(principal, node)) {
@@ -189,7 +194,7 @@ export class ContextBuilder {
       }
       let source;
       try {
-        source = await this.#dependencies.files.read(bootstrap.anchor.workspaceId, candidate.document.relativePath);
+        source = await this.#dependencies.files.read(bootstrap.anchor.workspaceId, candidate.document.relativePath, signal);
       } catch (error) {
         if (candidate.mandatory && error instanceof AbcmError && error.code === "FILE_TOO_LARGE") {
           throw new AbcmError("REQUIRED_CONTEXT_EXCEEDS_LIMIT", `Mandatory document '${candidate.document.documentId}' exceeds the materialization limit.`, { documentId: candidate.document.documentId });
@@ -280,6 +285,7 @@ export class ContextBuilder {
       tokenEstimate,
       selectedDocuments: fingerprintDocuments,
     };
+    throwIfAborted(signal);
     const contextFingerprintLocation = await this.#dependencies.fingerprintStore.write(bootstrap.anchor.workspaceId, request.execution, fingerprint);
     return deepFreeze({
       contextBundleId,

@@ -50,6 +50,7 @@ describe("MCP tool contract", () => {
         contractVersion: "0.1.0",
         specificationVersion: "0.5.0",
         supportedProtocolVersions: ["2025-11-25"],
+        operationTimeoutMs: 30000,
         toolErrors: { encoding: "isError-json", version: "1" },
       });
       expect(listed.tools.map(tool => tool.name)).toEqual([

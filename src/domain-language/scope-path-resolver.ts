@@ -1,6 +1,7 @@
 import { posix } from "node:path";
 
 import { AbcmError } from "../core/errors.js";
+import { throwIfAborted } from "../core/operation.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { AbcmPermission, MapRevision, ScopeNode } from "../scope-map/types.js";
 import { DomainLanguageService } from "./domain-language-service.js";
@@ -47,13 +48,15 @@ export class ScopePathResolver {
     this.#scopeMap = scopeMap;
   }
 
-  async resolve(request: ResolveTaskPathRequest, principal: ContextPrincipal): Promise<ResolvedScopePath> {
+  async resolve(request: ResolveTaskPathRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ResolvedScopePath> {
+    throwIfAborted(signal);
     const bootstrap = this.#domainLanguage.validateBootstrap(request.domainLanguageBootstrapId, principal);
     const revision = this.#scopeMap.getActiveRevision(bootstrap.anchor.workspaceId);
     const firstIntent = this.#normalizeIntent(request, bootstrap.effectiveLanguage);
     const universe = this.#candidateUniverse(revision, bootstrap, principal);
     const first = this.#select(revision, universe.nodes, firstIntent, 1, bootstrap.effectiveLanguage);
-    const firstLocal = await this.#domainLanguage.buildEffectiveLanguageForPath(bootstrap.bootstrapId, first.node.scopeId, principal);
+    const firstLocal = await this.#domainLanguage.buildEffectiveLanguageForPath(bootstrap.bootstrapId, first.node.scopeId, principal, signal);
+    throwIfAborted(signal);
     const localIntent = this.#normalizeIntent(request, firstLocal.effectiveLanguage);
     const passes: ResolverPass[] = [this.#pass(1, first)];
     let selected = first;
@@ -61,7 +64,8 @@ export class ScopePathResolver {
     if (JSON.stringify(localIntent) !== JSON.stringify(firstIntent)) {
       selected = this.#select(revision, universe.nodes, localIntent, 2, firstLocal.effectiveLanguage);
       passes.push(this.#pass(2, selected));
-      const secondLocal = await this.#domainLanguage.buildEffectiveLanguageForPath(bootstrap.bootstrapId, selected.node.scopeId, principal);
+      const secondLocal = await this.#domainLanguage.buildEffectiveLanguageForPath(bootstrap.bootstrapId, selected.node.scopeId, principal, signal);
+      throwIfAborted(signal);
       const secondIntent = this.#normalizeIntent(request, secondLocal.effectiveLanguage);
       if (JSON.stringify(secondIntent) !== JSON.stringify(localIntent)) {
         throw new AbcmError("PATH_RESOLUTION_NOT_CONVERGED", "Local domain language changed target meaning after the bounded second pass.");

@@ -185,7 +185,8 @@ REST handlers ----------/          |                    |
 - M2 остаётся незавершённым до SQLite-каталога bundles/fingerprints; relations и diagnostics нормализованы PLAN-0010.
 - PLAN-0017 закрыл первую половину M8: стабильный permission-filtered MCP resource catalog, scoped maps, addressable indexed documents/skills, revision-bound pagination, checksum-safe reads, cancellation/timeout boundary и legacy/dual-protocol client tests.
 - PLAN-0018 добавил вторую часть M8: единый экспортируемый registry строгих input/output schemas для всех 12 tools, versioned capability metadata и стабильное expected/internal error mapping с real-client operation matrix.
-- M3-M7 закрыты на alpha-контракте; M8 остаётся открытым до tool schema/error/cancellation/timeout closure по каждому operation.
+- PLAN-0019 завершил M8: client cancellation и deployment deadline проходят до application commit boundaries; pre-commit abort не мутирует canonical/derived state, а многофайловый documentation commit после старта завершается non-preemptibly.
+- M3-M8 закрыты на alpha-контракте; следующий продуктовый этап — M9 REST parity и OpenAPI contract.
 - M10 остаётся незавершённым до mapping rules, identity-preserving moves, managed cutover и fault-injection recovery между filesystem и metadata phases.
 
 ## 5. Риски и открытые решения до M1

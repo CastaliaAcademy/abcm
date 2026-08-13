@@ -20,6 +20,7 @@ const runtimeOwnerRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STOR
 const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENTATION_SOURCES);
 const scopeMapReconcile = parseScopeMapReconcileEnvironment(process.env);
 const contextPrincipal = parseContextPrincipalEnvironment(process.env, "stdio-client");
+const mcpOperationTimeoutMs = optionalPositiveInteger("ABCM_MCP_OPERATION_TIMEOUT_MS");
 
 function optionalPositiveInteger(name: string): number | undefined {
   const value = process.env[name];
@@ -40,6 +41,7 @@ const runtime = createAbcmRuntime(
   {
     contextPrincipal,
     scopeMapAccess: contextPrincipal.access,
+    ...(mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs }),
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
     sqliteDerivedStoreEnabled,
     ...(documentationSources === undefined ? {} : { documentationSources }),

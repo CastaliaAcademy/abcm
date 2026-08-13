@@ -6,6 +6,7 @@ import { z } from "zod/v4";
 import { parse } from "yaml";
 
 import { AbcmError } from "../core/errors.js";
+import { throwIfAborted } from "../core/operation.js";
 import type { ScopeMapStore } from "../derived-store/types.js";
 import type { DocumentationStateStore } from "../documentation/types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
@@ -57,7 +58,7 @@ const scopeManifestSchema = z
   .strict();
 
 type ScopeManifest = z.infer<typeof scopeManifestSchema>;
-type ContentIndexer = (workspace: ResolvedWorkspace, scope: ScopeNode) => Promise<ScopeContentIndex>;
+type ContentIndexer = (workspace: ResolvedWorkspace, scope: ScopeNode, signal?: AbortSignal) => Promise<ScopeContentIndex>;
 
 export interface ScopeMapServiceOptions {
   contentIndexer?: ContentIndexer;
@@ -111,8 +112,9 @@ export class ScopeMapService {
     this.#contentIndexer = options.contentIndexer ?? indexScopeContent;
   }
 
-  scan(workspaceId: string): Promise<MapRevision> {
-    return this.#enqueue(workspaceId, () => this.#scanOnce(workspaceId));
+  scan(workspaceId: string, signal?: AbortSignal): Promise<MapRevision> {
+    throwIfAborted(signal);
+    return this.#enqueue(workspaceId, () => this.#scanOnce(workspaceId, undefined, signal));
   }
 
   reconcile(workspaceId: string, changedPaths: readonly string[]): Promise<MapRevision> {
@@ -138,7 +140,8 @@ export class ScopeMapService {
     return result;
   }
 
-  async #scanOnce(workspaceId: string, changedPaths?: readonly string[]): Promise<MapRevision> {
+  async #scanOnce(workspaceId: string, changedPaths?: readonly string[], signal?: AbortSignal): Promise<MapRevision> {
+    throwIfAborted(signal);
     const store = this.#store;
     let lease = store?.beginScan(workspaceId);
     let renewalError: unknown;
@@ -157,8 +160,9 @@ export class ScopeMapService {
     try {
       const previous = this.#active.get(workspaceId);
       const revision =
-        changedPaths === undefined ? await this.#build(workspaceId) : await this.#buildIncremental(workspaceId, changedPaths);
+        changedPaths === undefined ? await this.#build(workspaceId, signal) : await this.#buildIncremental(workspaceId, changedPaths, signal);
       if (renewalError !== undefined) throw renewalError;
+      throwIfAborted(signal);
       if (lease !== undefined) store?.publish(lease, revision);
       this.#active.set(workspaceId, revision);
       this.#emitChanged(workspaceId, previous, revision);
@@ -177,7 +181,8 @@ export class ScopeMapService {
     }
   }
 
-  async #build(workspaceId: string): Promise<MapRevision> {
+  async #build(workspaceId: string, signal?: AbortSignal): Promise<MapRevision> {
+    throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
     const rootManifest = await this.#readManifest(workspace.root, "", true);
     if (rootManifest.kind !== "workflow") {
@@ -195,9 +200,11 @@ export class ScopeMapService {
     seenIds.add(rootNode.scopeId);
 
     const walk = async (parent: ScopeNode, absoluteDirectory: string): Promise<void> => {
+      throwIfAborted(signal);
       const children = await readdir(absoluteDirectory, { withFileTypes: true });
       children.sort((left, right) => left.name.localeCompare(right.name));
       for (const child of children) {
+        throwIfAborted(signal);
         if (!child.isDirectory() || child.isSymbolicLink()) continue;
         if (workspace.deniedDirectories.has(child.name) || RESERVED_SCOPE_DIRECTORIES.has(child.name)) continue;
         const childAbsolute = join(absoluteDirectory, child.name);
@@ -264,8 +271,9 @@ export class ScopeMapService {
     const executableResources: ExecutableResourceRecord[] = [];
     const skills: SkillDescriptor[] = [];
     const indexes = await Promise.all(
-      nodes.filter(node => node.status === "valid").map(node => this.#contentIndexer(workspace, node)),
+      nodes.filter(node => node.status === "valid").map(node => this.#contentIndexer(workspace, node, signal)),
     );
+    throwIfAborted(signal);
     for (const index of indexes) {
       files.push(...index.files);
       documentCandidates.push(...index.documentCandidates);
@@ -290,7 +298,9 @@ export class ScopeMapService {
     executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     skills.sort((left, right) => `${left.skillId}/${left.sourceScopeId}`.localeCompare(`${right.skillId}/${right.sourceScopeId}`));
     const documents = resolveDocumentCandidates(documentCandidates, diagnostics);
+    throwIfAborted(signal);
     const explicit = await indexExplicitRelations(workspace, nodes, documents, diagnostics);
+    throwIfAborted(signal);
     relations.push(...explicit.relations);
     for (let index = 0; index < nodes.length; index++) {
       const node = nodes[index];
@@ -318,7 +328,8 @@ export class ScopeMapService {
     return revision;
   }
 
-  async #buildIncremental(workspaceId: string, changedPaths: readonly string[]): Promise<MapRevision> {
+  async #buildIncremental(workspaceId: string, changedPaths: readonly string[], signal?: AbortSignal): Promise<MapRevision> {
+    throwIfAborted(signal);
     const previous = this.#active.get(workspaceId);
     const normalizedPaths = this.#normalizeChangedPaths(changedPaths);
     if (
@@ -328,7 +339,7 @@ export class ScopeMapService {
       normalizedPaths.some(path => posix.basename(path) === "scope.yaml") ||
       previous.diagnostics.some(diagnostic => diagnostic.code === "DOCUMENT_ID_DUPLICATE")
     ) {
-      return this.#build(workspaceId);
+      return this.#build(workspaceId, signal);
     }
 
     const workspace = this.#registry.get(workspaceId);
@@ -338,7 +349,7 @@ export class ScopeMapService {
     const readinessRoots = new Set<string>();
     for (const path of normalizedPaths) {
       const scope = this.#nearestScope(validNodes, path);
-      if (scope === undefined) return this.#build(workspaceId);
+      if (scope === undefined) return this.#build(workspaceId, signal);
       changedScopeIds.add(scope.scopeId);
       const insideScope = scope.relativePath === "" ? path : path.slice(scope.relativePath.length + 1);
       if (insideScope === "domain-language" || insideScope.startsWith("domain-language/")) {
@@ -354,11 +365,13 @@ export class ScopeMapService {
 
     const indexed = new Map<string, ScopeContentIndex>();
     while (true) {
+      throwIfAborted(signal);
       for (const scopeId of impacted) {
+        throwIfAborted(signal);
         if (indexed.has(scopeId)) continue;
         const node = nodesById.get(scopeId);
         if (node === undefined) continue;
-        const content = await this.#contentIndexer(workspace, node);
+        const content = await this.#contentIndexer(workspace, node, signal);
         const documentationState = this.#documentationState;
         if (documentationState !== undefined) {
           content.files = content.files.map(file => ({
@@ -433,6 +446,7 @@ export class ScopeMapService {
       relation => relation.relationType === "parent-child" || !impacted.has(relation.fromId),
     );
     const explicit = await indexExplicitRelations(workspace, nodes, documents, diagnostics, impacted);
+    throwIfAborted(signal);
     relations.push(...explicit.relations);
     for (let index = 0; index < nodes.length; index++) {
       const node = nodes[index];

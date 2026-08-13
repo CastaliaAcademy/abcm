@@ -3,6 +3,7 @@ import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { posix, relative, resolve, sep } from "node:path";
 
 import { AbcmError } from "../core/errors.js";
+import { throwIfAborted } from "../core/operation.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
 import type { WorkspaceRegistry } from "../workspace/registry.js";
@@ -87,21 +88,23 @@ export class DirectoryDocumentationSyncService {
     }
   }
 
-  async preview(workspaceId: string, sourceId: string): Promise<DocumentationImportPlan> {
-    const source = await this.#source(sourceId);
+  async preview(workspaceId: string, sourceId: string, signal?: AbortSignal): Promise<DocumentationImportPlan> {
+    throwIfAborted(signal);
+    const source = await this.#source(sourceId, signal);
     if (source.workspaceId !== workspaceId) {
       throw new AbcmError("SOURCE_CONNECTOR_UNAVAILABLE", `Documentation source '${sourceId}' is not configured for workspace '${workspaceId}'.`);
     }
-    const snapshot = await this.#snapshot(source);
+    const snapshot = await this.#snapshot(source, signal);
     const provenance = this.#state.listDocumentProvenance(workspaceId, sourceId);
     const activeBySourcePath = new Map(provenance.filter(record => record.active).map(record => [record.sourcePath, record]));
     const sourcePaths = new Set(snapshot.map(file => file.sourcePath));
     const operations: DocumentationImportOperation[] = [];
 
     for (const file of snapshot) {
+      throwIfAborted(signal);
       const targetPath = posix.join(source.targetBasePath, file.sourcePath);
       const previous = activeBySourcePath.get(file.sourcePath);
-      const current = await this.#readTarget(workspaceId, targetPath);
+      const current = await this.#readTarget(workspaceId, targetPath, signal);
       if (previous === undefined) {
         operations.push(
           current === undefined
@@ -135,7 +138,8 @@ export class DirectoryDocumentationSyncService {
       }
     }
     for (const previous of provenance.filter(record => record.active && !sourcePaths.has(record.sourcePath))) {
-      const current = await this.#readTarget(workspaceId, previous.targetPath);
+      throwIfAborted(signal);
+      const current = await this.#readTarget(workspaceId, previous.targetPath, signal);
       operations.push(
         current?.checksum === previous.targetChecksum
           ? {
@@ -162,15 +166,17 @@ export class DirectoryDocumentationSyncService {
       createdAt: this.#clock().toISOString(),
       operations,
     };
+    throwIfAborted(signal);
     this.#plans.set(plan.importId, plan);
     return plan;
   }
 
-  async apply(importId: string): Promise<DocumentationSyncResult> {
+  async apply(importId: string, signal?: AbortSignal): Promise<DocumentationSyncResult> {
+    throwIfAborted(signal);
     const plan = this.#plans.get(importId);
     if (plan === undefined) throw new AbcmError("DOCUMENTATION_IMPORT_NOT_FOUND", `Documentation import '${importId}' was not found.`);
-    const source = await this.#source(plan.sourceId);
-    const snapshot = await this.#snapshot(source);
+    const source = await this.#source(plan.sourceId, signal);
+    const snapshot = await this.#snapshot(source, signal);
     if (this.#snapshotDigest(snapshot) !== plan.snapshotDigest) {
       throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Documentation source changed after preview.", { importId });
     }
@@ -189,7 +195,8 @@ export class DirectoryDocumentationSyncService {
     try {
       const sourceFiles = new Map(snapshot.map(file => [file.sourcePath, file]));
       for (const operation of plan.operations) {
-        const target = await this.#readTarget(plan.workspaceId, operation.targetPath);
+        throwIfAborted(signal);
+        const target = await this.#readTarget(plan.workspaceId, operation.targetPath, signal);
         if (operation.operation === "create" && target !== undefined) {
           throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Documentation target changed after preview.", { path: operation.targetPath });
         }
@@ -200,6 +207,11 @@ export class DirectoryDocumentationSyncService {
           throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Documentation target changed after preview.", { path: operation.targetPath });
         }
       }
+
+      // From this point the multi-file import is intentionally non-preemptible:
+      // completing provenance, tombstones and the map publication is safer than
+      // returning a timeout after only part of the canonical snapshot was applied.
+      throwIfAborted(signal);
 
       const startedAt = this.#clock().toISOString();
       const upserts: DocumentProvenanceRecord[] = [];
@@ -288,9 +300,9 @@ export class DirectoryDocumentationSyncService {
     }
   }
 
-  async sync(sourceId: string): Promise<DocumentationSyncResult> {
-    const source = await this.#source(sourceId);
-    return this.apply((await this.preview(source.workspaceId, sourceId)).importId);
+  async sync(sourceId: string, signal?: AbortSignal): Promise<DocumentationSyncResult> {
+    const source = await this.#source(sourceId, signal);
+    return this.apply((await this.preview(source.workspaceId, sourceId, signal)).importId, signal);
   }
 
   async authorizeMutation(workspaceId: string, paths: readonly string[]): Promise<void> {
@@ -312,7 +324,8 @@ export class DirectoryDocumentationSyncService {
     }
   }
 
-  async #source(sourceId: string): Promise<ResolvedSource> {
+  async #source(sourceId: string, signal?: AbortSignal): Promise<ResolvedSource> {
+    throwIfAborted(signal);
     const configured = this.#sources.get(sourceId);
     if (configured === undefined) throw new AbcmError("SOURCE_CONNECTOR_UNAVAILABLE", `Documentation source '${sourceId}' is unavailable.`);
     let root: string;
@@ -320,7 +333,9 @@ export class DirectoryDocumentationSyncService {
     try {
       root = await realpath(configured.root);
       metadata = await stat(root);
+      throwIfAborted(signal);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
       throw new AbcmError("SOURCE_CONNECTOR_UNAVAILABLE", `Documentation source '${sourceId}' cannot be read.`, {
         cause: error instanceof Error ? error.message : String(error),
       });
@@ -329,12 +344,15 @@ export class DirectoryDocumentationSyncService {
     return { ...configured, root };
   }
 
-  async #snapshot(source: ResolvedSource): Promise<SourceFile[]> {
+  async #snapshot(source: ResolvedSource, signal?: AbortSignal): Promise<SourceFile[]> {
+    throwIfAborted(signal);
     const files: SourceFile[] = [];
     const visit = async (directory: string): Promise<void> => {
+      throwIfAborted(signal);
       const children = await readdir(directory, { withFileTypes: true });
       children.sort((left, right) => left.name.localeCompare(right.name));
       for (const child of children) {
+        throwIfAborted(signal);
         if (child.isSymbolicLink() || child.name.startsWith(".")) continue;
         const absolute = resolve(directory, child.name);
         if (!isWithinRoot(source.root, absolute)) continue;
@@ -342,6 +360,7 @@ export class DirectoryDocumentationSyncService {
         else if (child.isFile() && child.name.toLowerCase().endsWith(".md")) {
           const sourcePath = relative(source.root, absolute).split(sep).join("/");
           const content = new Uint8Array(await readFile(absolute));
+          throwIfAborted(signal);
           files.push({ sourcePath, content, checksum: sha256(content) });
         }
       }
@@ -349,6 +368,7 @@ export class DirectoryDocumentationSyncService {
     try {
       await visit(source.root);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") throw error;
       if (error instanceof AbcmError) throw error;
       throw new AbcmError("SOURCE_CONNECTOR_UNAVAILABLE", `Documentation source '${source.id}' could not be snapshotted.`, {
         cause: error instanceof Error ? error.message : String(error),
@@ -365,9 +385,9 @@ export class DirectoryDocumentationSyncService {
     return sha256(JSON.stringify(snapshot.map(file => ({ sourcePath: file.sourcePath, checksum: file.checksum }))));
   }
 
-  async #readTarget(workspaceId: string, targetPath: string): Promise<{ checksum: string } | undefined> {
+  async #readTarget(workspaceId: string, targetPath: string, signal?: AbortSignal): Promise<{ checksum: string } | undefined> {
     try {
-      const result = await this.#files.read(workspaceId, targetPath);
+      const result = await this.#files.read(workspaceId, targetPath, signal);
       return { checksum: result.entry.checksum };
     } catch (error) {
       if (error instanceof AbcmError && error.code === "FILE_NOT_FOUND") return undefined;

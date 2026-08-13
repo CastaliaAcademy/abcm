@@ -27,6 +27,7 @@ export interface AbcmRuntimeOptions {
   mcpEndpointPath?: string;
   mcpAllowedHostnames?: string[];
   mcpAllowedOrigins?: string[];
+  mcpOperationTimeoutMs?: number;
   workspaceStoreRoot?: string;
   scopeMapStore?: ScopeMapStore;
   sqliteDerivedStoreEnabled?: boolean;
@@ -114,6 +115,7 @@ export function createAbcmRuntime(
             contextBuilder,
             ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
             ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
+            ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),
             ...(documentation === undefined ? {} : { documentation }),
           },
           {
@@ -157,6 +159,7 @@ export function createAbcmRuntime(
         contextBuilder,
         ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
         ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
+        ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),
         ...(documentation === undefined ? {} : { documentation }),
       }),
     close: async () => {

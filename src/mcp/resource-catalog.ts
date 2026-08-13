@@ -218,7 +218,7 @@ export class McpResourceCatalog {
       }
 
       const indexed = resource.source.type === "document" ? resource.source.document : resource.source.skill;
-      const read = await this.#files.read(this.#workspaceId, indexed.relativePath);
+      const read = await this.#files.read(this.#workspaceId, indexed.relativePath, operationSignal);
       operationSignal.throwIfAborted();
       if (read.entry.checksum !== indexed.checksum) {
         resourceError("RESOURCE_STALE", "The resource bytes no longer match the active ScopeMap revision.", {
@@ -240,7 +240,7 @@ export class McpResourceCatalog {
       return this.#scopeMap.getActiveRevision(this.#workspaceId);
     } catch (error) {
       if (!(error instanceof AbcmError) || error.code !== "MAP_NOT_BUILT") throw error;
-      const revision = await this.#scopeMap.scan(this.#workspaceId);
+      const revision = await this.#scopeMap.scan(this.#workspaceId, signal);
       signal.throwIfAborted();
       return revision;
     }

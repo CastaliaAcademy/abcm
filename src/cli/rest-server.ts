@@ -14,6 +14,7 @@ const port = Number(process.env.ABCM_PORT ?? "8787");
 const bearerToken = process.env.ABCM_API_TOKEN;
 const mcpHttpEnabled = process.env.ABCM_MCP_ENABLED !== "false";
 const mcpEndpointPath = process.env.ABCM_MCP_PATH ?? "/mcp";
+const mcpOperationTimeoutMs = optionalPositiveInteger("ABCM_MCP_OPERATION_TIMEOUT_MS");
 const workspaceStoreRoot = process.env.ABCM_WORKSPACE_STORE_ROOT;
 const sqliteDerivedStoreEnabled = process.env.ABCM_DERIVED_STORE_ENABLED === "true";
 const scanLeaseTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_TTL_MS");
@@ -60,6 +61,7 @@ const runtime = createAbcmRuntime(
     bearerToken,
     mcpHttpEnabled,
     mcpEndpointPath,
+    ...(mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs }),
     contextPrincipal,
     scopeMapAccess: contextPrincipal.access,
     ...(allowedHostnames === undefined ? {} : { mcpAllowedHostnames: allowedHostnames }),

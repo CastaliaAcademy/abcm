@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 
 import { AbcmError } from "../core/errors.js";
+import { createOperationDeadline } from "../core/operation.js";
 import { normalizeBuildTaskContextInput } from "../context/schema.js";
 import type { ContextBuilder } from "../context/context-builder.js";
 import {
@@ -59,31 +60,46 @@ function success(structuredContent: Record<string, unknown>) {
   return { content: [{ type: "text" as const, text: JSON.stringify(structuredContent) }], structuredContent };
 }
 
-async function toolResult(action: () => Promise<Record<string, unknown>>) {
-  try {
-    return success(await action());
-  } catch (error) {
-    if (error instanceof AbcmError) {
-      return {
-        isError: true,
-        content: [{ type: "text" as const, text: JSON.stringify({ code: error.code, message: error.message, details: error.details }) }],
-      };
-    }
-    if (error instanceof DOMException && error.name === "AbortError") {
-      return {
-        isError: true,
-        content: [{ type: "text" as const, text: JSON.stringify({ code: "MCP_OPERATION_CANCELLED", message: "MCP operation was cancelled." }) }],
-      };
-    }
+const DEFAULT_MCP_OPERATION_TIMEOUT_MS = 30_000;
+
+function toolError(error: unknown) {
+  if (error instanceof AbcmError) {
     return {
       isError: true,
-      content: [{ type: "text" as const, text: JSON.stringify({ code: "INTERNAL_ERROR", message: "An unexpected server error occurred." }) }],
+      content: [{ type: "text" as const, text: JSON.stringify({ code: error.code, message: error.message, ...(error.details === undefined ? {} : { details: error.details }) }) }],
     };
+  }
+  return {
+    isError: true,
+    content: [{ type: "text" as const, text: JSON.stringify({ code: "INTERNAL_ERROR", message: "An unexpected server error occurred." }) }],
+  };
+}
+
+async function toolResult(
+  action: (signal: AbortSignal) => Promise<Record<string, unknown>>,
+  requestSignal: AbortSignal,
+  timeoutMs: number,
+) {
+  const deadline = createOperationDeadline(requestSignal, timeoutMs);
+  try {
+    return success(await action(deadline.signal));
+  } catch (error) {
+    if (deadline.signal.aborted) {
+      try {
+        deadline.mapAbort(error);
+      } catch (mapped) {
+        return toolError(mapped);
+      }
+    }
+    return toolError(error);
+  } finally {
+    deadline.finish();
   }
 }
 
 /** Creates an unconnected ABCM MCP server and optionally registers workspace capabilities. */
 export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServer {
+  const operationTimeoutMs = dependencies?.mcpOperationTimeoutMs ?? DEFAULT_MCP_OPERATION_TIMEOUT_MS;
   const server = new McpServer(ABCM_SERVER_INFO, {
     supportedProtocolVersions: [...ABCM_MCP_PROTOCOL_VERSIONS],
     capabilities: {
@@ -92,6 +108,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
           contractVersion: ABCM_MCP_CONTRACT_VERSION,
           specificationVersion: ABCM_SPEC_VERSION,
           supportedProtocolVersions: [...ABCM_MCP_PROTOCOL_VERSIONS],
+          operationTimeoutMs,
           toolErrors: { encoding: "isError-json", version: "1" },
         },
       },
@@ -108,7 +125,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       inputSchema: workspaceListFilesInputSchema,
       outputSchema: workspaceListFilesOutputSchema,
     },
-    async input => toolResult(async () => ({ entries: await dependencies.files.list(input.workspaceId, input.path, input.recursive) })),
+    async (input, context) => toolResult(async signal => ({ entries: await dependencies.files.list(input.workspaceId, input.path, input.recursive, signal) }), context.mcpReq.signal, operationTimeoutMs),
   );
   server.registerTool(
     "workspace.read_file",
@@ -119,16 +136,16 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       inputSchema: workspaceReadFileInputSchema,
       outputSchema: workspaceReadFileOutputSchema,
     },
-    async input =>
-      toolResult(async () => {
-        const result = await dependencies.files.read(input.workspaceId, input.path);
+    async (input, context) =>
+      toolResult(async signal => {
+        const result = await dependencies.files.read(input.workspaceId, input.path, signal);
         return {
           entry: result.entry,
           contentType: result.contentType,
           encoding: "base64",
           content: Buffer.from(result.content).toString("base64"),
         };
-      }),
+      }, context.mcpReq.signal, operationTimeoutMs),
   );
   server.registerTool(
     "workspace.write_file",
@@ -139,8 +156,8 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       inputSchema: workspaceWriteFileInputSchema,
       outputSchema: workspaceWriteFileOutputSchema,
     },
-    async input =>
-      toolResult(async () => {
+    async (input, context) =>
+      toolResult(async signal => {
         const content =
           input.encoding === "base64"
             ? new Uint8Array(Buffer.from(input.content, "base64"))
@@ -148,9 +165,9 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         const entry = await dependencies.files.write(input.workspaceId, input.path, content, {
           ...(input.ifMatch === undefined ? {} : { ifMatch: input.ifMatch }),
           ...(input.ifNoneMatch === undefined ? {} : { ifNoneMatch: input.ifNoneMatch }),
-        });
+        }, signal);
         return { entry };
-      }),
+      }, context.mcpReq.signal, operationTimeoutMs),
   );
   server.registerTool(
     "workspace.delete_file",
@@ -161,11 +178,11 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       inputSchema: workspaceDeleteFileInputSchema,
       outputSchema: workspaceDeleteFileOutputSchema,
     },
-    async input =>
-      toolResult(async () => {
-        await dependencies.files.delete(input.workspaceId, input.path, input.ifMatch === undefined ? {} : { ifMatch: input.ifMatch });
+    async (input, context) =>
+      toolResult(async signal => {
+        await dependencies.files.delete(input.workspaceId, input.path, input.ifMatch === undefined ? {} : { ifMatch: input.ifMatch }, signal);
         return { deleted: true };
-      }),
+      }, context.mcpReq.signal, operationTimeoutMs),
   );
   server.registerTool(
     "workspace.move_file",
@@ -176,13 +193,13 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       inputSchema: workspaceMoveFileInputSchema,
       outputSchema: workspaceMoveFileOutputSchema,
     },
-    async input =>
-      toolResult(async () => ({
+    async (input, context) =>
+      toolResult(async signal => ({
         entry: await dependencies.files.move(input.workspaceId, input.from, input.to, {
           overwrite: input.overwrite,
           ...(input.ifMatch === undefined ? {} : { ifMatch: input.ifMatch }),
-        }),
-      })),
+        }, signal),
+      }), context.mcpReq.signal, operationTimeoutMs),
   );
   server.registerTool(
     "workspace.create_directory",
@@ -193,7 +210,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       inputSchema: workspaceCreateDirectoryInputSchema,
       outputSchema: workspaceCreateDirectoryOutputSchema,
     },
-    async input => toolResult(async () => ({ entry: await dependencies.files.createDirectory(input.workspaceId, input.path) })),
+    async (input, context) => toolResult(async signal => ({ entry: await dependencies.files.createDirectory(input.workspaceId, input.path, signal) }), context.mcpReq.signal, operationTimeoutMs),
   );
   server.registerTool(
     "scope_map.scan",
@@ -204,8 +221,8 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       inputSchema: scopeMapScanInputSchema,
       outputSchema: scopeMapScanOutputSchema,
     },
-    async input =>
-      toolResult(async () => ({ revision: dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(input.workspaceId)) })),
+    async (input, context) =>
+      toolResult(async signal => ({ revision: dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(input.workspaceId, signal)) }), context.mcpReq.signal, operationTimeoutMs),
   );
   if (dependencies.domainLanguage !== undefined && dependencies.contextPrincipal !== undefined) {
     server.registerTool(
@@ -217,11 +234,11 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         inputSchema: domainLanguageInputSchema,
         outputSchema: domainLanguageOutputSchema,
       },
-      async input => toolResult(async () => ({ ...(await dependencies.domainLanguage!.createBootstrap({
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.domainLanguage!.createBootstrap({
         anchor: input.anchor,
         ...(input.roleId === undefined ? {} : { roleId: input.roleId }),
         ...(input.projection === undefined ? {} : { projection: input.projection }),
-      }, dependencies.contextPrincipal!)) })),
+      }, dependencies.contextPrincipal!, signal)) }), context.mcpReq.signal, operationTimeoutMs),
     );
   }
   if (dependencies.contextBuilder !== undefined && dependencies.contextPrincipal !== undefined) {
@@ -234,10 +251,11 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         inputSchema: contextBuildInputSchema,
         outputSchema: contextBuildOutputSchema,
       },
-      async input => toolResult(async () => ({ ...(await dependencies.contextBuilder!.build(
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextBuilder!.build(
         normalizeBuildTaskContextInput(input),
         dependencies.contextPrincipal!,
-      )) })),
+        signal,
+      )) }), context.mcpReq.signal, operationTimeoutMs),
     );
   }
   if (dependencies.documentation !== undefined) {
@@ -250,7 +268,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         inputSchema: documentationPreviewInputSchema,
         outputSchema: documentationPreviewOutputSchema,
       },
-      async input => toolResult(async () => ({ ...(await dependencies.documentation!.preview(input.workspaceId, input.sourceId)) })),
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.documentation!.preview(input.workspaceId, input.sourceId, signal)) }), context.mcpReq.signal, operationTimeoutMs),
     );
     server.registerTool(
       "documentation_source.apply",
@@ -261,7 +279,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         inputSchema: documentationApplyInputSchema,
         outputSchema: documentationSyncOutputSchema,
       },
-      async input => toolResult(async () => ({ ...(await dependencies.documentation!.apply(input.importId)) })),
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.documentation!.apply(input.importId, signal)) }), context.mcpReq.signal, operationTimeoutMs),
     );
     server.registerTool(
       "documentation_source.sync",
@@ -272,7 +290,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         inputSchema: documentationSyncInputSchema,
         outputSchema: documentationSyncOutputSchema,
       },
-      async input => toolResult(async () => ({ ...(await dependencies.documentation!.sync(input.sourceId)) })),
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.documentation!.sync(input.sourceId, signal)) }), context.mcpReq.signal, operationTimeoutMs),
     );
   }
   const resources = new McpResourceCatalog({

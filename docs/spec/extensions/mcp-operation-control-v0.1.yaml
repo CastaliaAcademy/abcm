@@ -1,0 +1,41 @@
+extension:
+  id: mcp-operation-control
+  version: 0.1.0
+  baseSpecVersion: 0.5.0
+  status: approved-for-alpha
+
+requirements:
+  MOC-001:
+    statement: Every MCP tool request shall combine the client cancellation signal with a server-configured operation deadline.
+  MOC-002:
+    statement: Cancellation before a workspace mutation commit boundary shall prevent the canonical mutation.
+  MOC-003:
+    statement: A cancelled ScopeMap scan shall not publish or activate its derived revision.
+  MOC-004:
+    statement: Language bootstrap and context construction shall check cancellation before publishing derived bootstrap or fingerprint state.
+  MOC-005:
+    statement: Documentation preview shall be cancellable before plan publication.
+  MOC-006:
+    statement: Documentation apply and sync shall be cancellable through validation, then non-preemptible once the multi-file commit phase begins so provenance, tombstones, and map publication converge.
+  MOC-007:
+    statement: A server deadline observed before commit shall map to MCP_OPERATION_TIMEOUT; client cancellation shall map to MCP_OPERATION_CANCELLED.
+  MOC-008:
+    statement: The effective operation timeout shall be deployment-configurable and disclosed in ABCM capability metadata.
+  MOC-009:
+    statement: Resource enumeration and reads shall use the same operation signal for filesystem reads and lazy ScopeMap construction.
+
+defaults:
+  operationTimeoutMs: 30000
+  environment: ABCM_MCP_OPERATION_TIMEOUT_MS
+  minimumMs: 1
+  maximumMs: 300000
+
+commitBoundaries:
+  fileWrite: atomic rename
+  fileDelete: unlink
+  fileMove: overwrite unlink followed by rename as one non-preemptible phase
+  createDirectory: recursive mkdir
+  scopeMap: active revision publication
+  domainLanguage: bootstrap registry insertion
+  context: atomic fingerprint write
+  documentationApply: first canonical mirror mutation

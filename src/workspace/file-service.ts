@@ -4,6 +4,7 @@ import { mkdir, open, readdir, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, posix } from "node:path";
 
 import { AbcmError } from "../core/errors.js";
+import { throwIfAborted } from "../core/operation.js";
 import { WorkspaceRegistry } from "./registry.js";
 import { SafeWorkspacePath } from "./safe-path.js";
 import type {
@@ -52,7 +53,8 @@ export class WorkspaceFileService {
     this.#authorizeMutation = options.authorizeMutation;
   }
 
-  async list(workspaceId: string, path = "", recursive = false): Promise<FileEntry[]> {
+  async list(workspaceId: string, path = "", recursive = false, signal?: AbortSignal): Promise<FileEntry[]> {
+    throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
     const safePath = await this.#safePath(workspace);
     const resolved = await safePath.resolve(path, { allowRoot: true });
@@ -61,9 +63,11 @@ export class WorkspaceFileService {
 
     const entries: FileEntry[] = [];
     const visit = async (absoluteDirectory: string, relativeDirectory: string): Promise<void> => {
+      throwIfAborted(signal);
       const children = await readdir(absoluteDirectory, { withFileTypes: true });
       children.sort((left, right) => left.name.localeCompare(right.name));
       for (const child of children) {
+        throwIfAborted(signal);
         if (this.#isDeniedName(workspace, child.name) || child.isSymbolicLink()) continue;
         const relativePath = relativeDirectory === "" ? child.name : posix.join(relativeDirectory, child.name);
         const resolvedChild = await safePath.resolve(relativePath);
@@ -99,7 +103,8 @@ export class WorkspaceFileService {
     return entries;
   }
 
-  async read(workspaceId: string, path: string): Promise<ReadFileResult> {
+  async read(workspaceId: string, path: string, signal?: AbortSignal): Promise<ReadFileResult> {
+    throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
     const safePath = await this.#safePath(workspace);
     const resolved = await safePath.resolve(path);
@@ -113,6 +118,7 @@ export class WorkspaceFileService {
     }
     const file = Bun.file(resolved.absolutePath);
     const content = new Uint8Array(await file.arrayBuffer());
+    throwIfAborted(signal);
     const checksum = sha256Bytes(content);
     return {
       content,
@@ -128,8 +134,8 @@ export class WorkspaceFileService {
     };
   }
 
-  async write(workspaceId: string, path: string, content: Uint8Array, preconditions: WritePreconditions = {}): Promise<FileEntry & { checksum: string }> {
-    return this.#write(workspaceId, path, content, preconditions, true, true);
+  async write(workspaceId: string, path: string, content: Uint8Array, preconditions: WritePreconditions = {}, signal?: AbortSignal): Promise<FileEntry & { checksum: string }> {
+    return this.#write(workspaceId, path, content, preconditions, true, true, signal);
   }
 
   async writeMirror(
@@ -137,8 +143,9 @@ export class WorkspaceFileService {
     path: string,
     content: Uint8Array,
     preconditions: WritePreconditions = {},
+    signal?: AbortSignal,
   ): Promise<FileEntry & { checksum: string }> {
-    return this.#write(workspaceId, path, content, preconditions, false, false);
+    return this.#write(workspaceId, path, content, preconditions, false, false, signal);
   }
 
   async #write(
@@ -148,7 +155,9 @@ export class WorkspaceFileService {
     preconditions: WritePreconditions,
     authorize: boolean,
     notify: boolean,
+    signal?: AbortSignal,
   ): Promise<FileEntry & { checksum: string }> {
+    throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
     if (content.byteLength > workspace.maxWriteBytes) {
       throw new AbcmError("FILE_TOO_LARGE", "Content exceeds the configured write limit.", {
@@ -157,7 +166,9 @@ export class WorkspaceFileService {
       });
     }
     return this.#mutate(async () => {
+      throwIfAborted(signal);
       if (authorize) await this.#authorize(workspaceId, [path]);
+      throwIfAborted(signal);
       const safePath = await this.#safePath(workspace);
       let resolved = await safePath.resolve(path, { allowMissing: true });
       await mkdir(dirname(resolved.absolutePath), { recursive: true });
@@ -179,6 +190,7 @@ export class WorkspaceFileService {
         if (beforeCommit !== before) {
           throw new AbcmError("FILE_CHECKSUM_MISMATCH", "File changed while the write was being committed.");
         }
+        throwIfAborted(signal);
         await rename(temporaryPath, resolved.absolutePath);
       } catch (error) {
         await unlink(temporaryPath).catch(() => undefined);
@@ -198,12 +210,12 @@ export class WorkspaceFileService {
     });
   }
 
-  async delete(workspaceId: string, path: string, preconditions: DeletePreconditions = {}): Promise<void> {
-    await this.#delete(workspaceId, path, preconditions, true, true);
+  async delete(workspaceId: string, path: string, preconditions: DeletePreconditions = {}, signal?: AbortSignal): Promise<void> {
+    await this.#delete(workspaceId, path, preconditions, true, true, signal);
   }
 
-  async deleteMirror(workspaceId: string, path: string, preconditions: DeletePreconditions = {}): Promise<void> {
-    await this.#delete(workspaceId, path, preconditions, false, false);
+  async deleteMirror(workspaceId: string, path: string, preconditions: DeletePreconditions = {}, signal?: AbortSignal): Promise<void> {
+    await this.#delete(workspaceId, path, preconditions, false, false, signal);
   }
 
   async #delete(
@@ -212,25 +224,33 @@ export class WorkspaceFileService {
     preconditions: DeletePreconditions,
     authorize: boolean,
     notify: boolean,
+    signal?: AbortSignal,
   ): Promise<void> {
+    throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
     await this.#mutate(async () => {
+      throwIfAborted(signal);
       if (authorize) await this.#authorize(workspaceId, [path]);
+      throwIfAborted(signal);
       const safePath = await this.#safePath(workspace);
       const resolved = await safePath.resolve(path);
       const metadata = await stat(resolved.absolutePath);
       if (!metadata.isFile()) throw new AbcmError("FILE_TYPE_UNSUPPORTED", "Recursive directory deletion is unsupported.");
       const checksum = await sha256File(resolved.absolutePath);
       this.#validateMatch(checksum, preconditions.ifMatch);
+      throwIfAborted(signal);
       await unlink(resolved.absolutePath);
       if (notify) await this.#notify(workspaceId, [resolved.relativePath]);
     });
   }
 
-  async move(workspaceId: string, from: string, to: string, options: MoveOptions = {}): Promise<FileEntry & { checksum: string }> {
+  async move(workspaceId: string, from: string, to: string, options: MoveOptions = {}, signal?: AbortSignal): Promise<FileEntry & { checksum: string }> {
+    throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
     return this.#mutate(async () => {
+      throwIfAborted(signal);
       await this.#authorize(workspaceId, [from, to]);
+      throwIfAborted(signal);
       const safePath = await this.#safePath(workspace);
       const source = await safePath.resolve(from);
       let target = await safePath.resolve(to, { allowMissing: true });
@@ -245,6 +265,7 @@ export class WorkspaceFileService {
       }
       await mkdir(dirname(target.absolutePath), { recursive: true });
       target = await safePath.resolve(to, { allowMissing: true });
+      throwIfAborted(signal);
       if (targetChecksum !== undefined && options.overwrite) await unlink(target.absolutePath);
       await rename(source.absolutePath, target.absolutePath);
       await this.#notify(workspaceId, [source.relativePath, target.relativePath]);
@@ -260,14 +281,17 @@ export class WorkspaceFileService {
     });
   }
 
-  async createDirectory(workspaceId: string, path: string): Promise<FileEntry> {
+  async createDirectory(workspaceId: string, path: string, signal?: AbortSignal): Promise<FileEntry> {
+    throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
     return this.#mutate(async () => {
+      throwIfAborted(signal);
       const safePath = await this.#safePath(workspace);
       let resolved = await safePath.resolve(path, { allowMissing: true });
       if ((await this.#exists(resolved.absolutePath))) {
         throw new AbcmError("FILE_ALREADY_EXISTS", "Directory path already exists.", { path: resolved.relativePath });
       }
+      throwIfAborted(signal);
       await mkdir(resolved.absolutePath, { recursive: true });
       resolved = await safePath.resolve(path);
       const metadata = await stat(resolved.absolutePath);

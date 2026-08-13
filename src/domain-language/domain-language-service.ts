@@ -7,6 +7,7 @@ import { z } from "zod/v4";
 import { parse } from "yaml";
 
 import { AbcmError } from "../core/errors.js";
+import { throwIfAborted } from "../core/operation.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { AbcmPermission, MapRevision, ScopeNode } from "../scope-map/types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
@@ -127,7 +128,9 @@ export class DomainLanguageService {
   async createBootstrap(
     request: DomainLanguageBootstrapRequest,
     principal: ContextPrincipal,
+    signal?: AbortSignal,
   ): Promise<DomainLanguageBootstrap> {
+    throwIfAborted(signal);
     const revision = this.#scopeMap.getActiveRevision(request.anchor.workspaceId);
     const project = this.#resolveProject(revision, request.anchor.projectId);
     const workflow = revision.nodes.find(node => node.kind === "workflow" && node.status === "valid");
@@ -153,7 +156,10 @@ export class DomainLanguageService {
     };
     const sources: DomainLanguageSource[] = [];
     try {
-      for (const node of [workflow, project]) await this.#mergeScope(workspace.root, revision, node, language, sources);
+      for (const node of [workflow, project]) {
+        throwIfAborted(signal);
+        await this.#mergeScope(workspace.root, revision, node, language, sources, signal);
+      }
       this.#validateReferences(language);
     } catch (error) {
       if (error instanceof AbcmError) throw error;
@@ -187,6 +193,7 @@ export class DomainLanguageService {
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + this.#ttlMs).toISOString(),
     };
+    throwIfAborted(signal);
     this.#bootstraps.set(bootstrap.bootstrapId, { bootstrap, principalId: principal.principalId, workspaceRoot: workspace.root });
     return bootstrap;
   }
@@ -224,7 +231,9 @@ export class DomainLanguageService {
     bootstrapId: string,
     targetScopeId: string,
     principal: ContextPrincipal,
+    signal?: AbortSignal,
   ): Promise<{ effectiveLanguage: EffectiveDomainLanguage; sources: DomainLanguageSource[] }> {
+    throwIfAborted(signal);
     const bootstrap = this.validateBootstrap(bootstrapId, principal);
     const revision = this.#scopeMap.getActiveRevision(bootstrap.anchor.workspaceId);
     const byId = new Map(revision.nodes.map(node => [node.scopeId, node]));
@@ -254,7 +263,10 @@ export class DomainLanguageService {
     };
     const sources: DomainLanguageSource[] = [];
     try {
-      for (const node of path) await this.#mergeScope(workspace.root, revision, node, language, sources);
+      for (const node of path) {
+        throwIfAborted(signal);
+        await this.#mergeScope(workspace.root, revision, node, language, sources, signal);
+      }
       this.#validateReferences(language);
     } catch (error) {
       if (error instanceof AbcmError) throw error;
@@ -271,15 +283,18 @@ export class DomainLanguageService {
     node: ScopeNode,
     language: MutableLanguage,
     sources: DomainLanguageSource[],
+    signal?: AbortSignal,
   ): Promise<void> {
+    throwIfAborted(signal);
     const base = node.relativePath === "" ? "domain-language" : posix.join(node.relativePath, "domain-language");
     const conventionPath = posix.join(base, "DomainLanguageConvention.md");
-    const conventionSource = await this.#readPinned(workspaceRoot, revision, node, conventionPath, true, sources);
+    const conventionSource = await this.#readPinned(workspaceRoot, revision, node, conventionPath, true, sources, signal);
     const convention = conventionSchema.parse(frontmatter(new TextDecoder().decode(conventionSource)));
     const structured: Array<{ path: string; content: Uint8Array }> = [];
     for (const name of STRUCTURED_FILES) {
+      throwIfAborted(signal);
       const path = posix.join(base, name);
-      const content = await this.#readPinned(workspaceRoot, revision, node, path, false, sources);
+      const content = await this.#readPinned(workspaceRoot, revision, node, path, false, sources, signal);
       if (content !== undefined) structured.push({ path, content });
     }
     if (convention.mode === "inherit-only" && structured.length > 0) {
@@ -318,6 +333,7 @@ export class DomainLanguageService {
     relativePath: string,
     required: true,
     sources: DomainLanguageSource[],
+    signal?: AbortSignal,
   ): Promise<Uint8Array>;
   async #readPinned(
     workspaceRoot: string,
@@ -326,6 +342,7 @@ export class DomainLanguageService {
     relativePath: string,
     required: false,
     sources: DomainLanguageSource[],
+    signal?: AbortSignal,
   ): Promise<Uint8Array | undefined>;
   async #readPinned(
     workspaceRoot: string,
@@ -334,13 +351,16 @@ export class DomainLanguageService {
     relativePath: string,
     required: boolean,
     sources: DomainLanguageSource[],
+    signal?: AbortSignal,
   ): Promise<Uint8Array | undefined> {
+    throwIfAborted(signal);
     const record = revision.files.find(file => file.scopeId === node.scopeId && file.relativePath === relativePath);
     if (record === undefined) {
       if (required) throw new Error(`Required convention '${relativePath}' is missing from the pinned map.`);
       return undefined;
     }
     const content = new Uint8Array(await readFileAsync(join(workspaceRoot, relativePath)));
+    throwIfAborted(signal);
     if (checksum(content) !== record.checksum) throw new Error(`Pinned source '${relativePath}' changed during bootstrap construction.`);
     sources.push({ scopeId: node.scopeId, relativePath, checksum: record.checksum });
     return content;

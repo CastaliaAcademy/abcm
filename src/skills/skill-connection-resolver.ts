@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { AbcmError } from "../core/errors.js";
+import { throwIfAborted } from "../core/operation.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { AbcmPermission, MapRevision, ScopeNode, SkillDescriptor } from "../scope-map/types.js";
@@ -40,7 +41,8 @@ export class SkillConnectionResolver {
     this.#scopeMap = scopeMap;
   }
 
-  async resolve(request: ResolveSkillConnectionsRequest, principal: ContextPrincipal): Promise<SkillConnectionResult> {
+  async resolve(request: ResolveSkillConnectionsRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<SkillConnectionResult> {
+    throwIfAborted(signal);
     const revision = this.#scopeMap.getActiveRevision(request.workspaceId);
     if (revision.revision !== request.path.mapRevision) {
       throw new AbcmError("DOMAIN_LANGUAGE_BOOTSTRAP_STALE", "Resolved scope path is not pinned to the active map revision.");
@@ -55,6 +57,7 @@ export class SkillConnectionResolver {
         (skill.taskTypes.length === 0 || skill.taskTypes.includes(request.taskType));
     });
     for (const skill of catalog) {
+      throwIfAborted(signal);
       if (skill.strategy === "global" && revision.nodes.find(node => node.scopeId === skill.sourceScopeId)?.kind !== "workflow") {
         throw new AbcmError("GLOBAL_SKILL_MUST_BE_WORKFLOW_OWNED", `Global skill '${skill.skillId}' is not workflow-owned.`);
       }
@@ -73,6 +76,7 @@ export class SkillConnectionResolver {
     const exactLinks = new Set(request.explicitSkillLinks ?? []);
     const manualIds = new Set(request.requestedSkillIds ?? []);
     for (const descriptor of catalog) {
+      throwIfAborted(signal);
       const current = candidate(descriptor);
       if (descriptor.strategy === "global") this.#add(current, "global_workspace_baseline", { field: "global", value: "workspace", score: 1 });
       if (descriptor.strategy === "scope" && this.#scopeApplies(revision, descriptor.sourceScopeId, request.path)) {
@@ -116,7 +120,9 @@ export class SkillConnectionResolver {
     const connectedSkills: ConnectedSkillRecord[] = [];
     const requirements: SkillContextRequirement[] = [];
     for (const item of selected) {
+      throwIfAborted(signal);
       const bytes = new Uint8Array(await readFile(join(workspace.root, item.descriptor.relativePath)));
+      throwIfAborted(signal);
       if (checksum(bytes) !== item.descriptor.checksum) throw new AbcmError("DOMAIN_LANGUAGE_BOOTSTRAP_STALE", `Skill '${item.descriptor.skillId}' changed after map publication.`);
       connectedSkills.push({
         skillId: item.descriptor.skillId,

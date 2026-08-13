@@ -5,6 +5,7 @@ import { basename, extname, join, posix } from "node:path";
 import { z } from "zod/v4";
 import { parse } from "yaml";
 
+import { throwIfAborted } from "../core/operation.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
 import type {
   DocumentRecord,
@@ -202,7 +203,9 @@ function documentFrom(
 export async function indexScopeContent(
   workspace: ResolvedWorkspace,
   scope: ScopeNode,
+  signal?: AbortSignal,
 ): Promise<ScopeContentIndex> {
+  throwIfAborted(signal);
   const scopeRoot = join(workspace.root, scope.relativePath);
   const files: FileRecord[] = [];
   const documentCandidates: DocumentRecord[] = [];
@@ -210,10 +213,12 @@ export async function indexScopeContent(
   const skills: SkillDescriptor[] = [];
 
   const indexFile = async (absolutePath: string, scopeRelativePath: string): Promise<void> => {
+    throwIfAborted(signal);
     if (isIgnoredFile(basename(scopeRelativePath))) return;
     const metadata = await stat(absolutePath);
     if (!metadata.isFile()) return;
     const content = new Uint8Array(await readFile(absolutePath));
+    throwIfAborted(signal);
     const fileChecksum = checksum(content);
     const fileClassification = classification(scopeRelativePath);
     const relativePath = scope.relativePath === "" ? scopeRelativePath : posix.join(scope.relativePath, scopeRelativePath);
@@ -249,9 +254,11 @@ export async function indexScopeContent(
   };
 
   const visit = async (absoluteDirectory: string, scopeRelativeDirectory: string): Promise<void> => {
+    throwIfAborted(signal);
     const children = await readdir(absoluteDirectory, { withFileTypes: true });
     children.sort((left, right) => left.name.localeCompare(right.name));
     for (const child of children) {
+      throwIfAborted(signal);
       if (child.isSymbolicLink() || workspace.deniedDirectories.has(child.name)) continue;
       if (child.isDirectory()) {
         if (IGNORED_DIRECTORIES.has(child.name)) continue;
@@ -265,6 +272,7 @@ export async function indexScopeContent(
   };
 
   for (const file of ["scope.yaml", "README.md"] as const) {
+    throwIfAborted(signal);
     try {
       await indexFile(join(scopeRoot, file), file);
     } catch (error) {
@@ -272,6 +280,7 @@ export async function indexScopeContent(
     }
   }
   for (const directory of MANAGED_DIRECTORIES) {
+    throwIfAborted(signal);
     try {
       const metadata = await stat(join(scopeRoot, directory));
       if (metadata.isDirectory()) await visit(join(scopeRoot, directory), directory);
