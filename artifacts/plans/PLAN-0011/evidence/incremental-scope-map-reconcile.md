@@ -54,3 +54,7 @@ Existing `abcm-local` and `abcm-tunnel` were not modified.
 ## Remaining boundary
 
 Native watchers, persistent/brokered events, REST/SSE event streaming, distributed subscribers, and incremental topology discovery remain later or optional work. Context construction and role/skill orchestration remain the next normative MVP milestones.
+
+## Workspace documentation publication
+
+The existing local service received the five new PLAN-0011 specification, plan, traceability, verification, and evidence files under `castalia-public/abcm` through authenticated REST. Initial publication created all five files, byte-for-byte verification passed, and a live ScopeMap scan completed with zero diagnostics. The evidence file was then refreshed through the same checksum-protected path; the running `abcm-local` and `abcm-tunnel` images were not replaced.
