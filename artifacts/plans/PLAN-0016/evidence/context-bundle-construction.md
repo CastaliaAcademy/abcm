@@ -33,3 +33,7 @@ Status: PASS
 
 - Fingerprints are durable reserved derived files but do not yet have the M2 SQLite bundle/fingerprint catalog.
 - Generated/semantic summaries, executable-resource activation, arbitrary project-defined role/task schemas, operator decision workflow, and semantic embedding retrieval remain later milestones.
+
+## Workspace documentation publication
+
+The preserved local service received nine PLAN-0016 and current API documents under `castalia-public/abcm` through authenticated REST: five creates and four checksum-protected updates. Byte-for-byte verification passed and a live ScopeMap scan completed with zero diagnostics. The older running image retained its legacy map digest `sha256:be5aa606c89e4a9cfdee6a4d1b44d1ec33012eb18a182cf7c08b54cf6d6d646a`; neither `abcm-local` nor `abcm-tunnel` was replaced or restarted.
