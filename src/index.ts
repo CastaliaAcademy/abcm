@@ -28,7 +28,12 @@ export type {
   SqliteWorkspaceMapStoreOptions,
 } from "./derived-store/types.js";
 export { AbcmError } from "./core/errors.js";
-export { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "./core/server-info.js";
+export {
+  ABCM_MCP_CONTRACT_VERSION,
+  ABCM_MCP_PROTOCOL_VERSIONS,
+  ABCM_SERVER_INFO,
+  ABCM_SPEC_VERSION,
+} from "./core/server-info.js";
 export { DomainLanguageService } from "./domain-language/domain-language-service.js";
 export { ScopePathResolver } from "./domain-language/scope-path-resolver.js";
 export { SkillConnectionResolver } from "./skills/skill-connection-resolver.js";
@@ -75,6 +80,7 @@ export { createAbcmMcpHttpHandler } from "./mcp/create-http-handler.js";
 export type { AbcmMcpHttpHandler, AbcmMcpHttpOptions } from "./mcp/create-http-handler.js";
 export { createAbcmMcpServer } from "./mcp/create-server.js";
 export type { AbcmMcpDependencies } from "./mcp/create-server.js";
+export { ABCM_MCP_TOOL_SCHEMAS } from "./mcp/tool-schemas.js";
 export { createAbcmRestHandler } from "./rest/create-rest-handler.js";
 export type { AbcmRestDependencies, AbcmRestOptions } from "./rest/create-rest-handler.js";
 export { requireStaticBearerToken } from "./rest/static-bearer-auth.js";

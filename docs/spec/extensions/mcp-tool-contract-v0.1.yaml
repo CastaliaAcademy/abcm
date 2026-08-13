@@ -1,0 +1,36 @@
+extension:
+  id: mcp-tool-contract
+  version: 0.1.0
+  baseSpecVersion: 0.5.0
+  status: approved-for-alpha
+
+requirements:
+  MCT-001:
+    statement: Every public MCP tool shall declare a strict structured input schema and a strict structured output schema.
+  MCT-002:
+    statement: The same exported schema registry shall be used by tool registration and downstream contract generation.
+  MCT-003:
+    statement: Schema rejections shall be distinguishable from application execution errors and shall never invoke the application service.
+  MCT-004:
+    statement: Expected application failures shall return isError with stable ABCM code, message, and optional safe details as JSON text.
+  MCT-005:
+    statement: Unexpected failures shall return INTERNAL_ERROR without exception details, stack traces, or physical paths.
+  MCT-006:
+    statement: Server capability metadata shall declare the ABCM contract version, specification version, supported MCP versions, and tool-error encoding.
+  MCT-007:
+    statement: Tool annotations shall describe read-only, destructive, idempotent, and closed-world behavior consistently with the application operation.
+  MCT-008:
+    statement: Each public tool shall have a real-client happy path, schema rejection, and stable error-mapping test before M8 closes.
+
+errorEnvelope:
+  encoding: MCP isError result with one JSON text content item
+  fields:
+    required: [code, message]
+    optional: [details]
+  unexpectedCode: INTERNAL_ERROR
+
+capability:
+  key: abcm.dev/contract
+  contractVersion: 0.1.0
+  specificationVersion: 0.5.0
+  supportedProtocolVersions: [2025-11-25]
