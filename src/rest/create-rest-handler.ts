@@ -1,7 +1,7 @@
 import { z } from "zod/v4";
 
 import { AbcmError } from "../core/errors.js";
-import { buildTaskContextSchema, normalizeBuildTaskContextInput } from "../context/schema.js";
+import { normalizeBuildTaskContextInput } from "../context/schema.js";
 import type { ContextBuilder } from "../context/context-builder.js";
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
@@ -10,6 +10,14 @@ import type { DirectoryDocumentationSyncService } from "../documentation/directo
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
+import { createAbcmOpenApiDocument } from "./openapi.js";
+import {
+  restCreateDirectoryInputSchema,
+  restDocumentationPreviewInputSchema,
+  restMoveFileInputSchema,
+  workspaceRegistrationSchema,
+} from "./schemas.js";
+import { contextBuildInputSchema, domainLanguageInputSchema } from "../mcp/tool-schemas.js";
 
 export interface AbcmRestDependencies {
   files: WorkspaceFileService;
@@ -29,26 +37,6 @@ export interface WorkspaceRegistrationService {
 export interface AbcmRestOptions {
   maxRequestBodyBytes?: number;
 }
-
-const moveSchema = z.object({
-  from: z.string(),
-  to: z.string(),
-  overwrite: z.boolean().optional(),
-  ifMatch: z.string().optional(),
-});
-const directorySchema = z.object({ path: z.string() });
-const documentationPreviewSchema = z.object({ sourceId: z.string().min(1) }).strict();
-const domainLanguageBootstrapSchema = z.object({
-  anchor: z.object({ workspaceId: z.string().min(1), projectId: z.string().min(1) }).strict(),
-  roleId: z.string().min(1).optional(),
-  projection: z.literal("agent").optional(),
-}).strict();
-const workspaceSchema = z
-  .object({
-    id: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
-    name: z.string().min(1).max(160).optional(),
-  })
-  .strict();
 
 function json(value: unknown, status = 200, headers?: HeadersInit): Response {
   return Response.json(value, headers === undefined ? { status } : { status, headers });
@@ -141,12 +129,15 @@ export function createAbcmRestHandler(
       if (request.method === "GET" && url.pathname === "/health") {
         return json({ status: "ok", server: ABCM_SERVER_INFO, specificationVersion: ABCM_SPEC_VERSION });
       }
+      if (request.method === "GET" && url.pathname === "/openapi.json") {
+        return json(createAbcmOpenApiDocument());
+      }
 
       if (request.method === "POST" && url.pathname === "/v1/workspaces") {
         if (dependencies.workspaces === undefined) {
           throw new AbcmError("WORKSPACE_REGISTRATION_DISABLED", "Managed workspace registration is not configured.");
         }
-        const workspace = await readJson(request, workspaceSchema, maxRequestBodyBytes);
+        const workspace = await readJson(request, workspaceRegistrationSchema, maxRequestBodyBytes);
         return json(
           await dependencies.workspaces.create({
             id: workspace.id,
@@ -160,7 +151,7 @@ export function createAbcmRestHandler(
         if (dependencies.domainLanguage === undefined || dependencies.contextPrincipal === undefined) {
           throw new AbcmError("ACCESS_DENIED", "Domain-language context access is not configured.");
         }
-        const body = await readJson(request, domainLanguageBootstrapSchema, maxRequestBodyBytes);
+        const body = await readJson(request, domainLanguageInputSchema, maxRequestBodyBytes);
         return json(await dependencies.domainLanguage.createBootstrap({
           anchor: body.anchor,
           ...(body.roleId === undefined ? {} : { roleId: body.roleId }),
@@ -172,7 +163,7 @@ export function createAbcmRestHandler(
         if (dependencies.contextBuilder === undefined || dependencies.contextPrincipal === undefined) {
           throw new AbcmError("ACCESS_DENIED", "Context build access is not configured.");
         }
-        const body = await readJson(request, buildTaskContextSchema, maxRequestBodyBytes);
+        const body = await readJson(request, contextBuildInputSchema, maxRequestBodyBytes);
         return json(await dependencies.contextBuilder.build(normalizeBuildTaskContextInput(body), dependencies.contextPrincipal));
       }
 
@@ -201,7 +192,7 @@ export function createAbcmRestHandler(
         if (dependencies.documentation === undefined) {
           throw new AbcmError("DOCUMENTATION_SYNC_DISABLED", "Documentation synchronization is not configured.");
         }
-        const body = await readJson(request, documentationPreviewSchema, maxRequestBodyBytes);
+        const body = await readJson(request, restDocumentationPreviewInputSchema, maxRequestBodyBytes);
         return json(await dependencies.documentation.preview(workspaceId, body.sourceId));
       }
 
@@ -246,7 +237,7 @@ export function createAbcmRestHandler(
         return new Response(null, { status: 204 });
       }
       if (endpoint === "/files/move" && request.method === "POST") {
-        const body = await readJson(request, moveSchema, maxRequestBodyBytes);
+        const body = await readJson(request, restMoveFileInputSchema, maxRequestBodyBytes);
         return json(
           await dependencies.files.move(workspaceId, body.from, body.to, {
             ...(body.overwrite === undefined ? {} : { overwrite: body.overwrite }),
@@ -255,7 +246,7 @@ export function createAbcmRestHandler(
         );
       }
       if (endpoint === "/directories" && request.method === "POST") {
-        const body = await readJson(request, directorySchema, maxRequestBodyBytes);
+        const body = await readJson(request, restCreateDirectoryInputSchema, maxRequestBodyBytes);
         return json(await dependencies.files.createDirectory(workspaceId, body.path), 201);
       }
       if (endpoint === "/scope-map/scan" && request.method === "POST") {

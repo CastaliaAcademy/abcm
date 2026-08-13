@@ -4,6 +4,8 @@ Configure the primary workspace with `ABCM_WORKSPACE_ID`, `ABCM_WORKSPACE_ROOT`,
 
 `GET /health` is public. Every `/v1` endpoint requires `Authorization: Bearer <ABCM_API_TOKEN>`.
 
+`GET /openapi.json` is authenticated and returns the same deterministic OpenAPI 3.1 document committed at `docs/api/openapi-v1.json`. Regenerate the snapshot with `bun run openapi:generate`.
+
 - `GET /v1/workspaces/{id}/files?path=&recursive=false`
 - `POST /v1/workspaces` with strict JSON `{ "id": "portable-id", "name": "Optional name" }`
 - `GET /v1/workspaces/{id}/files/content?path=...`

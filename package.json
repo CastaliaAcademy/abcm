@@ -28,6 +28,7 @@
     "check": "tsc --noEmit && bun test",
     "dev:rest": "bun run src/cli/rest-server.ts",
     "dev:mcp": "bun run src/cli/mcp-stdio.ts",
+    "openapi:generate": "bun run src/cli/generate-openapi.ts",
     "test": "bun test"
   },
   "dependencies": {

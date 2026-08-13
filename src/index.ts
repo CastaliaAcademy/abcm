@@ -83,6 +83,8 @@ export type { AbcmMcpDependencies } from "./mcp/create-server.js";
 export { ABCM_MCP_TOOL_SCHEMAS } from "./mcp/tool-schemas.js";
 export { createAbcmRestHandler } from "./rest/create-rest-handler.js";
 export type { AbcmRestDependencies, AbcmRestOptions } from "./rest/create-rest-handler.js";
+export { createAbcmOpenApiDocument } from "./rest/openapi.js";
+export { REST_SHARED_SCHEMAS } from "./rest/schemas.js";
 export { requireStaticBearerToken } from "./rest/static-bearer-auth.js";
 export { ScopeMapService } from "./scope-map/scope-map-service.js";
 export {
