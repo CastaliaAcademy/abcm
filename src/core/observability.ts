@@ -2,6 +2,14 @@ import { AbcmError } from "./errors.js";
 
 export type AbcmOperation =
   | "authentication"
+  | "sync.pairing.create"
+  | "sync.pairing.redeem"
+  | "sync.device.revoke"
+  | "sync.preview"
+  | "sync.changes"
+  | "sync.apply"
+  | "sync.conflict.create"
+  | "sync.conflict.resolve"
   | "file.delete"
   | "file.move"
   | "file.write"

@@ -31,7 +31,7 @@ const mutationContent = {
   contentType: z.string().min(1).max(255),
 } as const;
 export const syncJournalMutationSchema = z.discriminatedUnion("kind", [
-  mutationBase.extend({ kind: z.literal("create"), path: syncPortablePathSchema, ...mutationContent }).strict(),
+  mutationBase.extend({ kind: z.literal("create"), objectId: syncObjectIdSchema.optional(), path: syncPortablePathSchema, ...mutationContent }).strict(),
   mutationBase.extend({ kind: z.literal("update"), objectId: syncObjectIdSchema, path: syncPortablePathSchema, baseChecksum: syncChecksumSchema, ...mutationContent }).strict(),
   mutationBase.extend({ kind: z.literal("move"), objectId: syncObjectIdSchema, previousPath: syncPortablePathSchema, path: syncPortablePathSchema, baseChecksum: syncChecksumSchema, ...mutationContent }).strict(),
   mutationBase.extend({ kind: z.literal("delete"), objectId: syncObjectIdSchema, path: syncPortablePathSchema, baseChecksum: syncChecksumSchema }).strict(),
@@ -145,7 +145,7 @@ export class SqliteSyncJournal {
         return { ...applied, status: "duplicate" as const };
       }
 
-      const objectId = input.kind === "create" ? `obj_${randomUUID().replaceAll("-", "")}` : input.objectId;
+      const objectId = input.kind === "create" ? input.objectId ?? `obj_${randomUUID().replaceAll("-", "")}` : input.objectId;
       const current = input.kind === "create" ? undefined : this.#requiredObject(objectId);
       if (input.kind === "create") {
         this.#assertPathAvailable(input.path);
@@ -257,6 +257,13 @@ export class SqliteSyncJournal {
     const row = this.#database
       .query<ObjectRow, [string]>("SELECT object_id, path, checksum, deleted, version FROM sync_objects WHERE object_id = ?")
       .get(objectId);
+    return row === null ? undefined : this.#object(row);
+  }
+
+  getObjectByPath(path: string): SyncJournalObject | undefined {
+    const row = this.#database
+      .query<ObjectRow, [string]>("SELECT object_id, path, checksum, deleted, version FROM sync_objects WHERE path_key = ? AND deleted = 0")
+      .get(portablePathKey(path));
     return row === null ? undefined : this.#object(row);
   }
 

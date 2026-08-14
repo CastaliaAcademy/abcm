@@ -20,11 +20,16 @@ services:
       ABCM_REST_MAX_REQUEST_BODY_BYTES: ${ABCM_REST_MAX_REQUEST_BODY_BYTES:-1048576}
       ABCM_REST_REQUEST_TIMEOUT_MS: ${ABCM_REST_REQUEST_TIMEOUT_MS:-30000}
       ABCM_REST_MAX_REQUESTS_PER_MINUTE: ${ABCM_REST_MAX_REQUESTS_PER_MINUTE:-600}
+      ABCM_OBSIDIAN_SYNC_STATE_ROOT: /state/obsidian-sync
+      ABCM_OBSIDIAN_SYNC_PREVIEW_TTL_SECONDS: 600
       ABCM_MCP_ENABLED: ${ABCM_MCP_ENABLED:-true}
       ABCM_MCP_PATH: /mcp
       ABCM_MCP_ALLOWED_HOSTNAMES: ${ABCM_MCP_ALLOWED_HOSTNAMES:-localhost,127.0.0.1,[::1]}
       ABCM_MCP_ALLOWED_ORIGINS: ${ABCM_MCP_ALLOWED_ORIGINS:-localhost,127.0.0.1,[::1]}
     volumes:
+      - type: volume
+        source: abcm-state
+        target: /state
       - type: bind
         source: ${ABCM_MANAGED_WORKSPACES_PATH:?required}
         target: /workspaces
@@ -46,3 +51,6 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
+
+volumes:
+  abcm-state:

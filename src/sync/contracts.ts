@@ -51,7 +51,8 @@ export const syncPairingCreateSchema = z.object({
   workspaceId: z.string().min(1).max(128),
   projectId: z.string().min(1).max(128),
   projectPrefix: syncPortablePathSchema.optional(),
-  capabilities: z.array(syncCapabilitySchema).min(1).max(2).refine(values => new Set(values).size === values.length),
+  capabilities: z.array(syncCapabilitySchema).min(1).max(2).refine(values => new Set(values).size === values.length)
+    .refine(values => !values.includes("write") || values.includes("read"), { message: "Write synchronization capability requires read capability for pinned preview." }),
   expiresInSeconds: z.number().int().min(60).max(900).optional(),
 }).strict();
 
@@ -162,8 +163,8 @@ export const syncApplyOperationSchema = z.discriminatedUnion("kind", [
 
 export const syncApplyBatchSchema = z.object({
   cursor: syncCursorSchema,
-  previewId: z.string().regex(/^preview_[A-Za-z0-9_-]{8,120}$/).optional(),
-  serverRevision: z.string().min(1).max(256).optional(),
+  previewId: z.string().regex(/^preview_[A-Za-z0-9_-]{8,120}$/),
+  serverRevision: z.string().min(1).max(256),
   operations: z.array(syncApplyOperationSchema).min(1).max(100),
 }).strict();
 

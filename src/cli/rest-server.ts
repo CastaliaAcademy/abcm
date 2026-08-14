@@ -17,6 +17,9 @@ const mcpHttpEnabled = process.env.ABCM_MCP_ENABLED !== "false";
 const mcpEndpointPath = process.env.ABCM_MCP_PATH ?? "/mcp";
 const mcpOperationTimeoutMs = optionalPositiveInteger("ABCM_MCP_OPERATION_TIMEOUT_MS");
 const workspaceStoreRoot = process.env.ABCM_WORKSPACE_STORE_ROOT;
+const obsidianSyncStateRoot = process.env.ABCM_OBSIDIAN_SYNC_STATE_ROOT;
+const obsidianSyncPreviewTtlSeconds = optionalPositiveInteger("ABCM_OBSIDIAN_SYNC_PREVIEW_TTL_SECONDS");
+const obsidianSyncCredentialTtlSeconds = optionalPositiveInteger("ABCM_OBSIDIAN_SYNC_CREDENTIAL_TTL_SECONDS");
 const sqliteDerivedStoreEnabled = process.env.ABCM_DERIVED_STORE_ENABLED === "true";
 const scanLeaseTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_TTL_MS");
 const scanLeaseRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_RENEWAL_INTERVAL_MS");
@@ -70,6 +73,13 @@ const runtime = createAbcmRuntime(
     ...(allowedHostnames === undefined ? {} : { mcpAllowedHostnames: allowedHostnames }),
     ...(allowedOrigins === undefined ? {} : { mcpAllowedOrigins: allowedOrigins }),
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
+    ...(obsidianSyncStateRoot === undefined ? {} : {
+      obsidianSync: {
+        stateRoot: resolve(obsidianSyncStateRoot),
+        ...(obsidianSyncPreviewTtlSeconds === undefined ? {} : { previewTtlSeconds: obsidianSyncPreviewTtlSeconds }),
+        ...(obsidianSyncCredentialTtlSeconds === undefined ? {} : { credentialTtlSeconds: obsidianSyncCredentialTtlSeconds }),
+      },
+    }),
     sqliteDerivedStoreEnabled,
     ...(documentationSources === undefined ? {} : { documentationSources }),
     scopeMapReconcile: {

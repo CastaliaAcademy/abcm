@@ -13,6 +13,14 @@ import type { DirectoryDocumentationSyncService } from "../documentation/directo
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
+import type { ObsidianSyncService } from "../sync/obsidian-sync-service.js";
+import {
+  syncApplyBatchSchema,
+  syncConflictResolutionSchema,
+  syncPairingCreateSchema,
+  syncPairingRedeemSchema,
+  syncPreviewRequestSchema,
+} from "../sync/contracts.js";
 import { createAbcmOpenApiDocument } from "./openapi.js";
 import {
   restCreateDirectoryInputSchema,
@@ -33,6 +41,7 @@ export interface AbcmRestDependencies {
   contextBuilder?: ContextBuilder;
   workspaces?: WorkspaceRegistrationService;
   documentation?: DirectoryDocumentationSyncService;
+  obsidianSync?: ObsidianSyncService;
 }
 
 export interface WorkspaceRegistrationService {
@@ -138,6 +147,7 @@ function problem(error: unknown): Response {
       {
         "content-type": "application/problem+json",
         ...(typeof retryAfter === "number" ? { "retry-after": String(retryAfter) } : {}),
+        ...(error.code === "AUTHENTICATION_REQUIRED" ? { "www-authenticate": "Bearer", "cache-control": "no-store" } : {}),
       },
     );
   }
@@ -200,6 +210,21 @@ export function createAbcmRestHandler(
             "x-abcm-agent-instructions-version": instructions.version,
           },
         });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/obsidian/pairings") {
+        if (dependencies.obsidianSync === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        return json(dependencies.obsidianSync.createPairing(await readJson(request, syncPairingCreateSchema, maxRequestBodyBytes, signal)), 201);
+      }
+      if (request.method === "POST" && url.pathname === "/v1/obsidian/pairings/redeem") {
+        if (dependencies.obsidianSync === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        return json(dependencies.obsidianSync.redeemPairing(await readJson(request, syncPairingRedeemSchema, maxRequestBodyBytes, signal)));
+      }
+      const obsidianDevice = /^\/v1\/obsidian\/devices\/([^/]+)$/.exec(url.pathname);
+      if (request.method === "DELETE" && obsidianDevice !== null) {
+        if (dependencies.obsidianSync === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        dependencies.obsidianSync.revokeDevice(decodeURIComponent(obsidianDevice[1] ?? ""));
+        return new Response(null, { status: 204 });
       }
 
       if (request.method === "POST" && url.pathname === "/v1/workspaces") {
@@ -269,7 +294,40 @@ export function createAbcmRestHandler(
       const match = /^\/v1\/workspaces\/([^/]+)(\/.*)$/.exec(url.pathname);
       if (!match) return problem(new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found."));
       const workspaceId = decodeURIComponent(match[1] ?? "");
-      const endpoint = match[2];
+      const endpoint = match[2]!;
+
+      const projectSync = /^\/projects\/([^/]+)\/sync(\/.*)$/.exec(endpoint);
+      if (projectSync !== null) {
+        if (dependencies.obsidianSync === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        const projectId = decodeURIComponent(projectSync[1] ?? "");
+        const syncEndpoint = projectSync[2] ?? "";
+        if (request.method === "POST" && syncEndpoint === "/preview") {
+          return json(await dependencies.obsidianSync.preview(request, workspaceId, projectId, await readJson(request, syncPreviewRequestSchema, maxRequestBodyBytes, signal), signal));
+        }
+        if (request.method === "POST" && syncEndpoint === "/apply") {
+          return json(await dependencies.obsidianSync.apply(request, workspaceId, projectId, await readJson(request, syncApplyBatchSchema, maxRequestBodyBytes, signal), signal));
+        }
+        if (request.method === "GET" && syncEndpoint === "/content") {
+          const result = await dependencies.obsidianSync.readContent(request, workspaceId, projectId, requiredPath(url), signal);
+          return new Response(responseBody(result.content), { headers: { "content-type": result.contentType, etag: `"` + result.entry.checksum + `"`, "x-abcm-path": result.entry.path, "x-abcm-object-id": result.objectId } });
+        }
+        if (request.method === "GET" && syncEndpoint === "/changes") {
+          const cursor = url.searchParams.get("cursor");
+          if (cursor === null) throw new AbcmError("REQUEST_INVALID", "Synchronization cursor is required.");
+          const limitText = url.searchParams.get("limit") ?? "100";
+          if (!/^(?:[1-9][0-9]{0,2}|1000)$/.test(limitText)) throw new AbcmError("REQUEST_INVALID", "Synchronization change limit must be between 1 and 1000.");
+          return json(dependencies.obsidianSync.changes(request, workspaceId, projectId, cursor, Number(limitText)));
+        }
+        const conflict = /^\/conflicts\/([^/]+)$/.exec(syncEndpoint);
+        if (request.method === "GET" && conflict !== null) {
+          return json(dependencies.obsidianSync.getConflict(request, workspaceId, projectId, decodeURIComponent(conflict[1] ?? "")));
+        }
+        const resolution = /^\/conflicts\/([^/]+)\/resolve$/.exec(syncEndpoint);
+        if (request.method === "POST" && resolution !== null) {
+          return json(await dependencies.obsidianSync.resolveConflict(request, workspaceId, projectId, decodeURIComponent(resolution[1] ?? ""), await readJson(request, syncConflictResolutionSchema, maxRequestBodyBytes, signal), signal));
+        }
+        throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+      }
 
       if (endpoint === "/documentation-sources/preview" && request.method === "POST") {
         if (dependencies.documentation === undefined) {

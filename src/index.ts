@@ -142,6 +142,10 @@ export type {
 } from "./scope-map/types.js";
 export type { ScopeMapServiceOptions } from "./scope-map/scope-map-service.js";
 export * from "./sync/contracts.js";
+export { ObsidianSyncService } from "./sync/obsidian-sync-service.js";
+export type { ObsidianSyncServiceOptions } from "./sync/obsidian-sync-service.js";
+export { SqliteObsidianDeviceStore } from "./sync/sqlite-device-store.js";
+export type { DeviceAuthenticationScope, ObsidianDevicePrincipal, ObsidianProjectScope, SqliteObsidianDeviceStoreOptions } from "./sync/sqlite-device-store.js";
 export { SqliteSyncJournal, syncJournalMutationSchema } from "./sync/sqlite-sync-journal.js";
 export type { SqliteSyncJournalOptions, SyncJournalChanges, SyncJournalMutation, SyncJournalObject, SyncJournalRecordResult, SyncJournalTombstone } from "./sync/sqlite-sync-journal.js";
 export { WorkspaceFileService } from "./workspace/file-service.js";

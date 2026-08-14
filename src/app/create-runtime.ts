@@ -19,6 +19,7 @@ import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
 import { SkillConnectionResolver } from "../skills/skill-connection-resolver.js";
 import { WorkspaceFileService } from "../workspace/file-service.js";
+import { ObsidianSyncService, type ObsidianSyncServiceOptions } from "../sync/obsidian-sync-service.js";
 import { WorkspaceProvisioningService } from "../workspace/provisioning-service.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
 import type { WorkspaceDefinition } from "../workspace/types.js";
@@ -43,6 +44,7 @@ export interface AbcmRuntimeOptions {
   context?: ContextBuilderOptions;
   observability?: AbcmObservability;
   contextFingerprintCatalog?: ContextFingerprintCatalog;
+  obsidianSync?: Omit<ObsidianSyncServiceOptions, "observability">;
 }
 
 export function createAbcmRuntime(
@@ -51,6 +53,9 @@ export function createAbcmRuntime(
 ) {
   const workspaces = Array.isArray(workspaceInput) ? workspaceInput : [workspaceInput];
   if (workspaces.length === 0) throw new Error("At least one workspace definition is required.");
+  if (options.obsidianSync !== undefined && options.bearerToken === undefined) {
+    throw new Error("Obsidian synchronization requires an administrative bearer token.");
+  }
   const defaultWorkspace = workspaces[0]!;
   const registry = new WorkspaceRegistry(workspaces);
   if (options.scopeMapStore !== undefined && options.sqliteDerivedStoreEnabled === true) {
@@ -73,14 +78,25 @@ export function createAbcmRuntime(
   const skillConnectionResolver = new SkillConnectionResolver(registry, scopeMap);
   const scopeMapReconciler = new ScopeMapReconcileCoordinator(registry, scopeMap, options.scopeMapReconcile);
   let documentation: DirectoryDocumentationSyncService | undefined;
+  let obsidianSync: ObsidianSyncService | undefined;
   const files = new WorkspaceFileService(registry, {
-    onMutation: async (workspaceId, changedPaths) => void (await scopeMapReconciler.requestMutation(workspaceId, changedPaths)),
+    onMutation: async (workspaceId, changedPaths) => {
+      await scopeMapReconciler.requestMutation(workspaceId, changedPaths);
+      await obsidianSync?.captureWorkspaceMutation(workspaceId, changedPaths);
+    },
     authorizeMutation: async (workspaceId, paths, operation) => {
       await documentation?.authorizeMutation(workspaceId, paths);
       await scopeMap.authorizeArtifactMutation(workspaceId, paths, operation);
     },
     ...(options.observability === undefined ? {} : { observability: options.observability }),
   });
+  if (options.obsidianSync !== undefined) {
+    obsidianSync = new ObsidianSyncService(registry, files, {
+      ...options.obsidianSync,
+      ...(options.documentationSources === undefined ? {} : { reservedReadOnlyMappings: options.documentationSources.map(source => ({ workspaceId: source.workspaceId, targetBasePath: source.targetBasePath })) }),
+      ...(options.observability === undefined ? {} : { observability: options.observability }),
+    });
+  }
   const contextFingerprintCatalog = options.contextFingerprintCatalog ?? ownedScopeMapStore;
   const contextFingerprintStore = new DirectoryContextFingerprintStore(registry, contextFingerprintCatalog);
   const contextBuilder = new ContextBuilder({
@@ -117,6 +133,7 @@ export function createAbcmRuntime(
       ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
       ...(documentation === undefined ? {} : { documentation }),
       ...(workspaceProvisioning === undefined ? {} : { workspaces: workspaceProvisioning }),
+      ...(obsidianSync === undefined ? {} : { obsidianSync }),
     },
     options.restLimits,
   );
@@ -141,8 +158,18 @@ export function createAbcmRuntime(
             ...(options.mcpAllowedOrigins === undefined ? {} : { allowedOrigins: options.mcpAllowedOrigins }),
           },
         );
-  const restHandler =
-    options.bearerToken === undefined ? baseRestHandler : requireStaticBearerToken(baseRestHandler, options.bearerToken, options.observability);
+  const staticRestHandler = options.bearerToken === undefined
+    ? baseRestHandler
+    : requireStaticBearerToken(baseRestHandler, options.bearerToken, options.observability);
+  const restHandler = async (request: Request) => {
+    if (obsidianSync !== undefined && options.bearerToken !== undefined) {
+      const pathname = new URL(request.url).pathname;
+      const usesDeviceAuthentication = pathname === "/v1/obsidian/pairings/redeem"
+        || /^\/v1\/workspaces\/[^/]+\/projects\/[^/]+\/sync\//.test(pathname);
+      if (usesDeviceAuthentication) return baseRestHandler(request);
+    }
+    return staticRestHandler(request);
+  };
   const mcpHandler =
     mcp === undefined
       ? async () => Response.json({ code: "FILE_NOT_FOUND", detail: "HTTP endpoint was not found." }, { status: 404 })
@@ -164,6 +191,7 @@ export function createAbcmRuntime(
     scopeMapReconciler,
     workspaceProvisioning,
     documentation,
+    obsidianSync,
     restHandler,
     mcpHandler,
     httpHandler: (request: Request) =>
@@ -187,7 +215,11 @@ export function createAbcmRuntime(
         try {
           await scopeMapReconciler.close();
         } finally {
-          ownedScopeMapStore?.close();
+          try {
+            obsidianSync?.close();
+          } finally {
+            ownedScopeMapStore?.close();
+          }
         }
       }
     },
