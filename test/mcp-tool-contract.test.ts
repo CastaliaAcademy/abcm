@@ -71,10 +71,10 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.0.0",
+        version: "1.2.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
-        content: expect.stringContaining("# ABCM agent instructions"),
+        content: expect.stringContaining("# Инструкция для агента ABCM"),
       }));
       for (const tool of listed.tools) {
         expect(tool.inputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));

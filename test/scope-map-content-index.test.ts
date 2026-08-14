@@ -21,6 +21,8 @@ async function fixture(): Promise<{ root: string; service: ScopeMapService }> {
 
   await mkdir(join(root, "project", "domain-language"), { recursive: true });
   await writeFile(join(root, "project", "scope.yaml"), "apiVersion: abcm/v1\nkind: project\nid: project\nname: Project\n");
+  await mkdir(join(root, "project", "config"), { recursive: true });
+  await writeFile(join(root, "project", "config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n");
   await writeFile(join(root, "project", "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
   await writeFile(join(root, "project", "README.md"), "Project overview\n");
 
@@ -76,7 +78,7 @@ describe("ScopeMap content indexes", () => {
     expect(JSON.stringify(revision)).not.toContain("SECRET-");
 
     const projection = service.getProjection("test", "admin");
-    expect(projection.resourceSummary).toEqual({ indexedFiles: 8, documents: 1, executableResources: 1 });
+    expect(projection.resourceSummary).toEqual({ indexedFiles: 9, documents: 1, executableResources: 1 });
     expect(JSON.stringify(projection)).not.toContain("ADR-0001--old-name.md");
     expect(JSON.stringify(projection)).not.toContain("run.js");
     expect(JSON.stringify(projection)).not.toContain("src/index.js");

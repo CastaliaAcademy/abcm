@@ -21,6 +21,10 @@ async function addScope(root: string, path: string, kind: string, id: string) {
   const directory = join(root, path);
   await mkdir(join(directory, "domain-language"), { recursive: true });
   await writeFile(join(directory, "scope.yaml"), `apiVersion: abcm/v1\nkind: ${kind}\nid: ${id}\nname: ${id}\n`);
+  if (kind === "project") {
+    await mkdir(join(directory, "config"), { recursive: true });
+    await writeFile(join(directory, "config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n");
+  }
   await writeFile(
     join(directory, "domain-language/DomainLanguageConvention.md"),
     "---\napiVersion: abcm/v1\nkind: DomainLanguageConvention\nmode: extend\n---\n",
@@ -73,6 +77,17 @@ describe("DomainLanguageBootstrap", () => {
       }),
     );
     expect(() => parseContextPrincipalEnvironment({ ABCM_CONTEXT_PERMISSIONS: "scope.discover,unknown" }, "static")).toThrow();
+  });
+
+  test("rejects bootstrap when the project language configuration is invalid", async () => {
+    const { root, scopeMap, domainLanguage } = await fixture();
+    await writeFile(join(root, "project/config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\n");
+    await scopeMap.scan("test");
+
+    await expect(domainLanguage.createBootstrap(
+      { anchor: { workspaceId: "test", projectId: "commerce" } },
+      principal,
+    )).rejects.toEqual(expect.objectContaining({ code: "PROJECT_LANGUAGE_CONFIGURATION_INVALID" }));
   });
 
   test("pins and merges workflow plus project sources without loading local service language", async () => {

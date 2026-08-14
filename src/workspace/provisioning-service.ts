@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { stringify } from "yaml";
 
 import { AbcmError } from "../core/errors.js";
+import { projectLanguageTagSchema } from "../core/project-language.js";
 import { throwIfAborted } from "../core/operation.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { WorkspaceFileService } from "./file-service.js";
@@ -26,7 +27,7 @@ export class WorkspaceProvisioningService {
     this.#dependencies = dependencies;
   }
 
-  create(input: { id: string; name?: string }, signal?: AbortSignal): Promise<{ id: string }> {
+  create(input: { id: string; name?: string; language: string }, signal?: AbortSignal): Promise<{ id: string }> {
     const result = this.#creationTail.then(
       () => this.#create(input, signal),
       () => this.#create(input, signal),
@@ -38,12 +39,17 @@ export class WorkspaceProvisioningService {
     return result;
   }
 
-  async #create(input: { id: string; name?: string }, signal?: AbortSignal): Promise<{ id: string }> {
+  async #create(input: { id: string; name?: string; language: string }, signal?: AbortSignal): Promise<{ id: string }> {
     throwIfAborted(signal);
     if (!WORKSPACE_ID.test(input.id)) {
       throw new AbcmError("REQUEST_INVALID", "Workspace id must be a lowercase portable identifier.", {
         workspaceId: input.id,
       });
+    }
+
+    const languageResult = projectLanguageTagSchema.safeParse(input.language);
+    if (!languageResult.success) {
+      throw new AbcmError("REQUEST_INVALID", "Workspace language must be a valid BCP 47 tag.", { language: input.language });
     }
 
     const storeRoot = resolve(this.#dependencies.storeRoot);
@@ -79,6 +85,7 @@ export class WorkspaceProvisioningService {
         name: input.name ?? input.id,
       });
       const convention = "---\napiVersion: abcm/v1\nkind: DomainLanguageConvention\nmode: inherit-only\n---\n";
+      const contextConfig = stringify({ apiVersion: "abcm/v1", kind: "ContextConfig", language: languageResult.data });
       await this.#dependencies.files.write(
         input.id,
         "scope.yaml",
@@ -90,6 +97,13 @@ export class WorkspaceProvisioningService {
         input.id,
         "domain-language/DomainLanguageConvention.md",
         new TextEncoder().encode(convention),
+        { ifNoneMatch: "*" },
+        signal,
+      );
+      await this.#dependencies.files.write(
+        input.id,
+        "config/context.yaml",
+        new TextEncoder().encode(contextConfig),
         { ifNoneMatch: "*" },
         signal,
       );

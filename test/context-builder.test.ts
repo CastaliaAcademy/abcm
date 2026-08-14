@@ -22,6 +22,10 @@ async function addScope(root: string, path: string, kind: string, id: string): P
   const directory = join(root, path);
   await mkdir(join(directory, "domain-language"), { recursive: true });
   await writeFile(join(directory, "scope.yaml"), `apiVersion: abcm/v1\nkind: ${kind}\nid: ${id}\nname: ${id}\n`);
+  if (kind === "project") {
+    await mkdir(join(directory, "config"), { recursive: true });
+    await writeFile(join(directory, "config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n");
+  }
   await writeFile(join(directory, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
 }
 

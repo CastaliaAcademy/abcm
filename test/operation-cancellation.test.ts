@@ -141,6 +141,8 @@ describe("cooperative operation cancellation", () => {
     const root = await workspace("abcm-cancel-context-");
     await mkdir(join(root, "project/domain-language"), { recursive: true });
     await writeFile(join(root, "project/scope.yaml"), "apiVersion: abcm/v1\nkind: project\nid: project\nname: Project\n");
+    await mkdir(join(root, "project/config"), { recursive: true });
+    await writeFile(join(root, "project/config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n");
     await writeFile(join(root, "project/domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
     const access = { workspacePermissions: ["scope.discover", "scope.read_metadata", "context.build", "document.read"] as const };
     const runtime = createAbcmRuntime(

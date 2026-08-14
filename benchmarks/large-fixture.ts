@@ -48,7 +48,14 @@ async function scope(root: string, path: string, kind: string, id: string): Prom
     writeFile(join(directory, "scope.yaml"), manifest),
     writeFile(join(directory, "domain-language/DomainLanguageConvention.md"), convention),
   ]);
-  return Buffer.byteLength(manifest) + Buffer.byteLength(convention);
+  let contextBytes = 0;
+  if (kind === "project") {
+    const context = "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n";
+    await mkdir(join(directory, "config"), { recursive: true });
+    await writeFile(join(directory, "config/context.yaml"), context);
+    contextBytes = Buffer.byteLength(context);
+  }
+  return Buffer.byteLength(manifest) + Buffer.byteLength(convention) + contextBytes;
 }
 
 export async function runLargeFixtureBenchmark(options: LargeFixtureBenchmarkOptions = {}): Promise<LargeFixtureBenchmarkResult> {

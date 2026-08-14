@@ -1,5 +1,7 @@
 import { z } from "zod/v4";
 
+import { projectLanguageTagSchema } from "../core/project-language.js";
+
 import {
   contextBuildInputSchema,
   contextBuildOutputSchema,
@@ -19,6 +21,7 @@ import {
 export const workspaceRegistrationSchema = z.object({
   id: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
   name: z.string().min(1).max(160).optional(),
+  language: projectLanguageTagSchema,
 }).strict();
 export const workspaceRegistrationOutputSchema = z.object({ id: z.string() }).strict();
 

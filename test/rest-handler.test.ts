@@ -49,7 +49,7 @@ describe("ABCM REST handler", () => {
     const response = await call("/v1/workspaces", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "castalia-public" }),
+      body: JSON.stringify({ id: "castalia-public", language: "ru" }),
     });
 
     expect(response.status).toBe(503);
@@ -79,7 +79,7 @@ describe("ABCM REST handler", () => {
     const created = await callManaged("/v1/workspaces", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "castalia-public", name: "Castalia Public" }),
+      body: JSON.stringify({ id: "castalia-public", name: "Castalia Public", language: "ru" }),
     });
     expect(created.status).toBe(201);
     expect(await created.json()).toEqual({ id: "castalia-public" });
@@ -90,18 +90,27 @@ describe("ABCM REST handler", () => {
       expect.arrayContaining([
         expect.objectContaining({ path: "scope.yaml" }),
         expect.objectContaining({ path: "domain-language/DomainLanguageConvention.md" }),
+        expect.objectContaining({ path: "config/context.yaml" }),
       ]),
     );
+
+    const missingLanguage = await callManaged("/v1/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "missing-language" }),
+    });
+    expect(missingLanguage.status).toBe(400);
+    expect(await missingLanguage.json()).toEqual(expect.objectContaining({ code: "REQUEST_INVALID", status: 400 }));
 
     const duplicate = await callManaged("/v1/workspaces", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "castalia-public" }),
+      body: JSON.stringify({ id: "castalia-public", language: "ru" }),
     });
     expect(duplicate.status).toBe(409);
     expect(await duplicate.json()).toEqual(expect.objectContaining({ code: "WORKSPACE_ALREADY_EXISTS", status: 409 }));
 
-    for (const body of [{ id: "../escape" }, { id: "another", root: "/tmp/escape" }]) {
+    for (const body of [{ id: "../escape", language: "ru" }, { id: "another", language: "ru", root: "/tmp/escape" }]) {
       const invalid = await callManaged("/v1/workspaces", {
         method: "POST",
         headers: { "content-type": "application/json" },

@@ -4,7 +4,7 @@ import { buildTaskContextSchema } from "../context/schema.js";
 
 export const agentInstructionsInputSchema = z.object({}).strict();
 export const agentInstructionsOutputSchema = z.object({
-  version: z.literal("1.0.0"),
+  version: z.literal("1.2.0"),
   contentType: z.literal("text/markdown; charset=utf-8"),
   checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   content: z.string().min(1),

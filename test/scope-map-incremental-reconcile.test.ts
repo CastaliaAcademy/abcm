@@ -18,6 +18,10 @@ afterEach(async () => {
 async function scope(root: string, path: string, kind: string, id: string): Promise<void> {
   await mkdir(join(root, path, "domain-language"), { recursive: true });
   await writeFile(join(root, path, "scope.yaml"), `apiVersion: abcm/v1\nkind: ${kind}\nid: ${id}\nname: ${id}\n`);
+  if (kind === "project") {
+    await mkdir(join(root, path, "config"), { recursive: true });
+    await writeFile(join(root, path, "config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n");
+  }
   await writeFile(join(root, path, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
 }
 

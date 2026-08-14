@@ -12,8 +12,8 @@ documentationTest("release traceability covers the complete normative baseline a
     baselineMandatory: 76,
     baselineMay: 2,
     baselineAcceptance: 22,
-    extensionSpecifications: 27,
-    extensionRequirements: 196,
-    extensionAcceptance: 56,
+    extensionSpecifications: 28,
+    extensionRequirements: 201,
+    extensionAcceptance: 59,
   });
 });

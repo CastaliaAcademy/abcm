@@ -39,7 +39,7 @@ describe("WorkspaceProvisioningService", () => {
   test("creates a ready workflow below the managed store and discovers it after restart", async () => {
     const { files, registry, scopeMap, service } = createService();
 
-    await expect(service.create({ id: "castalia-public", name: "Castalia Public" })).resolves.toEqual({
+    await expect(service.create({ id: "castalia-public", name: "Castalia Public", language: "ru" })).resolves.toEqual({
       id: "castalia-public",
     });
     expect(registry.get("castalia-public").root).toBe(join(storeRoot, "castalia-public"));
@@ -51,6 +51,9 @@ describe("WorkspaceProvisioningService", () => {
         (await files.read("castalia-public", "domain-language/DomainLanguageConvention.md")).content,
       ),
     ).toContain("mode: inherit-only");
+    expect(new TextDecoder().decode((await files.read("castalia-public", "config/context.yaml")).content)).toContain(
+      "language: ru",
+    );
     expect(scopeMap.getProjection("castalia-public").nodes).toEqual([
       expect.objectContaining({ scopeId: "castalia-public", kind: "workflow", readiness: "ready" }),
     ]);
@@ -62,16 +65,20 @@ describe("WorkspaceProvisioningService", () => {
 
   test("rejects invalid ids and pre-existing targets without changing existing bytes", async () => {
     const { service } = createService();
-    await expect(service.create({ id: "../escape" })).rejects.toEqual(
+    await expect(service.create({ id: "../escape", language: "ru" })).rejects.toEqual(
       expect.objectContaining({ code: "REQUEST_INVALID" }),
     );
     await expect(stat(join(temporaryRoot, "escape"))).rejects.toEqual(expect.objectContaining({ code: "ENOENT" }));
+    await expect(service.create({ id: "invalid-language", language: "русский" })).rejects.toEqual(
+      expect.objectContaining({ code: "REQUEST_INVALID" }),
+    );
+    await expect(stat(join(storeRoot, "invalid-language"))).rejects.toEqual(expect.objectContaining({ code: "ENOENT" }));
 
     const existing = join(storeRoot, "castalia-public");
     await mkdir(existing, { recursive: true });
     await writeFile(join(existing, "keep.txt"), "keep");
 
-    await expect(service.create({ id: "castalia-public" })).rejects.toEqual(
+    await expect(service.create({ id: "castalia-public", language: "ru" })).rejects.toEqual(
       expect.objectContaining({ code: "WORKSPACE_ALREADY_EXISTS" }),
     );
     expect(await readFile(join(existing, "keep.txt"), "utf8")).toBe("keep");
@@ -91,7 +98,7 @@ describe("WorkspaceProvisioningService", () => {
       new Request("http://localhost/v1/workspaces", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: "castalia-public", name: "Castalia Public" }),
+        body: JSON.stringify({ id: "castalia-public", name: "Castalia Public", language: "ru" }),
       }),
     );
     expect(response.status).toBe(201);

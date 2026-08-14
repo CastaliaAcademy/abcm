@@ -16,6 +16,10 @@ afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursi
 async function scope(root: string, path: string, kind: string, id: string) {
   const dir = join(root, path); await mkdir(join(dir, "domain-language"), { recursive: true });
   await writeFile(join(dir, "scope.yaml"), `apiVersion: abcm/v1\nkind: ${kind}\nid: ${id}\nname: ${id}\n`);
+  if (kind === "project") {
+    await mkdir(join(dir, "config"), { recursive: true });
+    await writeFile(join(dir, "config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n");
+  }
   await writeFile(join(dir, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
 }
 

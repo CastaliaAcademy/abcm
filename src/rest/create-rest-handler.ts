@@ -36,7 +36,7 @@ export interface AbcmRestDependencies {
 }
 
 export interface WorkspaceRegistrationService {
-  create(input: { id: string; name?: string }, signal?: AbortSignal): Promise<{ id: string }>;
+  create(input: { id: string; name?: string; language: string }, signal?: AbortSignal): Promise<{ id: string }>;
 }
 
 export type AbcmRestOptions = AbcmRestLimitOptions;
@@ -211,6 +211,7 @@ export function createAbcmRestHandler(
           await dependencies.workspaces.create({
             id: workspace.id,
             ...(workspace.name === undefined ? {} : { name: workspace.name }),
+            language: workspace.language,
           }, signal),
           201,
         );

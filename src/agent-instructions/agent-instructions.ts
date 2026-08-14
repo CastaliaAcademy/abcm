@@ -1,45 +1,49 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.0.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.2.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
-/** Canonical, self-contained operating instructions returned by every ABCM adapter. */
-export const ABCM_AGENT_INSTRUCTIONS = String.raw`# ABCM agent instructions
+/** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
+export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Version: 1.0.0
+Версия: 1.2.0
 
-ABCM (Agent Build Context Manager) gives agents a bounded, reproducible view of a project. Workspace files are the source of truth. ScopeMap revisions, context bundles, indexes, and SQLite state are derived views and must never be edited as primary data.
+ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
-## First-contact protocol
+## Протокол первого подключения
 
-An agent connected to ABCM MUST:
+Агент, подключённый к ABCM, ОБЯЗАН (MUST):
 
-1. Read these instructions once per server version.
-2. Identify the target workspace and project. Never guess either identifier.
-3. Call scope_map.scan when no current map revision is available.
-4. Call context.get_domain_language with the workspaceId and projectId anchor before interpreting project terms or resolving a task path.
-5. Call context.build_task_context with the returned bootstrap id, an explicit role, task type, and goal.
-6. Work only from the bounded bundle plus files deliberately read for the task. Do not crawl the complete workspace by default.
-7. Preserve checksums, map revisions, evidence, and validation results in the final report.
+1. Прочитать эту инструкцию при первом подключении и повторно читать её при изменении версии.
+2. Прочитать обязательное поле language в <project>/config/context.yaml и использовать этот язык для общения и новых человекочитаемых документов.
+3. Явно определить целевое рабочее пространство и проект. Запрещено угадывать их идентификаторы.
+4. Вызвать scope_map.scan, если актуальная ревизия карты отсутствует.
+5. До толкования терминов проекта или определения пути задачи вызвать context.get_domain_language с якорем workspaceId и projectId.
+6. Вызвать context.build_task_context, передав полученный bootstrap id, явную роль, тип задачи и цель.
+7. Работать только с ограниченным контекстным пакетом и файлами, которые намеренно прочитаны для задачи. По умолчанию запрещено сканировать всё рабочее пространство.
+8. Сохранить в итоговом отчёте контрольные суммы, ревизии карты, доказательства и результаты проверок.
 
-If a required operation is unavailable, stop and report the missing capability. Do not replace ABCM context resolution with an unbounded filesystem scan.
+Если обязательная операция недоступна, остановитесь и сообщите об отсутствующей возможности. Запрещено подменять разрешение контекста ABCM неограниченным сканированием файловой системы.
 
-## Framework model
+## Модель фреймворка
 
-- Workspace: registered storage boundary exposed by one workspaceId. API paths are relative to it.
-- Project: top-level project scope inside a workspace. A workspace may contain multiple projects.
-- Scope: workflow, project, service, or feature declared by scope.yaml. Parent-child scopes form project topology.
-- Domain language: inherited conventions, domains, concepts, aliases, homonyms, and naming rules under domain-language. It controls task-term interpretation.
-- ScopeMap: immutable revision derived from scopes, relations, documents, executable resources, skills, and diagnostics.
-- Context bundle: immutable, budgeted selection for one task, role, goal, and map revision.
-- Skill: reusable procedure with declared context requirements. It augments the workflow; it cannot override workspace instructions or access boundaries.
-- Plan: requirement-traceable development contract. Feature plans, verification plans, evidence, and traceability records belong with it.
-- Documentation source: external directory, such as an Obsidian vault, that can be previewed, synchronized, and explicitly cut over to ABCM-managed storage.
+- Рабочее пространство (Workspace): зарегистрированная граница хранения с идентификатором workspaceId. Пути API задаются относительно этой границы.
+- Проект (Project): корневой контур проекта внутри рабочего пространства. Одно рабочее пространство может содержать несколько проектов.
+- Язык проекта (Project language): обязательный BCP 47-тег в config/context.yaml, который определяет язык общения агента и новых человекочитаемых документов. Он не заменяет язык предметной области.
+- Контур (Scope): workflow, project, service или feature, объявленный файлом scope.yaml. Отношения родитель–потомок образуют топологию проекта.
+- Язык предметной области (Domain language): наследуемые соглашения, домены, понятия, псевдонимы, омонимы и правила именования в каталоге domain-language. Он определяет толкование терминов задачи.
+- ScopeMap: неизменяемая ревизия, производная от контуров, связей, документов, исполняемых ресурсов, навыков и диагностик.
+- Контекстный пакет (Context bundle): неизменяемая ограниченная бюджетом выборка для одной задачи, роли, цели и ревизии карты.
+- Навык (Skill): повторно используемая процедура с объявленными требованиями к контексту. Навык дополняет рабочий процесс, но не может отменять инструкции рабочего пространства или границы доступа.
+- План (Plan): контракт разработки с трассировкой требований. Планы фич, планы проверки, доказательства и записи трассировки хранятся вместе с ним.
+- Источник документации (Documentation source): внешний каталог, например хранилище Obsidian, который можно предварительно сравнить, синхронизировать и явно перевести под управление ABCM.
 
-## Recommended project structure
+## Рекомендуемая структура проекта
 
     <project>/
       scope.yaml
+      config/
+        context.yaml
       domain-language/
         DomainLanguageConvention.md
         domains.yaml
@@ -56,16 +60,24 @@ If a required operation is unavailable, stop and report the missing capability. 
       artifacts/
       docs/
 
-Managed directories may be specialized by the workspace specification, but every scope boundary must be explicit and every normative document must have one canonical owner.
+Спецификация рабочего пространства может уточнять управляемые каталоги, однако граница каждого контура должна быть явной, а у каждого нормативного документа должен быть ровно один канонический владелец.
 
-## Minimal setup
+## Минимальная настройка
 
-REST example:
+Каждый проект ОБЯЗАН (MUST) объявить язык в config/context.yaml:
+
+    apiVersion: abcm/v1
+    kind: ContextConfig
+    language: ru
+
+Значение language — непустой BCP 47-тег, например ru, ru-RU или en. Отсутствующее, пустое или невалидное поле делает конфигурацию проекта неготовой для работы агента.
+
+Пример REST:
 
     POST /v1/workspaces
     Content-Type: application/json
 
-    {"id":"castalia-public","name":"Castalia Public"}
+    {"id":"castalia-public","name":"Castalia Public","language":"ru"}
 
     POST /v1/workspaces/castalia-public/directories
     Content-Type: application/json
@@ -78,61 +90,88 @@ REST example:
     apiVersion: abcm/v1
     kind: project
     id: sample-project
-    name: Sample Project
+    name: Пример проекта
 
-Then create domain-language/DomainLanguageConvention.md and the required plan, role, and skill documents. Scan ScopeMap and resolve domain language before executing tasks.
+Затем создайте domain-language/DomainLanguageConvention.md и обязательные документы плана, роли и навыков. До выполнения задач просканируйте ScopeMap и разрешите язык предметной области.
 
-Equivalent MCP creation uses workspace.create_directory and workspace.write_file with workspaceId, a relative path, UTF-8 content, and ifNoneMatch set to * for create-only writes.
+Эквивалентное создание через MCP выполняется операциями workspace.create_directory и workspace.write_file. Передавайте workspaceId, относительный путь, содержимое UTF-8 и ifNoneMatch со значением * для записи только при отсутствии файла.
 
-## Good and bad scope instructions
+## Правильные и неправильные инструкции контура
 
-Good scope:
+Правильный контур:
 
     apiVersion: abcm/v1
     kind: feature
     id: billing-retry
-    name: Billing Retry
+    name: Повтор платежа
     parentScopeId: payments-service
 
-Good instruction:
+Правильная инструкция:
 
-    Before changing payment retry behavior, load the payments domain language,
-    resolve billing-retry, run its verification plan, and attach evidence.
+    Перед изменением поведения повторных платежей загрузите язык домена payments,
+    разрешите контур billing-retry, выполните его план проверки и приложите доказательства.
 
-This is good because identity, kind, ownership, parent, order, and evidence are explicit.
+Это правильно: явно указаны идентичность, вид, владелец, родитель, порядок действий и доказательства.
 
-Counterexample:
+Контрпример:
 
-    name: Backend stuff
+    name: Что-то в бэкенде
 
-    Read everything, make the necessary changes, and update whatever looks relevant.
+    Прочитайте всё, внесите необходимые изменения и обновите всё, что покажется относящимся к задаче.
 
-This is wrong because scope is ambiguous, context is unbounded, ownership is unknown, and completion is not reproducible.
+Это неправильно: контур неоднозначен, контекст не ограничен, владелец неизвестен, а результат невозможно воспроизвести.
 
-## Domain-language rules
+## Язык общения и документов
 
-- Reuse declared project terms. Do not invent synonyms when a canonical term exists.
-- Resolve aliases and homonyms through context.get_domain_language; filename guesses are not language resolution.
-- Put global conventions at the project boundary and narrower additions in child scopes. Refine inherited language only when the specification permits it.
-- Treat a conflict, invalid scope, unresolved required relation, or non-ready bootstrap as a blocker. Do not choose a convenient interpretation.
+- Поле language определяет язык ответов агента, планов, инструкций и новых человекочитаемых документов.
+- Идентификаторы, код, пути, имена API, точные канонические термины и цитируемые фрагменты не переводятся автоматически.
+- Явная просьба пользователя подготовить отдельный артефакт на другом языке действует только для этого артефакта и не меняет конфигурацию проекта.
+- Изменение основного языка проекта выполняется отдельной записью config/context.yaml с ifMatch и последующей проверкой ScopeMap.
+- Поле language и каталог domain-language решают разные задачи: первое задаёт язык представления, второй задаёт значение и допустимое употребление терминов.
 
-Good: use the declared term ScopeMap consistently after bootstrap.
+Правильно:
 
-Counterexample: use project map, context tree, repository graph, and ScopeMap as interchangeable terms.
+    apiVersion: abcm/v1
+    kind: ContextConfig
+    language: ru-RU
 
-## Task execution protocol
+После чтения такой конфигурации агент отвечает по-русски, но сохраняет без перевода идентификаторы workspaceId, ScopeMap и context.build_task_context.
 
-1. Restate the goal and explicit target scope.
-2. Obtain a current domain-language bootstrap.
-3. Build a context bundle for the role and task type.
-4. Inspect warnings, conflicts, omissions, connected skills, selected documents, and budget.
-5. Read only additional files justified by the task or selected-document references.
-6. Before writing, read the current file and retain its checksum.
-7. Write with ifMatch for replacement or ifNoneMatch=* for creation.
-8. Re-scan or rely on mutation-triggered scan, then verify map revision and diagnostics.
-9. Run the feature verification plan and record evidence. Never claim checks not run.
+Контрпримеры:
 
-Good MCP replacement:
+    apiVersion: abcm/v1
+    kind: ContextConfig
+
+Здесь обязательное поле language отсутствует.
+
+    language: русский
+
+Здесь использовано название языка вместо BCP 47-тега.
+
+## Правила языка предметной области
+
+- Используйте объявленные термины проекта. Не придумывайте синонимы при наличии канонического термина.
+- Разрешайте псевдонимы и омонимы через context.get_domain_language; догадка по имени файла не является разрешением языка.
+- Размещайте глобальные соглашения на границе проекта, а более узкие дополнения — в дочерних контурах. Уточняйте наследуемый язык только тогда, когда это разрешено спецификацией.
+- Считайте конфликт, невалидный контур, неразрешённую обязательную связь или неготовый bootstrap блокирующей ошибкой. Запрещено выбирать удобное толкование.
+
+Правильно: после bootstrap последовательно использовать объявленный термин ScopeMap.
+
+Контрпример: использовать термины «карта проекта», «дерево контекста», «граф репозитория» и ScopeMap как взаимозаменяемые.
+
+## Протокол выполнения задачи
+
+1. Повторно сформулируйте цель и явно укажите целевой контур.
+2. Получите актуальный bootstrap языка предметной области.
+3. Постройте контекстный пакет для выбранной роли и типа задачи.
+4. Проверьте предупреждения, конфликты, пропуски, подключённые навыки, выбранные документы и бюджет.
+5. Читайте дополнительные файлы только тогда, когда это обосновано задачей или ссылкой из выбранного документа.
+6. Перед записью прочитайте текущий файл и сохраните его контрольную сумму.
+7. Для замены используйте ifMatch, для создания — ifNoneMatch=*.
+8. Выполните повторное сканирование либо дождитесь сканирования после мутации, затем проверьте ревизию карты и диагностики.
+9. Выполните план проверки фичи и сохраните доказательства. Запрещено заявлять о проверках, которые не выполнялись.
+
+Правильная замена через MCP:
 
     workspace.write_file({
       workspaceId: "castalia-public",
@@ -142,70 +181,70 @@ Good MCP replacement:
       ifMatch: "sha256:<current-checksum>"
     })
 
-Counterexample: omit ifMatch while replacing an existing file. That discards concurrency protection and may overwrite a human or agent.
+Контрпример: при замене существующего файла не передавать ifMatch. Это отключает защиту от конкурентной записи и может затереть изменения человека или другого агента.
 
-## Plans, features, and evidence
+## Планы, фичи и доказательства
 
-A development plan SHOULD contain goal, scope, non-goals, assumptions, dependencies, risks, requirement identifiers, feature slices, a test-first sequence, acceptance criteria, negative cases, verification coverage, traceability, evidence, and rollback or recovery for stateful changes.
+План разработки СЛЕДУЕТ (SHOULD) составлять из цели, области работ, исключений, предположений, зависимостей, рисков, идентификаторов требований, срезов фич, последовательности test-first, критериев приёмки, негативных сценариев, покрытия проверками, трассировки, доказательств и плана отката или восстановления для изменений состояния.
 
-Good: mark a feature complete only when acceptance criteria have matching evidence.
+Правильно: помечать фичу завершённой только тогда, когда каждому критерию приёмки соответствует доказательство.
 
-Counterexample: mark a plan complete because code compiles while integration checks, documentation, or migration evidence remain pending.
+Контрпример: считать план завершённым только потому, что код компилируется, хотя интеграционные проверки, документация или доказательства миграции ещё не готовы.
 
-## File and storage safety
+## Безопасность файлов и хранения
 
-- Use relative workspace paths only. Absolute paths, parent traversal, reserved paths, and symlink escapes are forbidden.
-- List and read before move, delete, or replacement.
-- Use checksum preconditions for destructive or replacing mutations.
-- Never edit .git, secrets, derived databases, ScopeMap revisions, generated exports, or reserved runtime state through project file operations.
-- FILE_CHECKSUM_MISMATCH means re-read and reconcile; never retry without a precondition.
-- Keep unrelated user changes intact.
+- Используйте только относительные пути рабочего пространства. Абсолютные пути, переходы к родительским каталогам, зарезервированные пути и выход через символические ссылки запрещены.
+- Перед перемещением, удалением или заменой выполните перечисление и чтение.
+- Для разрушающих операций и замены используйте предусловия с контрольной суммой.
+- Запрещено через файловые операции проекта изменять .git, секреты, производные базы данных, ревизии ScopeMap, сгенерированные экспорты и зарезервированное состояние среды выполнения.
+- FILE_CHECKSUM_MISMATCH означает: перечитать файл и согласовать изменения. Запрещено повторять операцию без предусловия.
+- Сохраняйте несвязанные изменения пользователя.
 
-Good move: read the source, retain checksum, move without overwrite, then verify both paths.
+Правильное перемещение: прочитать исходный файл, сохранить его контрольную сумму, переместить без перезаписи, затем проверить исходный и целевой пути.
 
-Counterexample: set overwrite=true before checking the destination.
+Контрпример: установить overwrite=true до проверки файла назначения.
 
-## REST operation map
+## Карта операций REST
 
-- GET /v1/agent-instructions: this guide.
-- POST /v1/workspaces: declare managed storage when provisioning is enabled.
-- Workspace files/content, directories, and move routes: safe file lifecycle.
-- Workspace scope-map scan and query routes: rebuild and query bounded topology.
-- POST /v1/context/domain-language: language bootstrap.
-- POST /v1/context/build-task-context: immutable task context.
-- Documentation preview, apply, sync, and cutover routes: controlled external-document lifecycle.
-- GET /openapi.json: exact machine-readable contract.
+- GET /v1/agent-instructions: эта инструкция.
+- POST /v1/workspaces: объявление управляемого хранилища, если включено создание рабочих пространств.
+- Маршруты files/content, directories и move рабочего пространства: безопасный жизненный цикл файлов.
+- Маршруты сканирования и чтения scope-map рабочего пространства: перестроение и чтение ограниченной топологии.
+- POST /v1/context/domain-language: bootstrap языка предметной области.
+- POST /v1/context/build-task-context: неизменяемый контекст задачи.
+- Маршруты preview, apply, sync и cutover документации: управляемый жизненный цикл внешних документов.
+- GET /openapi.json: точный машиночитаемый контракт.
 
-Use Authorization: Bearer <token> when enabled. Tokens are secrets: never put real values in documentation, URLs, logs, or committed examples.
+Если включена авторизация, используйте Authorization: Bearer <token>. Токены являются секретами: никогда не помещайте реальные значения в документацию, URL, журналы или примеры, сохраняемые в репозитории.
 
-## MCP operation map
+## Карта операций MCP
 
-- agent_instructions.get: this guide; call it first.
-- workspace.list_files, read_file, write_file, delete_file, move_file, create_directory: safe file lifecycle.
-- scope_map.scan: current ScopeMap revision.
-- context.get_domain_language: mandatory language bootstrap before task-path interpretation.
-- context.build_task_context: bounded task bundle.
-- documentation_source.preview, apply, sync, cutover: documentation import and ownership transition when configured.
-- MCP resources expose bounded map and project content; discover resources instead of guessing URIs.
+- agent_instructions.get: эта инструкция; вызывайте первой.
+- workspace.list_files, read_file, write_file, delete_file, move_file, create_directory: безопасный жизненный цикл файлов.
+- scope_map.scan: получение актуальной ревизии ScopeMap.
+- context.get_domain_language: обязательный bootstrap языка до толкования пути задачи.
+- context.build_task_context: ограниченный контекстный пакет задачи.
+- documentation_source.preview, apply, sync, cutover: импорт документации и передача владения, если эти операции настроены.
+- Ресурсы MCP предоставляют ограниченную карту и содержимое проекта; сначала обнаруживайте ресурсы, а не угадывайте URI.
 
-## Obsidian and network folders
+## Obsidian и сетевые папки
 
-For direct vault access, open the registered project directory as an Obsidian vault, or place a vault inside it. Changes are workspace changes and must satisfy ABCM structure and checks.
+Для прямой работы откройте каталог зарегистрированного проекта как хранилище Obsidian либо разместите хранилище внутри него. Такие изменения являются изменениями рабочего пространства и обязаны соответствовать структуре и проверкам ABCM.
 
-For an external vault, configure a documentation source. Preview first, inspect create/update/move/delete/conflict operations, then apply the pinned preview. Cut over only with explicit operator approval and expected snapshot digest. After cutover, ABCM storage is canonical and the former source must not remain an independent writer.
+Для внешнего хранилища настройте источник документации. Сначала выполните preview, изучите операции create/update/move/delete/conflict, затем примените зафиксированный preview. Выполняйте cutover только после явного одобрения оператора и с ожидаемым snapshot digest. После cutover хранилище ABCM становится каноническим, а прежний источник не должен оставаться независимым писателем.
 
-Good: preview, resolve conflicts, apply, verify ScopeMap, then cut over.
+Правильно: выполнить preview, разрешить конфликты, применить изменения, проверить ScopeMap и только затем выполнить cutover.
 
-Counterexample: manually copy a vault into a managed mirror and edit both copies. This creates split ownership and divergence.
+Контрпример: вручную скопировать хранилище в управляемое зеркало и редактировать обе копии. Это создаёт разделённое владение и расхождение данных.
 
-## Error and completion policy
+## Политика ошибок и завершения
 
-- Stable ABCM errors are contract data. Report the code, correct the cause, and preserve details.
-- Validation failure means request shape is wrong. Access failure means operation is unauthorized. Map readiness failure means context must not be fabricated.
-- Never claim deployment, sync, migration, test success, or documentation parity without evidence.
-- Final reports MUST distinguish completed work, verified checks, skipped checks, blockers, and external actions not performed.
+- Стабильные ошибки ABCM являются данными контракта. Сообщите код, устраните причину и сохраните диагностические подробности.
+- Ошибка валидации означает неверную форму запроса. Ошибка доступа означает отсутствие разрешения. Ошибка готовности карты означает, что контекст запрещено выдумывать.
+- Запрещено заявлять об успешном развёртывании, синхронизации, миграции, тестировании или паритете документации без доказательств.
+- Итоговый отчёт ОБЯЗАН (MUST) разделять завершённую работу, выполненные проверки, пропущенные проверки, блокеры и невыполненные внешние действия.
 
-Before completion confirm: workspace, project, scope, role, and task type were explicit; bootstrap and bundle were current; safe paths and checksum preconditions were used; no new blocking map diagnostics exist; criteria map to tests and evidence; canonical documentation was updated without a second source of truth; and no secret, reserved state, or unrelated user change was modified.
+Перед завершением подтвердите: рабочее пространство, проект, контур, роль и тип задачи указаны явно; bootstrap и контекстный пакет актуальны; использованы безопасные пути и подходящие предусловия с контрольной суммой; новые блокирующие диагностики карты отсутствуют; критерии сопоставлены с тестами и доказательствами; каноническая документация обновлена без второго источника истины; секреты, зарезервированное состояние и несвязанные изменения пользователя не затронуты.
 `;
 
 export const ABCM_AGENT_INSTRUCTIONS_CHECKSUM = `sha256:${createHash("sha256")

@@ -7,6 +7,7 @@ import { AbcmError } from "../core/errors.js";
 import { observeOperation, type AbcmObservability } from "../core/observability.js";
 import { throwIfAborted } from "../core/operation.js";
 import { parseSafeYaml } from "../core/safe-yaml.js";
+import { parseProjectLanguageConfig } from "../core/project-language.js";
 import type { ScopeMapStore } from "../derived-store/types.js";
 import type { DocumentationStateStore } from "../documentation/types.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
@@ -206,7 +207,7 @@ export class ScopeMapService {
     const relations: ScopeRelation[] = [];
     const diagnostics: MapDiagnostic[] = [];
     const seenIds = new Set<string>();
-    const rootNode = await this.#node(rootManifest, "", undefined, "valid", workspace.root, diagnostics);
+    const rootNode = await this.#node(rootManifest, "", undefined, "valid", workspace.root, diagnostics, workspace.maxIndexBytes);
     nodes.push(rootNode);
     seenIds.add(rootNode.scopeId);
 
@@ -258,7 +259,7 @@ export class ScopeMapService {
           });
         }
 
-        const childNode = await this.#node(manifest, childRelative, parent.scopeId, status, childAbsolute, diagnostics);
+        const childNode = await this.#node(manifest, childRelative, parent.scopeId, status, childAbsolute, diagnostics, workspace.maxIndexBytes);
         nodes.push(childNode);
         relations.push({
           fromId: parent.scopeId,
@@ -434,7 +435,7 @@ export class ScopeMapService {
     const nodes = await Promise.all(
       previous.nodes.map(node =>
         node.status === "valid" && impacted.has(node.scopeId)
-          ? this.#refreshReadiness(node, workspace.root, diagnostics)
+          ? this.#refreshReadiness(node, workspace.root, diagnostics, workspace.maxIndexBytes)
           : Promise.resolve(node),
       ),
     );
@@ -512,7 +513,12 @@ export class ScopeMapService {
     return false;
   }
 
-  async #refreshReadiness(node: ScopeNode, workspaceRoot: string, diagnostics: MapDiagnostic[]): Promise<ScopeNode> {
+  async #refreshReadiness(
+    node: ScopeNode,
+    workspaceRoot: string,
+    diagnostics: MapDiagnostic[],
+    maxBytes: number,
+  ): Promise<ScopeNode> {
     const conventionExists = await exists(
       join(workspaceRoot, node.relativePath, "domain-language/DomainLanguageConvention.md"),
     );
@@ -525,7 +531,40 @@ export class ScopeMapService {
         message: "DomainLanguageConvention.md is missing.",
       });
     }
-    return { ...node, readiness: conventionExists ? "ready" : "warning" };
+    const languageReady = node.kind !== "project" || await this.#projectLanguageReady(
+      join(workspaceRoot, node.relativePath),
+      node.relativePath,
+      node.scopeId,
+      diagnostics,
+      maxBytes,
+    );
+    return { ...node, readiness: conventionExists && languageReady ? "ready" : "warning" };
+  }
+
+  async #projectLanguageReady(
+    absoluteDirectory: string,
+    relativePath: string,
+    scopeId: string,
+    diagnostics: MapDiagnostic[],
+    maxBytes: number,
+  ): Promise<boolean> {
+    const configurationPath = join(absoluteDirectory, "config/context.yaml");
+    const diagnosticPath = relativePath === "" ? "config/context.yaml" : posix.join(relativePath, "config/context.yaml");
+    try {
+      const metadata = await stat(configurationPath);
+      if (metadata.size > maxBytes) throw new AbcmError("FILE_TOO_LARGE", `context.yaml exceeds maxIndexBytes=${maxBytes}.`);
+      parseProjectLanguageConfig(await readFile(configurationPath, "utf8"));
+      return true;
+    } catch (error) {
+      diagnostics.push({
+        code: "PROJECT_LANGUAGE_CONFIGURATION_INVALID",
+        severity: "warning",
+        path: diagnosticPath,
+        scopeId,
+        message: error instanceof Error ? error.message : "Project language configuration is invalid.",
+      });
+      return false;
+    }
   }
 
   #emitChanged(workspaceId: string, previous: MapRevision | undefined, revision: MapRevision): void {
@@ -693,6 +732,7 @@ export class ScopeMapService {
       if (diagnostic.scopeId === undefined || !selectedIds.has(diagnostic.scopeId)) return false;
       return view === "admin" ||
         diagnostic.code === "DOMAIN_LANGUAGE_CONFIGURATION_INVALID" ||
+        diagnostic.code === "PROJECT_LANGUAGE_CONFIGURATION_INVALID" ||
         diagnostic.code === "EXPLICIT_LINK_UNRESOLVED";
     });
     const selectedFiles = revision.files.filter(file => selectedIds.has(file.scopeId));
@@ -827,6 +867,7 @@ export class ScopeMapService {
     status: "valid" | "invalid",
     absoluteDirectory: string,
     diagnostics: MapDiagnostic[],
+    maxBytes: number,
   ): Promise<ScopeNode> {
     const conventionExists = await exists(join(absoluteDirectory, "domain-language/DomainLanguageConvention.md"));
     if (!conventionExists) {
@@ -838,6 +879,13 @@ export class ScopeMapService {
         message: "DomainLanguageConvention.md is missing.",
       });
     }
+    const languageReady = manifest.kind !== "project" || await this.#projectLanguageReady(
+      absoluteDirectory,
+      relativePath,
+      manifest.id,
+      diagnostics,
+      maxBytes,
+    );
     const node: ScopeNode = {
       scopeId: manifest.id,
       kind: manifest.kind,
@@ -846,7 +894,7 @@ export class ScopeMapService {
       relativePath,
       rank: rankOf(manifest.kind),
       status,
-      readiness: conventionExists ? "ready" : "warning",
+      readiness: conventionExists && languageReady ? "ready" : "warning",
     };
     if (parentScopeId !== undefined) return { ...node, parentScopeId };
     return node;

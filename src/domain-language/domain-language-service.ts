@@ -146,6 +146,17 @@ export class DomainLanguageService {
       }
     }
 
+    const languageDiagnostic = revision.diagnostics.find(
+      diagnostic => diagnostic.code === "PROJECT_LANGUAGE_CONFIGURATION_INVALID" && diagnostic.scopeId === project.scopeId,
+    );
+    if (languageDiagnostic !== undefined) {
+      throw new AbcmError("PROJECT_LANGUAGE_CONFIGURATION_INVALID", "Project language configuration is invalid.", {
+        projectId: project.scopeId,
+        path: languageDiagnostic.path,
+        cause: languageDiagnostic.message,
+      });
+    }
+
     const workspace = this.#registry.get(request.anchor.workspaceId);
     const language: MutableLanguage = {
       domains: new Map(),

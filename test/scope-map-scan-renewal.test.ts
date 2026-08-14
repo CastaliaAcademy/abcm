@@ -61,6 +61,8 @@ async function fixture(): Promise<{ root: string; registry: WorkspaceRegistry }>
     const id = `project-${index.toString().padStart(2, "0")}`;
     await mkdir(join(root, id, "domain-language"), { recursive: true });
     await writeFile(join(root, id, "scope.yaml"), `apiVersion: abcm/v1\nkind: project\nid: ${id}\nname: ${id}\n`);
+    await mkdir(join(root, id, "config"), { recursive: true });
+    await writeFile(join(root, id, "config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n");
     await writeFile(join(root, id, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
   }
   return { root, registry: new WorkspaceRegistry([{ id: "test", root }]) };
