@@ -5,6 +5,7 @@ export interface WorkspaceDefinition {
   maxReadBytes?: number;
   maxWriteBytes?: number;
   maxListEntries?: number;
+  maxIndexBytes?: number;
 }
 
 export interface ResolvedWorkspace extends Required<Omit<WorkspaceDefinition, "deniedDirectories">> {
@@ -39,4 +40,10 @@ export interface MoveOptions extends DeletePreconditions {
   overwrite?: boolean;
 }
 
-export type MutationReconciler = (changedPaths: readonly string[]) => Promise<void>;
+export type MutationReconciler = (workspaceId: string, changedPaths: readonly string[]) => Promise<void>;
+export type FileMutationOperation = "write" | "delete" | "move";
+export type MutationAuthorizer = (
+  workspaceId: string,
+  changedPaths: readonly string[],
+  operation: FileMutationOperation,
+) => Promise<void>;

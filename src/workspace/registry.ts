@@ -9,17 +9,38 @@ export class WorkspaceRegistry {
   readonly #workspaces = new Map<string, ResolvedWorkspace>();
 
   constructor(definitions: readonly WorkspaceDefinition[]) {
-    for (const definition of definitions) {
-      if (this.#workspaces.has(definition.id)) throw new Error(`Duplicate workspace id: ${definition.id}`);
-      this.#workspaces.set(definition.id, {
-        id: definition.id,
-        root: resolve(definition.root),
-        deniedDirectories: new Set(definition.deniedDirectories ?? DEFAULT_DENIED_DIRECTORIES),
-        maxReadBytes: definition.maxReadBytes ?? 1_048_576,
-        maxWriteBytes: definition.maxWriteBytes ?? 1_048_576,
-        maxListEntries: definition.maxListEntries ?? 10_000,
+    for (const definition of definitions) this.register(definition);
+  }
+
+  register(definition: WorkspaceDefinition): ResolvedWorkspace {
+    if (this.#workspaces.has(definition.id)) {
+      throw new AbcmError("WORKSPACE_ALREADY_EXISTS", `Workspace '${definition.id}' is already registered.`, {
+        workspaceId: definition.id,
       });
     }
+    const workspace: ResolvedWorkspace = {
+      id: definition.id,
+      root: resolve(definition.root),
+      deniedDirectories: new Set(definition.deniedDirectories ?? DEFAULT_DENIED_DIRECTORIES),
+      maxReadBytes: definition.maxReadBytes ?? 1_048_576,
+      maxWriteBytes: definition.maxWriteBytes ?? 1_048_576,
+      maxListEntries: definition.maxListEntries ?? 10_000,
+      maxIndexBytes: definition.maxIndexBytes ?? 1_048_576,
+    };
+    this.#workspaces.set(definition.id, workspace);
+    return workspace;
+  }
+
+  unregister(workspaceId: string): void {
+    this.#workspaces.delete(workspaceId);
+  }
+
+  has(workspaceId: string): boolean {
+    return this.#workspaces.has(workspaceId);
+  }
+
+  list(): ResolvedWorkspace[] {
+    return [...this.#workspaces.values()];
   }
 
   get(workspaceId: string): ResolvedWorkspace {

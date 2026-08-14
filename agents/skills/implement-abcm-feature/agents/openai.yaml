@@ -1,4 +1,0 @@
-interface:
-  display_name: "ABCM Feature Implementation"
-  short_description: "Implement a traced ABCM feature"
-  default_prompt: "Use $implement-abcm-feature to implement an approved ABCM feature plan with tests and evidence."

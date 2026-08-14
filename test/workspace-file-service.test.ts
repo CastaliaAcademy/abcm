@@ -14,7 +14,7 @@ afterEach(async () => {
   }
 });
 
-async function createService(onMutation?: (paths: readonly string[]) => Promise<void>) {
+async function createService(onMutation?: (workspaceId: string, paths: readonly string[]) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "abcm-files-"));
   roots.push(root);
   const registry = new WorkspaceRegistry([{ id: "test", root }]);

@@ -16,6 +16,10 @@ async function scope(root: string, relativePath: string, kind: string, id: strin
   const directory = join(root, relativePath);
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, "scope.yaml"), `apiVersion: abcm/v1\nkind: ${kind}\nid: ${id}\nname: ${id}\n`);
+  if (kind === "project") {
+    await mkdir(join(directory, "config"), { recursive: true });
+    await writeFile(join(directory, "config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n");
+  }
   if (withConvention) {
     await mkdir(join(directory, "domain-language"), { recursive: true });
     await writeFile(join(directory, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
@@ -69,6 +73,23 @@ describe("ScopeMapService", () => {
 
     expect(revision.nodes[0]?.readiness).toBe("warning");
     expect(revision.diagnostics).toContainEqual(expect.objectContaining({ code: "DOMAIN_LANGUAGE_CONFIGURATION_INVALID" }));
+  });
+
+  test("marks a project unready when its mandatory language is missing or invalid", async () => {
+    const root = await mkdtemp(join(tmpdir(), "abcm-map-"));
+    await scope(root, "", "workflow", "workflow");
+    await scope(root, "project", "project", "project");
+    await writeFile(join(root, "project/config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: русский\n");
+    const service = await serviceFor(root);
+
+    const revision = await service.scan("test");
+
+    expect(revision.nodes.find(node => node.scopeId === "project")?.readiness).toBe("warning");
+    expect(revision.diagnostics).toContainEqual(expect.objectContaining({
+      code: "PROJECT_LANGUAGE_CONFIGURATION_INVALID",
+      path: "project/config/context.yaml",
+      scopeId: "project",
+    }));
   });
 
   test("rejects a non-workflow root", async () => {

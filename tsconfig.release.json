@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["bun", "node"]
+  },
+  "include": ["benchmarks/**/*.ts", "scripts/**/*.ts", "src/**/*.ts"]
+}

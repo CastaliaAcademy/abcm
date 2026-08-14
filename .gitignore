@@ -1,6 +1,8 @@
 node_modules/
 dist/
 coverage/
+.abcm-documentation/
+.abcm-generated/
 .env
 .env.*
 !.env.example

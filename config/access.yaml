@@ -1,8 +1,0 @@
-apiVersion: abcm/v1
-kind: AccessConfig
-profiles:
-  - id: local-development
-    permissions:
-      - workspace.files.read
-      - workspace.files.write
-      - scope_map.read

@@ -1,0 +1,11 @@
+name: abcm
+
+services:
+  rest:
+    image: abcm-mcp-server:0.1.0
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "${ABCM_BIND_ADDRESS:-127.0.0.1}:${ABCM_PUBLIC_PORT:-8787}:8787"
+    restart: unless-stopped

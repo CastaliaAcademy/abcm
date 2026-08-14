@@ -1,0 +1,11 @@
+.git
+.github
+.env
+.env.*
+.abcm-documentation
+.abcm-generated
+coverage
+dist
+node_modules
+test
+*.log

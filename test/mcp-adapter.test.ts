@@ -24,7 +24,9 @@ describe("ABCM MCP adapter", () => {
     await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
     const registry = new WorkspaceRegistry([{ id: "test", root }]);
     const scopeMap = new ScopeMapService(registry);
-    const files = new WorkspaceFileService(registry, { onMutation: async () => void (await scopeMap.scan("test")) });
+    const files = new WorkspaceFileService(registry, {
+      onMutation: async workspaceId => void (await scopeMap.scan(workspaceId)),
+    });
     const server = createAbcmMcpServer({ files, scopeMap, defaultWorkspaceId: "test" });
     const client = new Client({ name: "abcm-test-client", version: "0.1.0" });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -46,8 +48,33 @@ describe("ABCM MCP adapter", () => {
       const read = await client.callTool({ name: "workspace.read_file", arguments: { workspaceId: "test", path: "managed.md" } });
       expect(read.structuredContent).toEqual(expect.objectContaining({ content: "aGVsbG8=", encoding: "base64" }));
 
+      const listed = await client.callTool({ name: "workspace.list_files", arguments: { workspaceId: "test" } });
+      expect(listed.structuredContent).toEqual(expect.objectContaining({ entries: expect.arrayContaining([expect.objectContaining({ path: "managed.md" })]) }));
+
+      const directory = await client.callTool({
+        name: "workspace.create_directory",
+        arguments: { workspaceId: "test", path: "managed" },
+      });
+      expect(directory.structuredContent).toEqual(expect.objectContaining({ entry: expect.objectContaining({ path: "managed", kind: "directory" }) }));
+
+      const moved = await client.callTool({
+        name: "workspace.move_file",
+        arguments: { workspaceId: "test", from: "managed.md", to: "managed/moved.md" },
+      });
+      expect(moved.structuredContent).toEqual(expect.objectContaining({ entry: expect.objectContaining({ path: "managed/moved.md" }) }));
+
+      const deleted = await client.callTool({
+        name: "workspace.delete_file",
+        arguments: { workspaceId: "test", path: "managed/moved.md" },
+      });
+      expect(deleted.structuredContent).toEqual({ deleted: true });
+
       const scan = await client.callTool({ name: "scope_map.scan", arguments: { workspaceId: "test" } });
       expect(scan.structuredContent).toEqual(expect.objectContaining({ revision: expect.objectContaining({ digest: expect.stringContaining("sha256:") }) }));
+      const scanRevision = (scan.structuredContent as { revision: Record<string, unknown> }).revision;
+      expect(scanRevision).not.toHaveProperty("files");
+      expect(scanRevision).not.toHaveProperty("documents");
+      expect(scanRevision).not.toHaveProperty("executableResources");
 
       const resource = await client.readResource({ uri: "abcm://map" });
       expect(resource.contents[0]).toEqual(expect.objectContaining({ uri: "abcm://map", mimeType: "application/json" }));

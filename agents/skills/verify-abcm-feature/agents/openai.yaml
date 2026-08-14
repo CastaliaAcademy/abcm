@@ -1,4 +1,0 @@
-interface:
-  display_name: "ABCM Feature Verification"
-  short_description: "Verify ABCM contracts and evidence"
-  default_prompt: "Use $verify-abcm-feature to verify an ABCM feature against its requirements and acceptance scenarios."

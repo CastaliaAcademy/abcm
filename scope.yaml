@@ -1,8 +1,0 @@
-apiVersion: abcm/v1
-kind: workflow
-id: abcm-development
-name: ABCM Development
-status: active
-tags:
-  - mcp
-  - context-management
