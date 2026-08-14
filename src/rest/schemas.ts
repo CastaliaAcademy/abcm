@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 
 import { projectLanguageTagSchema } from "../core/project-language.js";
+import { OBSIDIAN_SYNC_REST_SCHEMAS } from "../sync/rest-schemas.js";
 
 import {
   contextBuildInputSchema,
@@ -31,6 +32,7 @@ export const restDocumentationPreviewInputSchema = documentationPreviewInputSche
 export const restDocumentationCutoverInputSchema = documentationCutoverInputSchema.omit({ sourceId: true });
 
 export const REST_SHARED_SCHEMAS = {
+  ...OBSIDIAN_SYNC_REST_SCHEMAS,
   FileEntry: fileEntrySchema,
   WorkspaceRegistration: workspaceRegistrationSchema,
   WorkspaceRegistrationResult: workspaceRegistrationOutputSchema,

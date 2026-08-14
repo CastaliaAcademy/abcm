@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
 import { REST_SHARED_SCHEMAS } from "./schemas.js";
+import { OBSIDIAN_SYNC_OPENAPI_PATHS } from "../sync/openapi.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -52,6 +53,7 @@ export function createAbcmOpenApiDocument(): JsonObject {
     servers: [{ url: "/", description: "Current ABCM server" }],
     security: [{ bearerAuth: [] }],
     paths: {
+      ...OBSIDIAN_SYNC_OPENAPI_PATHS,
       "/health": {
         get: {
           operationId: "health",
