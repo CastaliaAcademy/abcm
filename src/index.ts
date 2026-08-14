@@ -142,6 +142,8 @@ export type {
 } from "./scope-map/types.js";
 export type { ScopeMapServiceOptions } from "./scope-map/scope-map-service.js";
 export * from "./sync/contracts.js";
+export { SqliteSyncJournal, syncJournalMutationSchema } from "./sync/sqlite-sync-journal.js";
+export type { SqliteSyncJournalOptions, SyncJournalChanges, SyncJournalMutation, SyncJournalObject, SyncJournalRecordResult, SyncJournalTombstone } from "./sync/sqlite-sync-journal.js";
 export { WorkspaceFileService } from "./workspace/file-service.js";
 export { discoverManagedWorkspaces, WorkspaceProvisioningService } from "./workspace/provisioning-service.js";
 export type { WorkspaceProvisioningDependencies } from "./workspace/provisioning-service.js";
