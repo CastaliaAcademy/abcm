@@ -5,7 +5,14 @@ import { parseSafeYaml } from "../src/core/safe-yaml.js";
 
 interface Group { ids: string[]; tests: string[] }
 interface SpecificationItem { id: string; level?: string }
-interface Specification { requirements?: SpecificationItem[]; acceptanceScenarios?: SpecificationItem[]; acceptance?: SpecificationItem[] | Record<string, unknown> }
+interface SpecificationMetadata { status?: string }
+interface Specification {
+  metadata?: SpecificationMetadata;
+  extension?: SpecificationMetadata;
+  requirements?: SpecificationItem[];
+  acceptanceScenarios?: SpecificationItem[];
+  acceptance?: SpecificationItem[] | Record<string, unknown>;
+}
 interface Manifest {
   release: string;
   baseline: { specification: string; requirements: Group[]; acceptance: Group[] };
@@ -15,6 +22,10 @@ interface Manifest {
 function items(value: SpecificationItem[] | Record<string, unknown> | undefined): SpecificationItem[] {
   if (Array.isArray(value)) return value;
   return Object.keys(value ?? {}).map(id => ({ id }));
+}
+
+export function isReleaseTraceabilityExtension(specification: Specification): boolean {
+  return specification.metadata?.status !== "proposed" && specification.extension?.status !== "proposed";
 }
 
 function assertExact(label: string, expected: readonly string[], groups: readonly Group[]): void {
@@ -64,10 +75,13 @@ export async function validateReleaseTraceability(documentationRoot = ".") {
 
   const extensionDirectory = documentationPath(root, manifest.extensions.directory);
   const extensionFiles = (await readdir(extensionDirectory)).filter(path => path.endsWith(".yaml")).sort();
+  const releaseExtensionFiles: string[] = [];
   const extensionRequirements: string[] = [];
   const extensionAcceptance: string[] = [];
   for (const file of extensionFiles) {
     const specification = parseSafeYaml(await readFile(join(extensionDirectory, file), "utf8")) as Specification;
+    if (!isReleaseTraceabilityExtension(specification)) continue;
+    releaseExtensionFiles.push(file);
     extensionRequirements.push(...items(specification.requirements).map(item => item.id));
     extensionAcceptance.push(...items(specification.acceptanceScenarios).map(item => item.id));
     extensionAcceptance.push(...items(specification.acceptance).map(item => item.id));
@@ -86,7 +100,7 @@ export async function validateReleaseTraceability(documentationRoot = ".") {
     baselineMandatory: mandatory.length,
     baselineMay: optional.length,
     baselineAcceptance: acceptance.length,
-    extensionSpecifications: extensionFiles.length,
+    extensionSpecifications: releaseExtensionFiles.length,
     extensionRequirements: extensionRequirements.length,
     extensionAcceptance: extensionAcceptance.length,
   };

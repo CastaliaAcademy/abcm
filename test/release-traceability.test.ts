@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 
-import { validateReleaseTraceability } from "../scripts/check-traceability.js";
+import { isReleaseTraceabilityExtension, validateReleaseTraceability } from "../scripts/check-traceability.js";
+
+test("release traceability excludes proposed extensions", () => {
+  expect(isReleaseTraceabilityExtension({ metadata: { status: "proposed" } })).toBe(false);
+  expect(isReleaseTraceabilityExtension({ extension: { status: "proposed" } })).toBe(false);
+  expect(isReleaseTraceabilityExtension({ metadata: { status: "approved-for-alpha" } })).toBe(true);
+  expect(isReleaseTraceabilityExtension({ metadata: { status: "draft" } })).toBe(true);
+});
 
 const documentationRoot = process.env.ABCM_DOCUMENTATION_ROOT;
 const documentationTest = documentationRoot === undefined ? test.skip : test;
