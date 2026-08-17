@@ -40,6 +40,11 @@ import {
   workspaceCreateOutputSchema,
   workspaceCreateDirectoryInputSchema,
   workspaceCreateDirectoryOutputSchema,
+  workspaceBatchCreateFilesInputSchema,
+  workspaceBatchUpdateFilesInputSchema,
+  workspaceBatchDeleteFilesInputSchema,
+  workspaceBatchWriteFilesOutputSchema,
+  workspaceBatchDeleteFilesOutputSchema,
   workspaceDeleteFileInputSchema,
   workspaceDeleteFileOutputSchema,
   workspaceListFilesInputSchema,
@@ -105,6 +110,86 @@ async function toolResult(
   } finally {
     deadline.finish();
   }
+}
+
+interface BatchWriteFileInput {
+  path: string;
+  content: string;
+  encoding: "utf8" | "base64";
+  ifMatch?: string;
+}
+
+interface BatchDeleteFileInput {
+  path: string;
+  ifMatch: string;
+}
+
+function decodeToolContent(content: string, encoding: "utf8" | "base64"): Uint8Array {
+  return encoding === "base64"
+    ? new Uint8Array(Buffer.from(content, "base64"))
+    : new TextEncoder().encode(content);
+}
+
+function batchFailure(index: number, path: string, error: AbcmError) {
+  return {
+    index,
+    path,
+    status: "failed" as const,
+    error: {
+      code: error.code,
+      message: error.message,
+      ...(error.details === undefined ? {} : { details: error.details }),
+    },
+  };
+}
+
+async function batchWriteFiles(
+  filesService: WorkspaceFileService,
+  workspaceId: string,
+  files: readonly BatchWriteFileInput[],
+  mode: "create" | "update",
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const results = [];
+  let succeeded = 0;
+  for (const [index, file] of files.entries()) {
+    try {
+      const entry = await filesService.write(
+        workspaceId,
+        file.path,
+        decodeToolContent(file.content, file.encoding),
+        mode === "create" ? { ifNoneMatch: "*" } : { ifMatch: file.ifMatch! },
+        signal,
+      );
+      results.push({ index, path: file.path, status: "succeeded" as const, entry });
+      succeeded += 1;
+    } catch (error) {
+      if (!(error instanceof AbcmError)) throw error;
+      results.push(batchFailure(index, file.path, error));
+    }
+  }
+  return { succeeded, failed: files.length - succeeded, results };
+}
+
+async function batchDeleteFiles(
+  filesService: WorkspaceFileService,
+  workspaceId: string,
+  files: readonly BatchDeleteFileInput[],
+  signal: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const results = [];
+  let succeeded = 0;
+  for (const [index, file] of files.entries()) {
+    try {
+      await filesService.delete(workspaceId, file.path, { ifMatch: file.ifMatch }, signal);
+      results.push({ index, path: file.path, status: "succeeded" as const, deleted: true as const });
+      succeeded += 1;
+    } catch (error) {
+      if (!(error instanceof AbcmError)) throw error;
+      results.push(batchFailure(index, file.path, error));
+    }
+  }
+  return { succeeded, failed: files.length - succeeded, results };
 }
 
 /** Creates an unconnected ABCM MCP server and optionally registers workspace capabilities. */
@@ -200,10 +285,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     },
     async (input, context) =>
       toolResult(async signal => {
-        const content =
-          input.encoding === "base64"
-            ? new Uint8Array(Buffer.from(input.content, "base64"))
-            : new TextEncoder().encode(input.content);
+        const content = decodeToolContent(input.content, input.encoding);
         const entry = await dependencies.files.write(input.workspaceId, input.path, content, {
           ...(input.ifMatch === undefined ? {} : { ifMatch: input.ifMatch }),
           ...(input.ifNoneMatch === undefined ? {} : { ifNoneMatch: input.ifNoneMatch }),
@@ -225,6 +307,51 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         await dependencies.files.delete(input.workspaceId, input.path, input.ifMatch === undefined ? {} : { ifMatch: input.ifMatch }, signal);
         return { deleted: true };
       }, context.mcpReq.signal, operationTimeoutMs),
+  );
+  server.registerTool(
+    "workspace.batch_create_files",
+    {
+      title: "Batch-create workspace files",
+      description: "Create 1-100 unique files with implicit ifNoneMatch=* and ordered best-effort per-file results.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      inputSchema: workspaceBatchCreateFilesInputSchema,
+      outputSchema: workspaceBatchWriteFilesOutputSchema,
+    },
+    async (input, context) => toolResult(
+      signal => batchWriteFiles(dependencies.files, input.workspaceId, input.files, "create", signal),
+      context.mcpReq.signal,
+      operationTimeoutMs,
+    ),
+  );
+  server.registerTool(
+    "workspace.batch_update_files",
+    {
+      title: "Batch-update workspace files",
+      description: "Update 1-100 unique files with required checksums and ordered best-effort per-file results.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      inputSchema: workspaceBatchUpdateFilesInputSchema,
+      outputSchema: workspaceBatchWriteFilesOutputSchema,
+    },
+    async (input, context) => toolResult(
+      signal => batchWriteFiles(dependencies.files, input.workspaceId, input.files, "update", signal),
+      context.mcpReq.signal,
+      operationTimeoutMs,
+    ),
+  );
+  server.registerTool(
+    "workspace.batch_delete_files",
+    {
+      title: "Batch-delete workspace files",
+      description: "Delete 1-100 unique files with required checksums and ordered best-effort per-file results.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      inputSchema: workspaceBatchDeleteFilesInputSchema,
+      outputSchema: workspaceBatchDeleteFilesOutputSchema,
+    },
+    async (input, context) => toolResult(
+      signal => batchDeleteFiles(dependencies.files, input.workspaceId, input.files, signal),
+      context.mcpReq.signal,
+      operationTimeoutMs,
+    ),
   );
   server.registerTool(
     "workspace.move_file",

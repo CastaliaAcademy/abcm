@@ -49,7 +49,7 @@ describe("MCP tool contract", () => {
       const listed = await client.listTools();
       expect(client.getNegotiatedProtocolVersion()).toBe("2025-11-25");
       expect(client.getServerCapabilities()?.experimental?.["abcm.dev/contract"]).toEqual({
-        contractVersion: "0.1.0",
+        contractVersion: "0.2.0",
         specificationVersion: "0.5.0",
         supportedProtocolVersions: ["2025-11-25"],
         operationTimeoutMs: 30000,
@@ -62,6 +62,9 @@ describe("MCP tool contract", () => {
         "workspace.read_file",
         "workspace.write_file",
         "workspace.delete_file",
+        "workspace.batch_create_files",
+        "workspace.batch_update_files",
+        "workspace.batch_delete_files",
         "workspace.move_file",
         "workspace.create_directory",
         "scope_map.scan",
@@ -74,7 +77,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.3.0",
+        version: "1.4.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
