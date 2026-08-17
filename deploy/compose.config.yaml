@@ -1,7 +1,24 @@
 name: abcm
 
 services:
+  state-init:
+    image: abcm-mcp-server:0.1.0
+    user: "0:0"
+    command: [chown, -R, bun:bun, /state]
+    volumes:
+      - type: volume
+        source: abcm-state
+        target: /state
+    restart: "no"
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+
   rest:
+    depends_on:
+      state-init:
+        condition: service_completed_successfully
     working_dir: /app
     environment:
       ABCM_API_TOKEN: ${ABCM_API_TOKEN:?required}
