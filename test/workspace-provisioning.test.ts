@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -108,5 +109,55 @@ describe("WorkspaceProvisioningService", () => {
       expect.objectContaining({ id: "castalia-public", root: join(storeRoot, "castalia-public") }),
     ]);
     await runtime.close();
+  });
+
+  test("creates the same managed workspace through MCP without accepting a host path", async () => {
+    const primaryRoot = join(temporaryRoot, "primary-mcp");
+    await mkdir(join(primaryRoot, "domain-language"), { recursive: true });
+    await writeFile(join(primaryRoot, "scope.yaml"), "apiVersion: abcm/v1\nkind: workflow\nid: primary\n");
+    await writeFile(
+      join(primaryRoot, "domain-language/DomainLanguageConvention.md"),
+      "---\nmode: inherit-only\n---\n",
+    );
+    const runtime = createAbcmRuntime({ id: "primary", root: primaryRoot }, { workspaceStoreRoot: storeRoot });
+    const server = runtime.createMcpServer();
+    const client = new Client({ name: "workspace-provisioning-client", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    try {
+      expect((await client.listTools()).tools.map(tool => tool.name)).toContain("workspace.create");
+      const rejected = await client.callTool({
+        name: "workspace.create",
+        arguments: { id: "unsafe", language: "ru", root: "C:/outside" },
+      });
+      expect(rejected.isError).toBe(true);
+      expect((rejected.content[0] as { text: string }).text).toContain("Input validation error");
+
+      const created = await client.callTool({
+        name: "workspace.create",
+        arguments: { id: "castalia-public", name: "Castalia Public", language: "ru" },
+      });
+      expect(created.isError).not.toBe(true);
+      expect(created.structuredContent).toEqual({ id: "castalia-public" });
+      expect(runtime.registry.get("castalia-public").root).toBe(join(storeRoot, "castalia-public"));
+      expect(new TextDecoder().decode(
+        (await runtime.files.read("castalia-public", "config/context.yaml")).content,
+      )).toContain("language: ru");
+
+      const duplicate = await client.callTool({
+        name: "workspace.create",
+        arguments: { id: "castalia-public", language: "ru" },
+      });
+      expect(duplicate.isError).toBe(true);
+      expect(JSON.parse((duplicate.content[0] as { text: string }).text)).toEqual(
+        expect.objectContaining({ code: "WORKSPACE_ALREADY_EXISTS" }),
+      );
+    } finally {
+      await client.close();
+      await server.close();
+      await runtime.close();
+    }
   });
 });

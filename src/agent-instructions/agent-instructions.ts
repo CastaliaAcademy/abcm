@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.2.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.3.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.2.0
+Версия: 1.3.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -72,6 +72,14 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 
 Значение language — непустой BCP 47-тег, например ru, ru-RU или en. Отсутствующее, пустое или невалидное поле делает конфигурацию проекта неготовой для работы агента.
 
+Пример MCP, если сервер настроен с управляемым хранилищем рабочих пространств:
+
+    workspace.create({
+      id: "castalia-public",
+      name: "Castalia Public",
+      language: "ru"
+    })
+
 Пример REST:
 
     POST /v1/workspaces
@@ -94,7 +102,7 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 
 Затем создайте domain-language/DomainLanguageConvention.md и обязательные документы плана, роли и навыков. До выполнения задач просканируйте ScopeMap и разрешите язык предметной области.
 
-Эквивалентное создание через MCP выполняется операциями workspace.create_directory и workspace.write_file. Передавайте workspaceId, относительный путь, содержимое UTF-8 и ifNoneMatch со значением * для записи только при отсутствии файла.
+Создание самого рабочего пространства через MCP выполняется только операцией workspace.create. Она принимает id, необязательное name и обязательный BCP 47 language, но не принимает host path: каталог выбирает сервер. После регистрации создавайте проект внутри workspace операциями workspace.create_directory и workspace.write_file; передавайте workspaceId, относительный путь, содержимое UTF-8 и ifNoneMatch со значением * для записи только при отсутствии файла. Если workspace.create отсутствует в списке tools, provisioning отключён оператором и агент обязан запросить регистрацию через настроенный административный REST workflow.
 
 ## Правильные и неправильные инструкции контура
 
@@ -220,6 +228,7 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 ## Карта операций MCP
 
 - agent_instructions.get: эта инструкция; вызывайте первой.
+- workspace.create: создание server-owned рабочего пространства с обязательным языком, если provisioning включён оператором.
 - workspace.list_files, read_file, write_file, delete_file, move_file, create_directory: безопасный жизненный цикл файлов.
 - scope_map.scan: получение актуальной ревизии ScopeMap.
 - context.get_domain_language: обязательный bootstrap языка до толкования пути задачи.

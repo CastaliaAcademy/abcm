@@ -151,6 +151,7 @@ export function createAbcmRuntime(
             ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
             ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),
             ...(documentation === undefined ? {} : { documentation }),
+            ...(workspaceProvisioning === undefined ? {} : { workspaces: workspaceProvisioning }),
           },
           {
             ...(options.mcpEndpointPath === undefined ? {} : { endpointPath: options.mcpEndpointPath }),
@@ -207,6 +208,7 @@ export function createAbcmRuntime(
         ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
         ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),
         ...(documentation === undefined ? {} : { documentation }),
+        ...(workspaceProvisioning === undefined ? {} : { workspaces: workspaceProvisioning }),
       }),
     close: async () => {
       try {

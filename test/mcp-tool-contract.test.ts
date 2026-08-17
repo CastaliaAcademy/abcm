@@ -15,7 +15,8 @@ afterEach(async () => {
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-contract-"));
   const source = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-source-"));
-  roots.push(root, source);
+  const workspaceStore = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-workspaces-"));
+  roots.push(root, source, workspaceStore);
   await writeFile(join(root, "scope.yaml"), "apiVersion: abcm/v1\nkind: workflow\nid: test\nname: Test\n");
   await mkdir(join(root, "domain-language"));
   await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
@@ -30,6 +31,7 @@ async function fixture() {
       contextPrincipal: { principalId: "tool-contract", access },
       scopeMapAccess: access,
       documentationSources: [{ id: "docs", workspaceId: "test", root: source, targetBasePath: "artifacts/mirror" }],
+      workspaceStoreRoot: workspaceStore,
     },
   );
   const server = runtime.createMcpServer();
@@ -55,6 +57,7 @@ describe("MCP tool contract", () => {
       });
       expect(listed.tools.map(tool => tool.name)).toEqual([
         "agent_instructions.get",
+        "workspace.create",
         "workspace.list_files",
         "workspace.read_file",
         "workspace.write_file",
@@ -71,7 +74,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.2.0",
+        version: "1.3.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),

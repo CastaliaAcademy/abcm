@@ -1,10 +1,11 @@
 import { z } from "zod/v4";
 
 import { buildTaskContextSchema } from "../context/schema.js";
+import { projectLanguageTagSchema } from "../core/project-language.js";
 
 export const agentInstructionsInputSchema = z.object({}).strict();
 export const agentInstructionsOutputSchema = z.object({
-  version: z.literal("1.2.0"),
+  version: z.literal("1.3.0"),
   contentType: z.literal("text/markdown; charset=utf-8"),
   checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   content: z.string().min(1),
@@ -13,6 +14,13 @@ export const agentInstructionsOutputSchema = z.object({
 const workspaceId = z.string().min(1);
 const path = z.string();
 const checksum = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+
+export const workspaceCreateInputSchema = z.object({
+  id: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+  name: z.string().min(1).max(160).optional(),
+  language: projectLanguageTagSchema,
+}).strict();
+export const workspaceCreateOutputSchema = z.object({ id: z.string() }).strict();
 
 export const fileEntrySchema = z.object({
   path: z.string(),
@@ -211,6 +219,7 @@ export const documentationCutoverOutputSchema = z.object({
 
 export const ABCM_MCP_TOOL_SCHEMAS = {
   "agent_instructions.get": { input: agentInstructionsInputSchema, output: agentInstructionsOutputSchema },
+  "workspace.create": { input: workspaceCreateInputSchema, output: workspaceCreateOutputSchema },
   "workspace.list_files": { input: workspaceListFilesInputSchema, output: workspaceListFilesOutputSchema },
   "workspace.read_file": { input: workspaceReadFileInputSchema, output: workspaceReadFileOutputSchema },
   "workspace.write_file": { input: workspaceWriteFileInputSchema, output: workspaceWriteFileOutputSchema },

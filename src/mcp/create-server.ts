@@ -18,6 +18,7 @@ import type { DirectoryDocumentationSyncService } from "../documentation/directo
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
+import type { WorkspaceProvisioningService } from "../workspace/provisioning-service.js";
 import { McpResourceCatalog, toMcpProtocolError } from "./resource-catalog.js";
 import {
   agentInstructionsInputSchema,
@@ -35,6 +36,8 @@ import {
   domainLanguageOutputSchema,
   scopeMapScanInputSchema,
   scopeMapScanOutputSchema,
+  workspaceCreateInputSchema,
+  workspaceCreateOutputSchema,
   workspaceCreateDirectoryInputSchema,
   workspaceCreateDirectoryOutputSchema,
   workspaceDeleteFileInputSchema,
@@ -58,6 +61,7 @@ export interface AbcmMcpDependencies {
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
   documentation?: DirectoryDocumentationSyncService;
+  workspaces?: WorkspaceProvisioningService;
   mcpResourcePageSize?: number;
   mcpOperationTimeoutMs?: number;
 }
@@ -133,6 +137,27 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     async (_input, context) => toolResult(async () => getAbcmAgentInstructions(), context.mcpReq.signal, operationTimeoutMs),
   );
   if (!dependencies) return server;
+  if (dependencies.workspaces !== undefined) {
+    server.registerTool(
+      "workspace.create",
+      {
+        title: "Create managed workspace",
+        description: "Create and register a server-owned workspace with an initial workflow scope, required project language configuration, and inherited domain-language convention.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: workspaceCreateInputSchema,
+        outputSchema: workspaceCreateOutputSchema,
+      },
+      async (input, context) => toolResult(
+        async signal => dependencies.workspaces!.create({
+          id: input.id,
+          language: input.language,
+          ...(input.name === undefined ? {} : { name: input.name }),
+        }, signal),
+        context.mcpReq.signal,
+        operationTimeoutMs,
+      ),
+    );
+  }
   server.registerTool(
     "workspace.list_files",
     {

@@ -1,6 +1,5 @@
 import { z } from "zod/v4";
 
-import { projectLanguageTagSchema } from "../core/project-language.js";
 import { OBSIDIAN_SYNC_REST_SCHEMAS } from "../sync/rest-schemas.js";
 
 import {
@@ -15,16 +14,14 @@ import {
   domainLanguageOutputSchema,
   fileEntrySchema,
   scopeMapScanOutputSchema,
+  workspaceCreateInputSchema,
+  workspaceCreateOutputSchema,
   workspaceCreateDirectoryInputSchema,
   workspaceMoveFileInputSchema,
 } from "../mcp/tool-schemas.js";
 
-export const workspaceRegistrationSchema = z.object({
-  id: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
-  name: z.string().min(1).max(160).optional(),
-  language: projectLanguageTagSchema,
-}).strict();
-export const workspaceRegistrationOutputSchema = z.object({ id: z.string() }).strict();
+export const workspaceRegistrationSchema = workspaceCreateInputSchema;
+export const workspaceRegistrationOutputSchema = workspaceCreateOutputSchema;
 
 export const restMoveFileInputSchema = workspaceMoveFileInputSchema.omit({ workspaceId: true });
 export const restCreateDirectoryInputSchema = workspaceCreateDirectoryInputSchema.omit({ workspaceId: true });
