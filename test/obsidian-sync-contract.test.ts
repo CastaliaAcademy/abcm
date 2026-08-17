@@ -56,9 +56,9 @@ describe("Obsidian synchronization contracts", () => {
       expect(() => syncPreviewRequestSchema.parse({ cursor: null, inventory: [{ path, checksum, size: 1 }] })).toThrow();
     }
     expect(() => syncPortableInventorySchema.parse([
-      { path: "Notes/Cafe\u0301.md", checksum, size: 1 },
-      { path: "notes/Caf\u00e9.md", checksum, size: 1 },
-    ])).toThrow();
+      { path: "Notes/Caf\u00e9.md", checksum, size: 1 },
+      { path: "notes/caf\u00e9.md", checksum, size: 1 },
+    ])).toThrow("Portable path 'notes/caf\u00e9.md' collides with inventory path 'Notes/Caf\u00e9.md'.");
   });
 
   test("requires checksummed idempotent mutations and explicit conflict policy", () => {

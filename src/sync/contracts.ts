@@ -92,7 +92,7 @@ export const syncPortableInventorySchema = z.array(syncInventoryEntrySchema).max
       context.addIssue({
         code: "custom",
         path: [index, "path"],
-        message: `Portable path collides with inventory entry ${previous}.`,
+        message: `Portable path '${entry.path}' collides with inventory path '${entries[previous]!.path}'.`,
       });
     } else {
       seen.set(key, index);
