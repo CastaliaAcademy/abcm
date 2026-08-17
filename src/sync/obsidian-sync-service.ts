@@ -23,6 +23,7 @@ import {
   type SyncConflictResolution,
   type SyncPreviewResult,
 } from "./contracts.js";
+import { planIdentityAwarePreview } from "./preview-planner.js";
 import {
   SqliteObsidianDeviceStore,
   type ObsidianDevicePrincipal,
@@ -176,25 +177,26 @@ export class ObsidianSyncService {
     const principal = this.#authenticate(request, workspaceId, projectId, "read");
     const parsed = syncPreviewRequestSchema.parse(input);
     const journal = this.#journal(workspaceId, projectId);
-    const hasUnseenServerChanges = parsed.cursor !== null && journal.changesAfter(parsed.cursor, 1).changes.length > 0;
     const server = (await this.#inventory(principal, signal)).filter(entry => includedByFilters(entry.path, parsed.include, parsed.exclude));
     const localInventory = parsed.inventory.filter(entry => includedByFilters(entry.path, parsed.include, parsed.exclude));
-    const localByPath = new Map(localInventory.map(entry => [portablePathKey(entry.path), entry]));
-    const serverByPath = new Map(server.map(entry => [portablePathKey(entry.path), entry]));
-    const keys = [...new Set([...localByPath.keys(), ...serverByPath.keys()])].sort();
-    const items = keys.map(key => {
-      const local = localByPath.get(key);
-      const remote = serverByPath.get(key);
-      const path = local?.path ?? remote!.path;
-      return {
-        action: local === undefined ? "create-local" as const : remote === undefined ? "create-server" as const : local.checksum === remote.checksum ? "noop" as const : parsed.cursor === null || hasUnseenServerChanges ? "conflict" as const : "update-server" as const,
-        objectId: journal.getObjectByPath(path)?.objectId ?? this.#initialObjectId(workspaceId, projectId, path),
-        path,
-        localChecksum: local?.checksum ?? null,
-        serverChecksum: remote?.checksum ?? null,
-        size: local?.size ?? remote?.size ?? null,
-      };
-    });
+    for (const entry of server) {
+      journal.ensureObjectSnapshot({
+        objectId: journal.getObjectByPath(entry.path)?.objectId ?? this.#initialObjectId(workspaceId, projectId, entry.path),
+        path: entry.path,
+        checksum: entry.checksum,
+      });
+    }
+    const items = parsed.base === undefined
+      ? this.#legacyPreviewItems(workspaceId, projectId, parsed.cursor, localInventory, server, journal)
+      : planIdentityAwarePreview({
+        base: parsed.base.filter(entry => includedByFilters(entry.path, parsed.include, parsed.exclude)),
+        local: localInventory,
+        server: server.map(entry => ({
+          ...entry,
+          objectId: journal.getObjectByPath(entry.path)?.objectId ?? this.#initialObjectId(workspaceId, projectId, entry.path),
+        })),
+        objectIdForPath: path => this.#initialObjectId(workspaceId, projectId, path),
+      });
     const previewId = `preview_${randomUUID().replaceAll("-", "")}`;
     const serverRevision = digest(server.map(({ path, checksum, size }) => ({ path, checksum, size })));
     const cursor = journal.currentCursor();
@@ -206,6 +208,26 @@ export class ObsidianSyncService {
     );
     this.#audit("sync.preview", "success", workspaceId, principal.deviceId);
     return { previewId, serverRevision, cursor, expiresAt: new Date(expiresAtMs).toISOString(), items };
+  }
+
+  #legacyPreviewItems(workspaceId: string, projectId: string, cursor: string | null, localInventory: { path: string; checksum: string; size: number }[], server: { path: string; checksum: string; size: number }[], journal: SqliteSyncJournal): SyncPreviewResult["items"] {
+    const hasUnseenServerChanges = cursor !== null && journal.changesAfter(cursor, 1).changes.length > 0;
+    const localByPath = new Map(localInventory.map(entry => [portablePathKey(entry.path), entry]));
+    const serverByPath = new Map(server.map(entry => [portablePathKey(entry.path), entry]));
+    const keys = [...new Set([...localByPath.keys(), ...serverByPath.keys()])].sort();
+    return keys.map(key => {
+      const local = localByPath.get(key);
+      const remote = serverByPath.get(key);
+      const path = local?.path ?? remote!.path;
+      return {
+        action: local === undefined ? "create-local" as const : remote === undefined ? "create-server" as const : local.checksum === remote.checksum ? "noop" as const : cursor === null || hasUnseenServerChanges ? "conflict" as const : "update-server" as const,
+        objectId: journal.getObjectByPath(path)?.objectId ?? this.#initialObjectId(workspaceId, projectId, path),
+        path,
+        localChecksum: local?.checksum ?? null,
+        serverChecksum: remote?.checksum ?? null,
+        size: local?.size ?? remote?.size ?? null,
+      };
+    });
   }
 
   async readContent(request: Request, workspaceId: string, projectId: string, path: string, signal?: AbortSignal) {
@@ -560,8 +582,8 @@ export class ObsidianSyncService {
       : operation.kind === "update"
         ? (item?.action === "update-server" || item?.action === "conflict") && local?.checksum === operation.checksum
         : operation.kind === "delete"
-          ? item?.action === "delete-server"
-          : item?.action === "move-server";
+          ? item?.action === "delete-server" || item?.action === "conflict"
+          : item?.action === "move-server" || item?.action === "conflict";
     if (!allowed) throw new AbcmError("SYNC_OBJECT_CONFLICT", "Synchronization operation is not authorized by the pinned preview plan.", { operationId: operation.operationId, path: operation.path });
     return item!.action;
   }

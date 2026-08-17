@@ -184,7 +184,7 @@ describe("Obsidian synchronization REST API", () => {
     await runtime.close();
   });
 
-  test("lazily anchors a preview-issued server object before its first CAS update", async () => {
+  test("anchors a preview-issued server object without a synthetic change event", async () => {
     const { root, runtime } = await fixture();
     const grant = await pair(runtime);
     const baselineResponse = await runtime.restHandler(jsonRequest(
@@ -215,7 +215,7 @@ describe("Obsidian synchronization REST API", () => {
       { headers: { authorization: "Bearer " + grant.credential } },
     ));
     const events = (await changes.json() as { changes: { kind: string; objectId: string }[] }).changes;
-    expect(events.map(event => event.kind)).toEqual(["create", "update"]);
+    expect(events.map(event => event.kind)).toEqual(["update"]);
     expect(new Set(events.map(event => event.objectId))).toEqual(new Set([item.objectId]));
     await runtime.close();
   });

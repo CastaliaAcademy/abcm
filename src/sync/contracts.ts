@@ -100,9 +100,27 @@ export const syncPortableInventorySchema = z.array(syncInventoryEntrySchema).max
   });
 });
 
+export const syncBaseEntrySchema = z.object({
+  objectId: syncObjectIdSchema,
+  path: syncPortablePathSchema,
+  checksum: syncChecksumSchema,
+}).strict();
+export const syncBaseStateSchema = z.array(syncBaseEntrySchema).max(10_000).superRefine((entries, context) => {
+  const objectIds = new Set<string>();
+  const paths = new Set<string>();
+  entries.forEach((entry, index) => {
+    const pathKey = portablePathKey(entry.path);
+    if (objectIds.has(entry.objectId)) context.addIssue({ code: "custom", path: [index, "objectId"], message: "Base state contains a duplicate object identity." });
+    if (paths.has(pathKey)) context.addIssue({ code: "custom", path: [index, "path"], message: "Base state contains a portable path collision." });
+    objectIds.add(entry.objectId);
+    paths.add(pathKey);
+  });
+});
+
 export const syncPreviewRequestSchema = z.object({
   cursor: syncCursorSchema.nullable(),
   inventory: syncPortableInventorySchema,
+  base: syncBaseStateSchema.optional(),
   include: z.array(z.string().min(1).max(256)).max(64).optional(),
   exclude: z.array(z.string().min(1).max(256)).max(64).optional(),
 }).strict();

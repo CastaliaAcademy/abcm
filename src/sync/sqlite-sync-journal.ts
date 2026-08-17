@@ -128,6 +128,28 @@ export class SqliteSyncJournal {
     return this.#cursor(Math.max(0, sequence - 1));
   }
 
+  ensureObjectSnapshot(raw: { objectId: string; path: string; checksum: string }): SyncJournalObject {
+    const objectId = syncObjectIdSchema.parse(raw.objectId);
+    const path = syncPortablePathSchema.parse(raw.path);
+    const checksum = syncChecksumSchema.parse(raw.checksum);
+    return this.#database.transaction(() => {
+      const byId = this.getObject(objectId);
+      const byPath = this.getObjectByPath(path);
+      if (byId === undefined && byPath === undefined) {
+        this.#database.run(
+          "INSERT INTO sync_objects (object_id, path, path_key, checksum, deleted, version) VALUES (?, ?, ?, ?, 0, 1)",
+          [objectId, path, portablePathKey(path), checksum],
+        );
+        return { objectId, path, checksum, deleted: false, version: 1 };
+      }
+      const existing = byId ?? byPath!;
+      if (existing.objectId !== objectId || existing.path !== path || existing.checksum !== checksum || existing.deleted) {
+        throw new AbcmError("SYNC_OBJECT_CONFLICT", "Synchronization snapshot differs from the durable object identity.", { objectId, path });
+      }
+      return existing;
+    }).immediate();
+  }
+
   record(rawInput: SyncJournalMutation): SyncJournalRecordResult {
     const input = parseMutation(rawInput);
     const requestDigest = mutationDigest(input);
