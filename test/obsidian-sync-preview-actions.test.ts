@@ -88,7 +88,7 @@ describe("identity-aware Obsidian preview actions", () => {
       cursor: preview.cursor, previewId: preview.previewId, serverRevision: preview.serverRevision,
       operations: [{
         operationId: "op_move_preview_000001", objectId: base.objectId, kind: "move", previousPath: "note.md", path: "renamed.md",
-        baseChecksum: base.checksum, checksum: base.checksum,
+        baseChecksum: base.checksum, checksum: base.checksum, contentBase64: Buffer.from("base").toString("base64"), contentType: "text/markdown", size: 4,
       }],
     }, grant.credential));
     expect(applied.status).toBe(200);

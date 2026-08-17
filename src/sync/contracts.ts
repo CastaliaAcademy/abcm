@@ -176,7 +176,7 @@ export const syncApplyOperationSchema = z.discriminatedUnion("kind", [
   operationBase.extend({ kind: z.literal("create"), checksum: syncChecksumSchema, ...encodedContent }).strict(),
   operationBase.extend({ kind: z.literal("update"), baseChecksum: syncChecksumSchema, checksum: syncChecksumSchema, ...encodedContent }).strict(),
   operationBase.extend({ kind: z.literal("delete"), baseChecksum: syncChecksumSchema }).strict(),
-  operationBase.extend({ kind: z.literal("move"), previousPath: syncPortablePathSchema, baseChecksum: syncChecksumSchema, checksum: syncChecksumSchema }).strict(),
+  operationBase.extend({ kind: z.literal("move"), previousPath: syncPortablePathSchema, baseChecksum: syncChecksumSchema, checksum: syncChecksumSchema, ...encodedContent }).strict(),
 ]);
 
 export const syncApplyBatchSchema = z.object({
@@ -208,6 +208,8 @@ export const syncConflictSchema = z.object({
   objectId: syncObjectIdSchema,
   kind: z.enum(["concurrent-update", "delete-update", "move-move", "portable-path"]),
   path: syncPortablePathSchema,
+  localPath: syncPortablePathSchema.nullable(),
+  serverPath: syncPortablePathSchema.nullable(),
   local: syncConflictSideSchema,
   server: syncConflictSideSchema,
   baseChecksum: syncChecksumSchema.nullable(),

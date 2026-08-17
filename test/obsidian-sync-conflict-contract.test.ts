@@ -15,6 +15,8 @@ describe("Obsidian conflict contracts", () => {
       objectId: "obj_01JABCDEF0123456789",
       kind: "delete-update",
       path: "note.md",
+      localPath: "note.md",
+      serverPath: null,
       local: { state: "present", checksum, size: 12, contentType: "text/markdown" },
       server: { state: "deleted", baseChecksum: checksum },
       baseChecksum: checksum,

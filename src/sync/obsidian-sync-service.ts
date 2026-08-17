@@ -12,6 +12,7 @@ import {
   portablePathKey,
   syncApplyBatchSchema,
   syncConflictIdSchema,
+  syncConflictSchema,
   syncConflictResolutionSchema,
   syncPairingCreateSchema,
   syncPairingRedeemSchema,
@@ -301,9 +302,10 @@ export class ObsidianSyncService {
   async resolveConflict(request: Request, workspaceId: string, projectId: string, conflictId: string, input: unknown, signal?: AbortSignal): Promise<OperationReceipt> {
     const principal = this.#authenticate(request, workspaceId, projectId, "write");
     const resolution = syncConflictResolutionSchema.parse(input);
+    const resolutionDigest = digest(resolution);
     const existingReceipt = this.#receipt(resolution.operationId);
     if (existingReceipt !== undefined) {
-      if (existingReceipt.request_digest !== digest(resolution)) throw new AbcmError("SYNC_IDEMPOTENCY_CONFLICT", "Conflict resolution operation id was reused with different content.", { operationId: resolution.operationId });
+      if (existingReceipt.request_digest !== resolutionDigest) throw new AbcmError("SYNC_IDEMPOTENCY_CONFLICT", "Conflict resolution operation id was reused with different content.", { operationId: resolution.operationId });
       const receipt = JSON.parse(existingReceipt.receipt_json) as OperationReceipt;
       return receipt.status === "applied" ? { ...receipt, status: "duplicate" } : receipt;
     }
@@ -312,48 +314,131 @@ export class ObsidianSyncService {
     ).get(conflictId, workspaceId, projectId);
     if (row === null) throw new AbcmError("SYNC_OBJECT_NOT_FOUND", "Synchronization conflict was not found.", { conflictId });
     if (row.status !== "open") throw new AbcmError("SYNC_OBJECT_CONFLICT", "Synchronization conflict is already resolved.", { conflictId });
-    const conflict = JSON.parse(row.payload_json) as SyncConflict;
+    const conflict = syncConflictSchema.parse(JSON.parse(row.payload_json));
     this.#assertResolutionChecksums(conflict, resolution);
     const journal = this.#journal(workspaceId, projectId);
-    const object = journal.getObject(conflict.objectId);
-    if (object === undefined || object.deleted) throw new AbcmError("SYNC_OBJECT_CONFLICT", "Conflict object is no longer available for resolution.");
-    let event;
-    if (resolution.resolution === "keep-server") {
-      event = journal.record({
-        kind: "update", operationId: resolution.operationId, originDeviceId: principal.deviceId,
-        objectId: object.objectId, path: object.path, baseChecksum: object.checksum, checksum: object.checksum,
-        size: conflict.server.state === "present" ? conflict.server.size : 0,
-        contentType: conflict.server.state === "present" ? conflict.server.contentType : "application/octet-stream",
-      }).event;
-    } else {
-      if (row.local_content === null || conflict.local.state !== "present") throw new AbcmError("SYNC_OBJECT_CONFLICT", "Conflict has no local bytes to preserve.");
-      const targetPath = resolution.resolution === "keep-both" ? resolution.keepBothPath : conflict.path;
-      const fullPath = this.#fullPath(principal, targetPath);
-      this.#captureSuppression += 1;
-      try {
-        const written = await this.#files.write(
-          workspaceId,
-          fullPath,
-          row.local_content,
-          resolution.resolution === "keep-both" ? { ifNoneMatch: "*" } : { ifMatch: object.checksum },
-          signal,
-        );
-        event = journal.record(resolution.resolution === "keep-both" ? {
-          kind: "create", operationId: resolution.operationId, originDeviceId: principal.deviceId,
-          objectId: `obj_${randomUUID().replaceAll("-", "")}`, path: targetPath, checksum: written.checksum,
-          size: written.size, contentType: conflict.local.contentType,
-        } : {
-          kind: "update", operationId: resolution.operationId, originDeviceId: principal.deviceId,
-          objectId: object.objectId, path: object.path, baseChecksum: object.checksum, checksum: written.checksum,
-          size: written.size, contentType: conflict.local.contentType,
-        }).event;
-      } finally {
-        this.#captureSuppression -= 1;
+    const current = journal.getObject(conflict.objectId);
+    const serverChecksum = conflict.server.state === "present" ? conflict.server.checksum : null;
+    if (conflict.server.state === "present") {
+      if (conflict.serverPath === null || current === undefined || current.deleted || current.path !== conflict.serverPath || current.checksum !== conflict.server.checksum) {
+        throw new AbcmError("SYNC_OBJECT_CONFLICT", "Server conflict state changed before resolution.", { conflictId });
       }
+    } else if (current !== undefined && !current.deleted) {
+      throw new AbcmError("SYNC_OBJECT_CONFLICT", "Server conflict deletion changed before resolution.", { conflictId });
     }
+
+    const localBytes = (): Uint8Array => {
+      if (conflict.local.state !== "present" || conflict.localPath === null || row.local_content === null) {
+        throw new AbcmError("SYNC_OBJECT_CONFLICT", "Conflict has no local bytes to preserve.");
+      }
+      if (row.local_content.byteLength !== conflict.local.size || checksumBytes(row.local_content) !== conflict.local.checksum) {
+        throw new AbcmError("SYNC_JOURNAL_CORRUPT", "Stored conflict bytes do not match conflict metadata.", { conflictId });
+      }
+      return row.local_content;
+    };
+    const internalOperationId = (purpose: string): string =>
+      "op_" + createHash("sha256").update(resolution.operationId + "\0" + purpose).digest("hex").slice(0, 32);
+    const objectIdForCopy = (path: string): string =>
+      "obj_" + createHash("sha256").update(resolution.operationId + "\0" + path).digest("hex").slice(0, 32);
+    const withSuppressedCapture = async <T>(action: () => Promise<T>): Promise<T> => {
+      this.#captureSuppression += 1;
+      try { return await action(); }
+      finally { this.#captureSuppression -= 1; }
+    };
+    const createCopy = async (path: string, content: Uint8Array, checksum: string, contentType: string, operationId: string) => {
+      const fullPath = this.#fullPath(principal, path);
+      const existing = await this.#tryRead(workspaceId, fullPath);
+      let entry = existing?.entry;
+      if (existing !== undefined && existing.entry.checksum !== checksum) {
+        throw new AbcmError("SYNC_OBJECT_CONFLICT", "Conflict copy path is occupied by different bytes.", { path });
+      }
+      if (existing === undefined) {
+        entry = await withSuppressedCapture(() => this.#files.write(workspaceId, fullPath, content, { ifNoneMatch: "*" }, signal));
+      }
+      if (entry === undefined || entry.checksum !== checksum) throw new AbcmError("SYNC_OBJECT_CONFLICT", "Conflict copy checksum verification failed.", { path });
+      return journal.record({
+        kind: "create", operationId, originDeviceId: principal.deviceId, objectId: objectIdForCopy(path),
+        path, checksum: entry.checksum, size: entry.size, contentType,
+      }).event;
+    };
+    const deleteServer = async (operationId: string) => {
+      if (conflict.server.state !== "present" || conflict.serverPath === null || current === undefined || current.deleted) return undefined;
+      await withSuppressedCapture(() => this.#files.delete(
+        workspaceId, this.#fullPath(principal, conflict.serverPath!), { ifMatch: serverChecksum! }, signal,
+      ));
+      return journal.record({
+        kind: "delete", operationId, originDeviceId: principal.deviceId, objectId: current.objectId,
+        path: current.path, baseChecksum: current.checksum,
+      }).event;
+    };
+
+    let event: { cursor: string; objectId: string; checksum?: string } | undefined;
+    if (resolution.resolution === "keep-server") {
+      // The server is already authoritative; the checksummed resolution itself is the auditable operation.
+    } else if (resolution.resolution === "keep-local") {
+      if (conflict.local.state === "deleted") {
+        event = await deleteServer(resolution.operationId);
+      } else {
+        const content = localBytes();
+        const localPath = conflict.localPath!;
+        if (conflict.server.state === "deleted") {
+          const restored = await withSuppressedCapture(() => this.#files.write(
+            workspaceId, this.#fullPath(principal, localPath), content, { ifNoneMatch: "*" }, signal,
+          ));
+          event = journal.record({
+            kind: "create", operationId: resolution.operationId, originDeviceId: principal.deviceId,
+            objectId: conflict.objectId, path: localPath, checksum: restored.checksum,
+            size: restored.size, contentType: conflict.local.contentType,
+          }).event;
+        } else if (current !== undefined && conflict.serverPath === localPath) {
+          const written = await withSuppressedCapture(() => this.#files.write(
+            workspaceId, this.#fullPath(principal, localPath), content, { ifMatch: serverChecksum! }, signal,
+          ));
+          event = journal.record({
+            kind: "update", operationId: resolution.operationId, originDeviceId: principal.deviceId,
+            objectId: current.objectId, path: current.path, baseChecksum: current.checksum,
+            checksum: written.checksum, size: written.size, contentType: conflict.local.contentType,
+          }).event;
+        } else if (current !== undefined && conflict.serverPath !== null) {
+          const moved = await withSuppressedCapture(async () => {
+            await this.#files.move(
+              workspaceId, this.#fullPath(principal, conflict.serverPath!), this.#fullPath(principal, localPath),
+              { ifMatch: serverChecksum! }, signal,
+            );
+            return this.#files.write(
+              workspaceId, this.#fullPath(principal, localPath), content, { ifMatch: serverChecksum! }, signal,
+            );
+          });
+          event = journal.record({
+            kind: "move", operationId: resolution.operationId, originDeviceId: principal.deviceId,
+            objectId: current.objectId, previousPath: current.path, path: localPath, baseChecksum: current.checksum,
+            checksum: moved.checksum, size: moved.size, contentType: conflict.local.contentType,
+          }).event;
+        }
+      }
+    } else if (conflict.local.state === "present") {
+      event = await createCopy(resolution.keepBothPath, localBytes(), conflict.local.checksum, conflict.local.contentType, resolution.operationId);
+    } else if (conflict.server.state === "present" && conflict.serverPath !== null) {
+      const serverContent = await this.#files.read(workspaceId, this.#fullPath(principal, conflict.serverPath), signal);
+      if (serverContent.entry.checksum !== serverChecksum!) {
+        throw new AbcmError("SYNC_OBJECT_CONFLICT", "Server conflict bytes changed before keep-both resolution.", { conflictId });
+      }
+      await createCopy(
+        resolution.keepBothPath, serverContent.content, serverChecksum!, conflict.server.contentType,
+        internalOperationId("keep-both-copy"),
+      );
+      event = await deleteServer(resolution.operationId);
+    }
+
     this.#control.run("UPDATE sync_conflicts SET status = 'resolved', resolved_at_ms = ?, resolution_json = ? WHERE conflict_id = ?", [this.#clock(), JSON.stringify(resolution), conflictId]);
-    const receipt: OperationReceipt = { operationId: resolution.operationId, cursor: event.cursor, objectId: event.objectId, checksum: "checksum" in event ? event.checksum : null, status: "applied" };
-    this.#storeReceipt(resolution.operationId, digest(resolution), receipt);
+    const receipt: OperationReceipt = {
+      operationId: resolution.operationId,
+      cursor: event?.cursor ?? journal.currentCursor(),
+      objectId: event?.objectId ?? conflict.objectId,
+      checksum: event !== undefined && "checksum" in event ? event.checksum ?? null : conflict.server.state === "present" ? serverChecksum! : null,
+      status: "applied",
+    };
+    this.#storeReceipt(resolution.operationId, resolutionDigest, receipt);
     this.#audit("sync.conflict.resolve", "success", workspaceId, principal.deviceId);
     return receipt;
   }
@@ -407,6 +492,7 @@ export class ObsidianSyncService {
         } else if (operation.kind === "delete") {
           await this.#files.delete(principal.workspaceId, this.#fullPath(principal, operation.path), { ifMatch: operation.baseChecksum }, signal);
         } else {
+          this.#content(operation);
           entry = await this.#files.move(
             principal.workspaceId,
             this.#fullPath(principal, operation.previousPath),
@@ -476,7 +562,7 @@ export class ObsidianSyncService {
     return { kind: "move", operationId: operation.operationId, originDeviceId: deviceId, objectId: operation.objectId, previousPath: operation.previousPath, path: operation.path, baseChecksum: operation.baseChecksum, checksum: operation.checksum, size: moveSize ?? 0, contentType: moveContentType ?? "application/octet-stream" };
   }
 
-  #content(operation: Extract<SyncApplyOperation, { kind: "create" | "update" }>): Uint8Array {
+  #content(operation: Extract<SyncApplyOperation, { kind: "create" | "update" | "move" }>): Uint8Array {
     const content = Uint8Array.from(Buffer.from(operation.contentBase64, "base64"));
     if (content.byteLength !== operation.size || checksumBytes(content) !== operation.checksum) {
       throw new AbcmError("REQUEST_INVALID", "Synchronization content size or checksum does not match its declaration.");
@@ -486,19 +572,26 @@ export class ObsidianSyncService {
 
   async #recordConflict(principal: ObsidianDevicePrincipal, operation: SyncApplyOperation, requestDigest: string): Promise<OperationReceipt> {
     const conflictId = `conflict_${randomUUID().replaceAll("-", "")}`;
-    const serverRead = await this.#tryRead(principal.workspaceId, this.#fullPath(principal, operation.path));
-    const localContent = operation.kind === "create" || operation.kind === "update" ? this.#content(operation) : null;
+    const journal = this.#journal(principal.workspaceId, principal.projectId);
+    const serverObject = journal.getObject(operation.objectId);
+    const serverPath = serverObject !== undefined && !serverObject.deleted ? serverObject.path : operation.kind === "create" ? operation.path : null;
+    const serverRead = serverPath === null ? undefined : await this.#tryRead(principal.workspaceId, this.#fullPath(principal, serverPath));
+    const localContent = operation.kind === "delete" ? null : this.#content(operation);
+    const localPath = operation.kind === "delete" ? null : operation.path;
     const local = operation.kind === "delete"
       ? { state: "deleted" as const, baseChecksum: operation.baseChecksum }
-      : { state: "present" as const, checksum: operation.checksum, size: operation.kind === "move" ? 0 : operation.size, contentType: operation.kind === "move" ? "application/octet-stream" : operation.contentType };
+      : { state: "present" as const, checksum: operation.checksum, size: operation.size, contentType: operation.contentType };
     const server = serverRead === undefined
       ? { state: "deleted" as const, baseChecksum: "baseChecksum" in operation ? operation.baseChecksum : operation.checksum }
       : { state: "present" as const, checksum: serverRead.entry.checksum, size: serverRead.entry.size, contentType: serverRead.contentType };
+    const movedOnServer = serverPath !== null && serverPath !== (operation.kind === "move" ? operation.previousPath : operation.path);
     const conflict: SyncConflict = {
       conflictId,
       objectId: operation.objectId,
-      kind: operation.kind === "delete" ? "delete-update" : "concurrent-update",
-      path: operation.path,
+      kind: operation.kind === "delete" || serverRead === undefined ? "delete-update" : movedOnServer ? "move-move" : "concurrent-update",
+      path: localPath ?? serverPath ?? operation.path,
+      localPath,
+      serverPath: serverRead === undefined ? null : serverPath,
       local,
       server,
       baseChecksum: "baseChecksum" in operation ? operation.baseChecksum : null,
@@ -574,7 +667,8 @@ export class ObsidianSyncService {
     } catch {
       throw new AbcmError("SYNC_JOURNAL_CORRUPT", "Synchronization preview plan is invalid.");
     }
-    const item = plan.items.find(candidate => portablePathKey(candidate.path) === portablePathKey(operation.path));
+    const item = plan.items.find(candidate => portablePathKey(candidate.path) === portablePathKey(operation.path))
+      ?? plan.items.find(candidate => candidate.action === "conflict" && candidate.objectId === operation.objectId);
     const local = plan.inventory.find(candidate => portablePathKey(candidate.path) === portablePathKey(operation.path));
     if (item?.objectId !== operation.objectId) throw new AbcmError("SYNC_OBJECT_CONFLICT", "Synchronization object id does not match the pinned preview plan.", { operationId: operation.operationId });
     const allowed = operation.kind === "create"

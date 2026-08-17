@@ -168,8 +168,13 @@ export class SqliteSyncJournal {
       }
 
       const objectId = input.kind === "create" ? input.objectId ?? `obj_${randomUUID().replaceAll("-", "")}` : input.objectId;
-      const current = input.kind === "create" ? undefined : this.#requiredObject(objectId);
+      const current = input.kind === "create"
+        ? input.objectId === undefined ? undefined : this.getObject(objectId)
+        : this.#requiredObject(objectId);
       if (input.kind === "create") {
+        if (current !== undefined && !current.deleted) {
+          throw new AbcmError("SYNC_OBJECT_CONFLICT", "Synchronization create object already exists.", { objectId });
+        }
         this.#assertPathAvailable(input.path);
       } else {
         if (current === undefined) throw new AbcmError("SYNC_JOURNAL_CORRUPT", "Synchronization object lookup did not return a record.");
@@ -208,10 +213,18 @@ export class SqliteSyncJournal {
       this.#database.run("UPDATE sync_events SET payload_json = ? WHERE sequence = ?", [eventJson, sequence]);
 
       if (input.kind === "create") {
-        this.#database.run(
-          "INSERT INTO sync_objects (object_id, path, path_key, checksum, deleted, version) VALUES (?, ?, ?, ?, 0, 1)",
-          [objectId, input.path, portablePathKey(input.path), input.checksum],
-        );
+        if (current?.deleted) {
+          this.#database.run(
+            "UPDATE sync_objects SET path = ?, path_key = ?, checksum = ?, deleted = 0, version = version + 1 WHERE object_id = ?",
+            [input.path, portablePathKey(input.path), input.checksum, objectId],
+          );
+          this.#database.run("DELETE FROM sync_tombstones WHERE object_id = ?", [objectId]);
+        } else {
+          this.#database.run(
+            "INSERT INTO sync_objects (object_id, path, path_key, checksum, deleted, version) VALUES (?, ?, ?, ?, 0, 1)",
+            [objectId, input.path, portablePathKey(input.path), input.checksum],
+          );
+        }
       } else if (input.kind === "delete") {
         this.#database.run("UPDATE sync_objects SET deleted = 1, version = version + 1 WHERE object_id = ?", [objectId]);
         this.#database.run(
