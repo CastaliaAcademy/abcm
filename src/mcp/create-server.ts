@@ -54,10 +54,14 @@ import {
   workspaceCreateOutputSchema,
   workspaceCreateDirectoryInputSchema,
   workspaceCreateDirectoryOutputSchema,
+  workspaceDeleteDirectoryInputSchema,
+  workspaceDeleteDirectoryOutputSchema,
   workspaceDeleteFileInputSchema,
   workspaceDeleteFileOutputSchema,
   workspaceListFilesInputSchema,
   workspaceListFilesOutputSchema,
+  workspaceMoveDirectoryInputSchema,
+  workspaceMoveDirectoryOutputSchema,
   workspaceMoveFileInputSchema,
   workspaceMoveFileOutputSchema,
   workspaceReadFileInputSchema,
@@ -342,6 +346,33 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       outputSchema: workspaceCreateDirectoryOutputSchema,
     },
     async (input, context) => toolResult(async signal => ({ entry: await dependencies.files.createDirectory(input.workspaceId, input.path, signal) }), context.mcpReq.signal, operationTimeoutMs),
+  );
+  server.registerTool(
+    "workspace.move_directory",
+    {
+      title: "Move workspace directory",
+      description: "Move one allowed project directory and all regular-file descendants without overwriting the target.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+      inputSchema: workspaceMoveDirectoryInputSchema,
+      outputSchema: workspaceMoveDirectoryOutputSchema,
+    },
+    async (input, context) => toolResult(async signal => ({
+      entry: await dependencies.files.moveDirectory(input.workspaceId, input.from, input.to, signal),
+    }), context.mcpReq.signal, operationTimeoutMs),
+  );
+  server.registerTool(
+    "workspace.delete_directory",
+    {
+      title: "Delete workspace directory",
+      description: "Recursively delete one allowed project directory after explicit recursive=true confirmation.",
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+      inputSchema: workspaceDeleteDirectoryInputSchema,
+      outputSchema: workspaceDeleteDirectoryOutputSchema,
+    },
+    async (input, context) => toolResult(async signal => {
+      await dependencies.files.deleteDirectory(input.workspaceId, input.path, { recursive: input.recursive }, signal);
+      return { deleted: true };
+    }, context.mcpReq.signal, operationTimeoutMs),
   );
   server.registerTool(
     "scope_map.scan",

@@ -28,6 +28,7 @@ import {
   restCreateDirectoryInputSchema,
   restDocumentationPreviewInputSchema,
   restDocumentationCutoverInputSchema,
+  restMoveDirectoryInputSchema,
   restMoveFileInputSchema,
   restWorkspaceBatchApplyInputSchema,
   restWorkspaceUploadStartInputSchema,
@@ -441,6 +442,17 @@ export function createAbcmRestHandler(
       if (endpoint === "/directories" && request.method === "POST") {
         const body = await readJson(request, restCreateDirectoryInputSchema, maxRequestBodyBytes, signal);
         return json(await dependencies.files.createDirectory(workspaceId, body.path, signal), 201);
+      }
+      if (endpoint === "/directories" && request.method === "DELETE") {
+        if (url.searchParams.get("recursive") !== "true") {
+          throw new AbcmError("REQUEST_INVALID", "Recursive directory deletion requires recursive=true.");
+        }
+        await dependencies.files.deleteDirectory(workspaceId, requiredPath(url), { recursive: true }, signal);
+        return new Response(null, { status: 204 });
+      }
+      if (endpoint === "/directories/move" && request.method === "POST") {
+        const body = await readJson(request, restMoveDirectoryInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.files.moveDirectory(workspaceId, body.from, body.to, signal));
       }
       if (endpoint === "/scope-map/scan" && request.method === "POST") {
         return json(dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(workspaceId, signal)));

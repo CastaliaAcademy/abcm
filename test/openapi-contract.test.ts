@@ -27,6 +27,7 @@ describe("OpenAPI contract", () => {
       "createObsidianPairing",
       "createWorkspace",
       "cutoverDocumentationSource",
+      "deleteDirectory",
       "deleteFile",
       "getAgentInstructions",
       "getDomainLanguage",
@@ -36,6 +37,7 @@ describe("OpenAPI contract", () => {
       "getScopeMap",
       "health",
       "listFiles",
+      "moveDirectory",
       "moveFile",
       "previewDocumentationSource",
       "previewObsidianSync",
@@ -51,6 +53,7 @@ describe("OpenAPI contract", () => {
     ]);
     expect(document.components.schemas).toEqual(expect.objectContaining({
       FileEntry: expect.objectContaining({ additionalProperties: false }),
+      MoveDirectoryRequest: expect.objectContaining({ additionalProperties: false }),
       WorkspaceUploadStartRequest: expect.objectContaining({ additionalProperties: false }),
       WorkspaceUploadStartResult: expect.objectContaining({ additionalProperties: false }),
       WorkspaceUploadChunkResult: expect.objectContaining({ additionalProperties: false }),

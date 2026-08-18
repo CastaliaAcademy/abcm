@@ -72,6 +72,8 @@ describe("MCP tool contract", () => {
         "workspace.batch_apply",
         "workspace.move_file",
         "workspace.create_directory",
+        "workspace.move_directory",
+        "workspace.delete_directory",
         "scope_map.scan",
         "context.get_domain_language",
         "context.build_task_context",
@@ -82,7 +84,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.5.0",
+        version: "1.6.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
@@ -130,6 +132,8 @@ describe("MCP tool contract", () => {
         ["workspace.batch_apply", { workspaceId: "missing", idempotencyKey: "missing-workspace", expectedMapRevision: `sha256:${"0".repeat(64)}`, operations: [{ operation: "delete", path: "a.md", ifMatch: `sha256:${"0".repeat(64)}` }] }, "WORKSPACE_NOT_FOUND"],
         ["workspace.move_file", { workspaceId: "missing", from: "a.md", to: "b.md" }, "WORKSPACE_NOT_FOUND"],
         ["workspace.create_directory", { workspaceId: "missing", path: "a" }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.move_directory", { workspaceId: "missing", from: "a", to: "b" }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.delete_directory", { workspaceId: "missing", path: "a", recursive: true }, "WORKSPACE_NOT_FOUND"],
         ["scope_map.scan", { workspaceId: "missing" }, "WORKSPACE_NOT_FOUND"],
         ["context.get_domain_language", { anchor: { workspaceId: "missing", projectId: "missing" } }, "MAP_NOT_BUILT"],
         [

@@ -173,6 +173,19 @@ export function createAbcmOpenApiDocument(): JsonObject {
           requestBody: { required: true, content: { "application/json": { schema: reference("CreateDirectoryRequest") } } },
           responses: { "201": response("Directory entry", reference("FileEntry")), ...problemResponses },
         },
+        delete: {
+          operationId: "deleteDirectory",
+          parameters: [workspaceId, parameter("path", "query", true, { type: "string", minLength: 1 }), parameter("recursive", "query", true, { type: "boolean", enum: [true] })],
+          responses: { "204": { description: "Directory recursively deleted" }, ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/directories/move": {
+        post: {
+          operationId: "moveDirectory",
+          parameters: [workspaceId],
+          requestBody: { required: true, content: { "application/json": { schema: reference("MoveDirectoryRequest") } } },
+          responses: { "200": response("Moved directory entry", reference("FileEntry")), ...problemResponses },
+        },
       },
       "/v1/workspaces/{workspaceId}/scope-map/scan": {
         post: {

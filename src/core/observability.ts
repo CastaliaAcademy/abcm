@@ -13,6 +13,8 @@ export type AbcmOperation =
   | "file.delete"
   | "file.move"
   | "file.write"
+  | "directory.delete"
+  | "directory.move"
   | "scope_map.scan"
   | "scope_path.resolve"
   | "context.build"

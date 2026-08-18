@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.5.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.6.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.5.0
+Версия: 1.6.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -293,11 +293,45 @@ REST-последовательность эквивалентна:
 
 Контрпример: установить overwrite=true до проверки файла назначения.
 
+## Перемещение и удаление каталогов
+
+Каталоги изменяются только отдельными операциями directory: они не являются файлами и не принимают file checksum. Перед операцией рекурсивно перечислите каталог, проверьте каждый файл и убедитесь, что в нём нет зарезервированных путей или символических ссылок. Перемещение не перезаписывает существующий target и не допускает перенос каталога в самого себя или своего потомка. Удаление всегда рекурсивно и требует явного подтверждения recursive=true.
+
+Правильный MCP-вызов перемещения:
+
+    workspace.move_directory({
+      workspaceId: "castalia-public",
+      from: "sample-project/docs/drafts",
+      to: "sample-project/docs/archive/drafts"
+    })
+
+Правильный MCP-вызов удаления:
+
+    workspace.delete_directory({
+      workspaceId: "castalia-public",
+      path: "sample-project/docs/archive/drafts",
+      recursive: true
+    })
+
+REST-эквиваленты:
+
+    POST /v1/workspaces/{workspaceId}/directories/move
+    Content-Type: application/json
+
+    {"from":"sample-project/docs/drafts","to":"sample-project/docs/archive/drafts"}
+
+    DELETE /v1/workspaces/{workspaceId}/directories?path=sample-project%2Fdocs%2Farchive%2Fdrafts&recursive=true
+
+После успеха повторно перечислите target или родительский каталог. Каждый перемещённый или удалённый файл публикуется как отдельное изменение для ScopeMap и клиентов синхронизации.
+
+Контрпримеры: вызвать workspace.move_file для каталога; удалить каталог без recursive=true; переместить каталог в его дочерний путь; ожидать неявного overwrite существующего target; пытаться обойти запрет через каталог, содержащий .git, node_modules, .env или символическую ссылку.
+
 ## Карта операций REST
 
 - GET /v1/agent-instructions: эта инструкция.
 - POST /v1/workspaces: объявление управляемого хранилища, если включено создание рабочих пространств.
-- Маршруты files/content, directories и move рабочего пространства: безопасный жизненный цикл одиночных файлов.
+- Маршруты files/content и files/move: безопасный жизненный цикл одиночных файлов.
+- Маршруты directories и directories/move: создание, рекурсивное удаление и перемещение каталогов.
 - Маршруты uploads: отдельная передача и проверка байтов до файловой мутации.
 - POST /v1/workspaces/{workspaceId}/files/batch:apply: атомарный смешанный пакет create/update/delete/move.
 - Маршруты сканирования и чтения scope-map рабочего пространства: перестроение и чтение ограниченной топологии.
@@ -312,7 +346,8 @@ REST-последовательность эквивалентна:
 
 - agent_instructions.get: эта инструкция; вызывайте первой.
 - workspace.create: создание server-owned рабочего пространства с обязательным языком, если provisioning включён оператором.
-- workspace.list_files, read_file, write_file, delete_file, move_file, create_directory: безопасный жизненный цикл одиночных файлов.
+- workspace.list_files, read_file, write_file, delete_file, move_file: безопасный жизненный цикл одиночных файлов.
+- workspace.create_directory, move_directory, delete_directory: жизненный цикл каталогов; delete_directory требует recursive=true.
 - workspace.upload_start, upload_chunk, upload_complete, upload_abort: отдельная checksum-bound передача байтов.
 - workspace.batch_apply: атомарная смешанная мутация до 100 операций с dry-run, MapRevision и idempotency receipt.
 - scope_map.scan: получение актуальной ревизии ScopeMap.

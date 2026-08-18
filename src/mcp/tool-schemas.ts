@@ -17,7 +17,7 @@ import {
 
 export const agentInstructionsInputSchema = z.object({}).strict();
 export const agentInstructionsOutputSchema = z.object({
-  version: z.literal("1.5.0"),
+  version: z.literal("1.6.0"),
   contentType: z.literal("text/markdown; charset=utf-8"),
   checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   content: z.string().min(1),
@@ -82,6 +82,20 @@ export const workspaceMoveFileOutputSchema = workspaceWriteFileOutputSchema;
 
 export const workspaceCreateDirectoryInputSchema = z.object({ workspaceId, path: path.min(1) }).strict();
 export const workspaceCreateDirectoryOutputSchema = z.object({ entry: fileEntrySchema }).strict();
+
+export const workspaceDeleteDirectoryInputSchema = z.object({
+  workspaceId,
+  path: path.min(1),
+  recursive: z.literal(true),
+}).strict();
+export const workspaceDeleteDirectoryOutputSchema = z.object({ deleted: z.literal(true) }).strict();
+
+export const workspaceMoveDirectoryInputSchema = z.object({
+  workspaceId,
+  from: path.min(1),
+  to: path.min(1),
+}).strict();
+export const workspaceMoveDirectoryOutputSchema = workspaceCreateDirectoryOutputSchema;
 
 const scopeNodeSchema = z.object({
   scopeId: z.string(),
@@ -243,6 +257,8 @@ export const ABCM_MCP_TOOL_SCHEMAS = {
   "workspace.batch_apply": { input: workspaceBatchApplyInputSchema, output: workspaceBatchApplyOutputSchema },
   "workspace.move_file": { input: workspaceMoveFileInputSchema, output: workspaceMoveFileOutputSchema },
   "workspace.create_directory": { input: workspaceCreateDirectoryInputSchema, output: workspaceCreateDirectoryOutputSchema },
+  "workspace.move_directory": { input: workspaceMoveDirectoryInputSchema, output: workspaceMoveDirectoryOutputSchema },
+  "workspace.delete_directory": { input: workspaceDeleteDirectoryInputSchema, output: workspaceDeleteDirectoryOutputSchema },
   "scope_map.scan": { input: scopeMapScanInputSchema, output: scopeMapScanOutputSchema },
   "context.get_domain_language": { input: domainLanguageInputSchema, output: domainLanguageOutputSchema },
   "context.build_task_context": { input: contextBuildInputSchema, output: contextBuildOutputSchema },

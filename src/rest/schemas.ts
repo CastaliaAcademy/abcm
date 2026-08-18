@@ -25,6 +25,7 @@ import {
   workspaceCreateInputSchema,
   workspaceCreateOutputSchema,
   workspaceCreateDirectoryInputSchema,
+  workspaceMoveDirectoryInputSchema,
   workspaceMoveFileInputSchema,
 } from "../mcp/tool-schemas.js";
 
@@ -33,6 +34,7 @@ export const workspaceRegistrationOutputSchema = workspaceCreateOutputSchema;
 
 export const restMoveFileInputSchema = workspaceMoveFileInputSchema.omit({ workspaceId: true });
 export const restCreateDirectoryInputSchema = workspaceCreateDirectoryInputSchema.omit({ workspaceId: true });
+export const restMoveDirectoryInputSchema = workspaceMoveDirectoryInputSchema.omit({ workspaceId: true });
 export const restWorkspaceUploadStartInputSchema = workspaceUploadStartInputSchema.omit({ workspaceId: true });
 export const restWorkspaceBatchApplyInputSchema = workspaceBatchApplyRequestSchema;
 export const restDocumentationPreviewInputSchema = documentationPreviewInputSchema.omit({ workspaceId: true });
@@ -45,6 +47,7 @@ export const REST_SHARED_SCHEMAS = {
   WorkspaceRegistrationResult: workspaceRegistrationOutputSchema,
   MoveFileRequest: restMoveFileInputSchema,
   CreateDirectoryRequest: restCreateDirectoryInputSchema,
+  MoveDirectoryRequest: restMoveDirectoryInputSchema,
   WorkspaceUploadStartRequest: restWorkspaceUploadStartInputSchema,
   WorkspaceUploadStartResult: workspaceUploadStartOutputSchema,
   WorkspaceUploadChunkResult: workspaceUploadChunkOutputSchema,

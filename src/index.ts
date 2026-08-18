@@ -160,6 +160,7 @@ export { SafeWorkspacePath } from "./workspace/safe-path.js";
 export { WorkspaceUploadService } from "./workspace/upload-service.js";
 export type { CompletedWorkspaceUpload, WorkspaceUploadServiceOptions } from "./workspace/upload-service.js";
 export type {
+  DeleteDirectoryOptions,
   DeletePreconditions,
   FileEntry,
   MoveOptions,
