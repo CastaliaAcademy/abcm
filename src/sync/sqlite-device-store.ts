@@ -140,7 +140,13 @@ export class SqliteObsidianDeviceStore {
 
       const credential = randomSecret("obs_device_");
       const expiresAtMs = this.#credentialTtlSeconds === undefined ? null : now + this.#credentialTtlSeconds * 1_000;
-      try {
+      const existingDevice = this.#database.query<{ revoked_at_ms: number | null }, [string]>(
+        "SELECT revoked_at_ms FROM obsidian_devices WHERE device_id = ?",
+      ).get(input.device.id);
+      if (existingDevice !== null && existingDevice.revoked_at_ms === null) {
+        throw new AbcmError("ACCESS_DENIED", "Device id is already paired.");
+      }
+      if (existingDevice === null) {
         this.#database.run(
           `INSERT INTO obsidian_devices
            (credential_hash, device_id, device_name, platform, workspace_id, project_id, project_prefix, capabilities_json, created_at_ms, expires_at_ms)
@@ -158,11 +164,26 @@ export class SqliteObsidianDeviceStore {
             expiresAtMs,
           ],
         );
-      } catch (error) {
-        if (String(error).includes("UNIQUE constraint failed")) {
-          throw new AbcmError("ACCESS_DENIED", "Device id is already paired.");
-        }
-        throw error;
+      } else {
+        const replaced = this.#database.run(
+          `UPDATE obsidian_devices
+           SET credential_hash = ?, device_name = ?, platform = ?, workspace_id = ?, project_id = ?, project_prefix = ?,
+               capabilities_json = ?, created_at_ms = ?, expires_at_ms = ?, revoked_at_ms = NULL
+           WHERE device_id = ? AND revoked_at_ms IS NOT NULL`,
+          [
+            secretHash(credential),
+            input.device.name,
+            input.device.platform,
+            row.workspace_id,
+            row.project_id,
+            row.project_prefix,
+            row.capabilities_json,
+            now,
+            expiresAtMs,
+            input.device.id,
+          ],
+        );
+        if (replaced.changes !== 1) throw new AbcmError("ACCESS_DENIED", "Device id is already paired.");
       }
       return {
         deviceId: input.device.id,

@@ -94,4 +94,57 @@ describe("Obsidian scoped device pairing", () => {
     })).toThrow(expect.objectContaining({ code: "AUTHENTICATION_REQUIRED" }));
     devices.close();
   });
+
+  test("reissues a credential for a revoked stable device id while rejecting an active duplicate", async () => {
+    const devices = await store();
+    const deviceId = "device_01JREPAIR00000000001";
+    const firstPairing = devices.createPairing({
+      workspaceId: "castalia-public",
+      projectId: "abcm",
+      capabilities: ["read"],
+    });
+    const firstGrant = devices.redeemPairing({
+      pairingCode: firstPairing.pairingCode,
+      device: { id: deviceId, name: "Windows before revoke", platform: "windows" },
+    });
+
+    const activeDuplicate = devices.createPairing({
+      workspaceId: "castalia-public",
+      projectId: "abcm",
+      capabilities: ["read", "write"],
+    });
+    expect(() => devices.redeemPairing({
+      pairingCode: activeDuplicate.pairingCode,
+      device: { id: deviceId, name: "Active duplicate", platform: "linux" },
+    })).toThrow(expect.objectContaining({ code: "ACCESS_DENIED" }));
+
+    devices.revokeDevice(deviceId);
+    const replacementPairing = devices.createPairing({
+      workspaceId: "castalia-public",
+      projectId: "abcm-v2",
+      projectPrefix: "migrated",
+      capabilities: ["read", "write"],
+    });
+    const replacementGrant = devices.redeemPairing({
+      pairingCode: replacementPairing.pairingCode,
+      device: { id: deviceId, name: "Windows after revoke", platform: "windows" },
+    });
+
+    expect(replacementGrant.credential).not.toBe(firstGrant.credential);
+    expect(() => devices.authenticate(firstGrant.credential, {
+      workspaceId: "castalia-public",
+      projectId: "abcm",
+      capability: "read",
+    })).toThrow(expect.objectContaining({ code: "AUTHENTICATION_REQUIRED" }));
+    expect(devices.authenticate(replacementGrant.credential, {
+      workspaceId: "castalia-public",
+      projectId: "abcm-v2",
+      capability: "write",
+    })).toEqual(expect.objectContaining({
+      deviceId,
+      deviceName: "Windows after revoke",
+      projectPrefix: "migrated",
+    }));
+    devices.close();
+  });
 });
