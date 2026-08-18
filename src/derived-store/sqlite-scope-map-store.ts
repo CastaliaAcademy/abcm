@@ -20,10 +20,18 @@ import type {
   SyncRunRecord,
   TombstoneRecord,
 } from "../documentation/types.js";
+import {
+  contextOutcomeSubmissionSchema,
+  contextOutcomeReceiptSchema,
+  createContextOutcomeReceipt,
+  type ContextOutcomeCatalog,
+  type ContextOutcomeReceipt,
+  type ContextOutcomeSubmission,
+} from "../evaluation/context-outcome-receipt.js";
 import type { MapRevision } from "../scope-map/types.js";
 import type { RuntimeOwnerHandle, ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./types.js";
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 interface LeaseRow {
   owner_id: string;
@@ -41,7 +49,7 @@ interface RuntimeOwnerRow {
   fencing_token: number;
 }
 
-export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCatalog {
+export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCatalog, ContextOutcomeCatalog {
   readonly scanLeaseRenewalIntervalMs: number;
   readonly #database: Database;
   readonly #ownerId: string;
@@ -180,6 +188,54 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
       return rows.map(row => JSON.parse(row.bundle_json) as ContextBundleCatalogRecord);
     } catch {
       throw new AbcmError("DERIVED_STORE_CORRUPT", "Context bundle catalog payload is invalid.");
+    }
+  }
+
+  recordContextOutcome(input: ContextOutcomeSubmission): ContextOutcomeReceipt {
+    const parsed = contextOutcomeSubmissionSchema.parse(input);
+    return this.#database.transaction(() => {
+      this.#assertRuntimeOwner(this.#clock());
+      const fingerprint = this.getContextFingerprint(parsed.workspaceId, parsed.fingerprintId);
+      if (fingerprint === undefined) {
+        throw new AbcmError("CONTEXT_FINGERPRINT_NOT_FOUND", "Context fingerprint is unavailable in this workspace.");
+      }
+      const candidate = createContextOutcomeReceipt(parsed, fingerprint.bundleDigest, new Date(this.#clock()).toISOString());
+      const existing = this.#database
+        .query<{ outcome_digest: string; outcome_json: string }, [string, string, string]>(
+          "SELECT outcome_digest, outcome_json FROM context_outcomes WHERE workspace_id = ? AND fingerprint_id = ? AND repeat_id = ?",
+        )
+        .get(parsed.workspaceId, parsed.fingerprintId, parsed.repeatId);
+      if (existing !== null) {
+        if (existing.outcome_digest !== candidate.outcomeDigest) {
+          throw new AbcmError("CONTEXT_OUTCOME_CONFLICT", "Outcome repeat identity is already bound to a different immutable verdict.");
+        }
+        try {
+          return contextOutcomeReceiptSchema.parse(JSON.parse(existing.outcome_json));
+        } catch {
+          throw new AbcmError("DERIVED_STORE_CORRUPT", "Context outcome receipt payload is invalid.");
+        }
+      }
+      this.#database.run(
+        `INSERT INTO context_outcomes
+          (workspace_id, fingerprint_id, repeat_id, outcome_id, outcome_digest, outcome_json)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [parsed.workspaceId, parsed.fingerprintId, parsed.repeatId, candidate.outcomeId, candidate.outcomeDigest, JSON.stringify(candidate)],
+      );
+      return candidate;
+    }).immediate();
+  }
+
+  listContextOutcomes(workspaceId: string, fingerprintId: string): ContextOutcomeReceipt[] {
+    this.#assertRuntimeOwner(this.#clock());
+    const rows = this.#database
+      .query<{ outcome_json: string }, [string, string]>(
+        "SELECT outcome_json FROM context_outcomes WHERE workspace_id = ? AND fingerprint_id = ? ORDER BY repeat_id, outcome_id",
+      )
+      .all(workspaceId, fingerprintId);
+    try {
+      return rows.map(row => contextOutcomeReceiptSchema.parse(JSON.parse(row.outcome_json)));
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Context outcome receipt payload is invalid.");
     }
   }
 
@@ -1054,6 +1110,19 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
           .query<{ name: string }, []>("SELECT name FROM pragma_table_info('map_documents') WHERE name = 'worker'")
           .get();
         if (workerColumn === null) this.#database.run("ALTER TABLE map_documents ADD COLUMN worker TEXT");
+      }
+      if (currentVersion < 9) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS context_outcomes (
+          workspace_id TEXT NOT NULL,
+          fingerprint_id TEXT NOT NULL,
+          repeat_id TEXT NOT NULL,
+          outcome_id TEXT NOT NULL,
+          outcome_digest TEXT NOT NULL,
+          outcome_json TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, outcome_id),
+          UNIQUE (workspace_id, fingerprint_id, repeat_id),
+          FOREIGN KEY (workspace_id, fingerprint_id) REFERENCES context_fingerprints(workspace_id, fingerprint_id) ON DELETE CASCADE
+        )`);
       }
       this.#database.run(
         `INSERT INTO schema_metadata (key, value) VALUES ('schema_version', ?)

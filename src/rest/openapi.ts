@@ -223,6 +223,22 @@ export function createAbcmOpenApiDocument(): JsonObject {
           responses: { "200": response("Explainable task context preview", reference("PreviewTaskContextResult")), ...problemResponses },
         },
       },
+      "/v1/context/outcomes": {
+        post: {
+          operationId: "recordContextOutcome",
+          description: "Record an immutable body-free outcome, usage, and cost receipt for one principal-owned ContextFingerprint repeat.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("ContextOutcomeSubmission") } } },
+          responses: { "201": response("Immutable context outcome receipt", reference("ContextOutcomeReceipt")), ...problemResponses },
+        },
+        get: {
+          operationId: "listContextOutcomes",
+          parameters: [
+            parameter("workspaceId", "query", true, { type: "string", minLength: 1 }),
+            parameter("fingerprintId", "query", true, { type: "string", pattern: "^fingerprint-[a-f0-9]{24}$" }),
+          ],
+          responses: { "200": response("Immutable context outcome receipts", reference("ContextOutcomeListResult")), ...problemResponses },
+        },
+      },
       "/v1/workspaces/{workspaceId}/documentation-sources/preview": {
         post: {
           operationId: "previewDocumentationSource",

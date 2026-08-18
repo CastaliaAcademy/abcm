@@ -54,6 +54,18 @@ export type {
 } from "./evaluation/context-efficiency-contracts.js";
 export { evaluateContextEfficiency } from "./evaluation/context-efficiency-evaluator.js";
 export type { ContextEfficiencyReport, ContextEfficiencyVariantResult } from "./evaluation/context-efficiency-evaluator.js";
+export {
+  contextOutcomeDigest,
+  contextOutcomeReceiptSchema,
+  contextOutcomeSubmissionSchema,
+  createContextOutcomeReceipt,
+} from "./evaluation/context-outcome-receipt.js";
+export { ContextOutcomeService } from "./evaluation/context-outcome-service.js";
+export type {
+  ContextOutcomeCatalog,
+  ContextOutcomeReceipt,
+  ContextOutcomeSubmission,
+} from "./evaluation/context-outcome-receipt.js";
 export { runDirectSearchBaseline } from "./evaluation/direct-search-baseline.js";
 export type { DirectSearchBaselineRequest, DirectSearchBaselineResult } from "./evaluation/direct-search-baseline.js";
 export type {

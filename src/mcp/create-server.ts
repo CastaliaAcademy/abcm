@@ -14,6 +14,7 @@ import {
 } from "../core/server-info.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
+import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -40,6 +41,10 @@ import {
   contextBuildInputSchema,
   contextBuildOutputSchema,
   contextPreviewOutputSchema,
+  contextOutcomeListInputSchema,
+  contextOutcomeListOutputSchema,
+  contextOutcomeReceiptSchema,
+  contextOutcomeSubmissionSchema,
   documentationApplyInputSchema,
   documentationPreviewInputSchema,
   documentationPreviewOutputSchema,
@@ -81,6 +86,7 @@ export interface AbcmMcpDependencies {
   domainLanguage?: DomainLanguageService;
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
+  contextOutcomes?: ContextOutcomeService;
   documentation?: DirectoryDocumentationSyncService;
   workspaces?: WorkspaceProvisioningService;
   mcpResourcePageSize?: number;
@@ -434,6 +440,30 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         dependencies.contextPrincipal!,
         signal,
       )) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+  }
+  if (dependencies.contextOutcomes !== undefined) {
+    server.registerTool(
+      "context.record_outcome",
+      {
+        title: "Record immutable context outcome",
+        description: "Bind one body-free task outcome, usage, and cost receipt to a principal-owned ContextFingerprint repeat.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: contextOutcomeSubmissionSchema,
+        outputSchema: contextOutcomeReceiptSchema,
+      },
+      async (input, context) => toolResult(async () => ({ ...dependencies.contextOutcomes!.record(input) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "context.list_outcomes",
+      {
+        title: "List context outcomes",
+        description: "List body-free immutable outcome receipts for one principal-owned ContextFingerprint.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: contextOutcomeListInputSchema,
+        outputSchema: contextOutcomeListOutputSchema,
+      },
+      async (input, context) => toolResult(async () => ({ outcomes: dependencies.contextOutcomes!.list(input.workspaceId, input.fingerprintId) }), context.mcpReq.signal, operationTimeoutMs),
     );
   }
   if (dependencies.documentation !== undefined) {

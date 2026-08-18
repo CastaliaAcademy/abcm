@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.8.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.9.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.8.0
+Версия: 1.9.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -235,6 +235,7 @@ Fallback при недостаточном автоматическом конт
 11. Проверьте status, replayed, каждый элемент results, warnings, mapRevisionBefore и mapRevisionAfter. Ошибка валидации или commit откатывает весь пакет.
 12. Для одиночной мутации выполните повторное сканирование либо дождитесь фонового reconcile. Успешный batch_apply выполняет один reconcile сам; ревизия может остаться прежней, если изменённый файл не влияет на входы ScopeMap.
 13. Выполните план проверки фичи и сохраните доказательства. Запрещено заявлять о проверках, которые не выполнялись.
+14. Если сервер предоставляет outcome API, после фактической проверки зарегистрируйте отдельный context.record_outcome для каждого repeat. Укажите fingerprintId, тот же runId, rubric/model/evidence digests, usage и стоимость; не помещайте в receipt тела документов или полный output задачи.
 
 Правильная замена через MCP:
 
@@ -391,6 +392,7 @@ REST-эквиваленты:
 - POST /v1/context/domain-language: bootstrap языка предметной области.
 - POST /v1/context/preview-task-context: объяснимый body-free preview без записи fingerprint.
 - POST /v1/context/build-task-context: неизменяемый контекст задачи.
+- POST и GET /v1/context/outcomes: регистрация и чтение неизменяемых body-free outcome receipts, связанных с ContextFingerprint.
 - Маршруты preview, apply, sync и cutover документации: управляемый жизненный цикл внешних документов.
 - GET /openapi.json: точный машиночитаемый контракт.
 
@@ -408,6 +410,7 @@ REST-эквиваленты:
 - context.get_domain_language: обязательный bootstrap языка до толкования пути задачи.
 - context.preview_task_context: объяснимый выбор документов, проекций, бюджета и fallback без materialized bodies и производной записи.
 - context.build_task_context: ограниченный контекстный пакет задачи.
+- context.record_outcome, context.list_outcomes: неизменяемые repeat verdict, usage и cost для собственного ContextFingerprint; повтор repeatId с другим verdict является конфликтом.
 - documentation_source.preview, apply, sync, cutover: импорт документации и передача владения, если эти операции настроены.
 - Ресурсы MCP предоставляют ограниченную карту и содержимое проекта; сначала обнаруживайте ресурсы, а не угадывайте URI.
 

@@ -17,11 +17,12 @@ import type {
   TombstoneRecord,
 } from "../documentation/types.js";
 import type { MapRevision } from "../scope-map/types.js";
+import type { ContextOutcomeCatalog, ContextOutcomeReceipt, ContextOutcomeSubmission } from "../evaluation/context-outcome-receipt.js";
 import type { WorkspaceRegistry } from "../workspace/registry.js";
 import { SqliteScopeMapStore } from "./sqlite-scope-map-store.js";
 import type { ScanLeaseHandle, ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "./types.js";
 
-export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStateStore, ContextFingerprintCatalog {
+export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStateStore, ContextFingerprintCatalog, ContextOutcomeCatalog {
   readonly scanLeaseRenewalIntervalMs: number;
   readonly #registry: WorkspaceRegistry;
   readonly #options: SqliteWorkspaceMapStoreOptions;
@@ -95,6 +96,16 @@ export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStat
   listContextBundles(workspaceId: string): ContextBundleCatalogRecord[] {
     this.#assertHealthy();
     return this.#store(workspaceId).listContextBundles(workspaceId);
+  }
+
+  recordContextOutcome(input: ContextOutcomeSubmission): ContextOutcomeReceipt {
+    this.#assertHealthy();
+    return this.#store(input.workspaceId).recordContextOutcome(input);
+  }
+
+  listContextOutcomes(workspaceId: string, fingerprintId: string): ContextOutcomeReceipt[] {
+    this.#assertHealthy();
+    return this.#store(workspaceId).listContextOutcomes(workspaceId, fingerprintId);
   }
 
   resolveDocumentStorage(workspaceId: string, targetPath: string): DocumentStorageResolution {

@@ -9,6 +9,7 @@ import type { ContextBuilder } from "../context/context-builder.js";
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
+import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -34,7 +35,7 @@ import {
   restWorkspaceUploadStartInputSchema,
   workspaceRegistrationSchema,
 } from "./schemas.js";
-import { contextBuildInputSchema, domainLanguageInputSchema } from "../mcp/tool-schemas.js";
+import { contextBuildInputSchema, contextOutcomeListInputSchema, contextOutcomeSubmissionSchema, domainLanguageInputSchema } from "../mcp/tool-schemas.js";
 import { resolveRestLimitOptions, type AbcmRestLimitOptions } from "./config.js";
 
 export interface AbcmRestDependencies {
@@ -46,6 +47,7 @@ export interface AbcmRestDependencies {
   domainLanguage?: DomainLanguageService;
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
+  contextOutcomes?: ContextOutcomeService;
   workspaces?: WorkspaceRegistrationService;
   documentation?: DirectoryDocumentationSyncService;
   obsidianSync?: ObsidianSyncService;
@@ -275,6 +277,20 @@ export function createAbcmRestHandler(
         }
         const body = await readJson(request, contextBuildInputSchema, maxRequestBodyBytes, signal);
         return json(await dependencies.contextBuilder.preview(normalizeBuildTaskContextInput(body), dependencies.contextPrincipal, signal));
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/outcomes") {
+        if (dependencies.contextOutcomes === undefined) throw new AbcmError("ACCESS_DENIED", "Context outcome access is not configured.");
+        return json(dependencies.contextOutcomes.record(await readJson(request, contextOutcomeSubmissionSchema, maxRequestBodyBytes, signal)), 201);
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/context/outcomes") {
+        if (dependencies.contextOutcomes === undefined) throw new AbcmError("ACCESS_DENIED", "Context outcome access is not configured.");
+        const query = contextOutcomeListInputSchema.parse({
+          workspaceId: url.searchParams.get("workspaceId"),
+          fingerprintId: url.searchParams.get("fingerprintId"),
+        });
+        return json({ outcomes: dependencies.contextOutcomes.list(query.workspaceId, query.fingerprintId) });
       }
 
       const documentationApply = /^\/v1\/documentation-imports\/([^/]+)\/apply$/.exec(url.pathname);

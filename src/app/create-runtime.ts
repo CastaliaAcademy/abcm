@@ -6,6 +6,8 @@ import { ContextBuilder } from "../context/context-builder.js";
 import type { AbcmObservability } from "../core/observability.js";
 import { DirectoryContextFingerprintStore } from "../context/directory-context-fingerprint-store.js";
 import type { ContextBuilderOptions, ContextFingerprintCatalog } from "../context/types.js";
+import type { ContextOutcomeCatalog } from "../evaluation/context-outcome-receipt.js";
+import { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
 import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-store.js";
 import type { ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "../derived-store/types.js";
 import { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
@@ -56,6 +58,7 @@ export interface AbcmRuntimeOptions {
   context?: ContextBuilderOptions;
   observability?: AbcmObservability;
   contextFingerprintCatalog?: ContextFingerprintCatalog;
+  contextOutcomeCatalog?: ContextOutcomeCatalog;
   obsidianSync?: Omit<ObsidianSyncServiceOptions, "observability">;
 }
 
@@ -134,6 +137,10 @@ export function createAbcmRuntime(
     });
   }
   const contextFingerprintCatalog = options.contextFingerprintCatalog ?? ownedScopeMapStore;
+  const contextOutcomeCatalog = options.contextOutcomeCatalog ?? ownedScopeMapStore;
+  const contextOutcomes = contextOutcomeCatalog !== undefined && contextFingerprintCatalog !== undefined && options.contextPrincipal !== undefined
+    ? new ContextOutcomeService(contextOutcomeCatalog, contextFingerprintCatalog, options.contextPrincipal)
+    : undefined;
   const contextFingerprintStore = new DirectoryContextFingerprintStore(registry, contextFingerprintCatalog);
   const contextBuilder = new ContextBuilder({
     files,
@@ -167,6 +174,7 @@ export function createAbcmRuntime(
       scopeMap,
       domainLanguage,
       contextBuilder,
+      ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
       ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
       ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
       ...(documentation === undefined ? {} : { documentation }),
@@ -187,6 +195,7 @@ export function createAbcmRuntime(
             defaultWorkspaceId: defaultWorkspace.id,
             domainLanguage,
             contextBuilder,
+            ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
             ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
             ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
             ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),
@@ -235,6 +244,8 @@ export function createAbcmRuntime(
     contextBuilder,
     contextFingerprintStore,
     contextFingerprintCatalog,
+    contextOutcomeCatalog,
+    contextOutcomes,
     scopeMapReconciler,
     workspaceProvisioning,
     documentation,
@@ -252,6 +263,7 @@ export function createAbcmRuntime(
         defaultWorkspaceId: defaultWorkspace.id,
         domainLanguage,
         contextBuilder,
+        ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
         ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
         ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
         ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),

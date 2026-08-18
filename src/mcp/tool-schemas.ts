@@ -3,6 +3,8 @@ import { z } from "zod/v4";
 import { ABCM_AGENT_INSTRUCTIONS_VERSION } from "../agent-instructions/agent-instructions.js";
 import { buildTaskContextSchema } from "../context/schema.js";
 import { projectLanguageTagSchema } from "../core/project-language.js";
+import { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
+export { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
 import {
   workspaceBatchApplyInputSchema,
   workspaceBatchApplyOutputSchema,
@@ -236,6 +238,11 @@ export const contextPreviewOutputSchema = z.object({
   tokenEstimate: z.number().int().nonnegative(),
   fallbackModes: z.tuple([z.literal("direct-search"), z.literal("explicit-documents"), z.literal("bounded-resource-read")]),
 }).strict();
+export const contextOutcomeListInputSchema = z.object({
+  workspaceId,
+  fingerprintId: z.string().regex(/^fingerprint-[a-f0-9]{24}$/),
+}).strict();
+export const contextOutcomeListOutputSchema = z.object({ outcomes: z.array(contextOutcomeReceiptSchema) }).strict();
 
 const documentationOperationSchema = z.object({
   operation: z.enum(["create", "update", "move", "delete", "unchanged", "conflict"]),
@@ -311,6 +318,8 @@ export const ABCM_MCP_TOOL_SCHEMAS = {
   "context.get_domain_language": { input: domainLanguageInputSchema, output: domainLanguageOutputSchema },
   "context.build_task_context": { input: contextBuildInputSchema, output: contextBuildOutputSchema },
   "context.preview_task_context": { input: contextBuildInputSchema, output: contextPreviewOutputSchema },
+  "context.record_outcome": { input: contextOutcomeSubmissionSchema, output: contextOutcomeReceiptSchema },
+  "context.list_outcomes": { input: contextOutcomeListInputSchema, output: contextOutcomeListOutputSchema },
   "documentation_source.preview": { input: documentationPreviewInputSchema, output: documentationPreviewOutputSchema },
   "documentation_source.apply": { input: documentationApplyInputSchema, output: documentationSyncOutputSchema },
   "documentation_source.sync": { input: documentationSyncInputSchema, output: documentationSyncOutputSchema },
