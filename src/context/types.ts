@@ -153,6 +153,21 @@ export interface ContextBundle {
   contextFingerprintLocation: string;
 }
 
+export interface ContextSelectionPreview {
+  previewDigest: string;
+  selectionPolicyVersion: "context-selection/v2";
+  mapRevision: string;
+  mapDigest: string;
+  primaryTargetScope: string;
+  affectedScopes: readonly string[];
+  budgetProfile: string;
+  budget: ContextBudgetProfile;
+  selectedDocuments: readonly ContextFingerprintDocument[];
+  omissions: readonly ContextOmission[];
+  tokenEstimate: number;
+  fallbackModes: readonly ["direct-search", "explicit-documents", "bounded-resource-read"];
+}
+
 export interface ContextFingerprintStore {
   write(
     workspaceId: string,

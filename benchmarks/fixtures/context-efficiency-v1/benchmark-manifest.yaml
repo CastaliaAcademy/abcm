@@ -1,0 +1,22 @@
+schemaVersion: abcm.benchmark.context-efficiency/v1
+workspaceId: benchmark
+projectId: commerce
+scopeId: orders
+roleId: executor-agent
+taskType: order-cancellation
+goal: Проверить контракт отмены заказа, idempotency, retry и tenant boundary
+queryTerms: [отмена, заказа, idempotency, tenant, retry, cancel]
+allowedPathPrefixes: [commerce/orders]
+goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+claims:
+  - id: idempotency-reuses-result
+    allTerms: [idempotency key, прежний результат]
+  - id: retry-keeps-key
+    allTerms: [повторяется, тем же idempotency key]
+  - id: tenant-boundary
+    allTerms: [своего tenant, не должен раскрываться]
+  - id: api-operation-id
+    allTerms: [cancel, operationId]
+forbiddenMarkers: [FOREIGN-WORKSPACE-SECRET, foreign-secret]
+repetitions: 10

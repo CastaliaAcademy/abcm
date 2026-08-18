@@ -215,6 +215,14 @@ export function createAbcmOpenApiDocument(): JsonObject {
           responses: { "200": response("Bounded task context", reference("BuildTaskContextResult")), ...problemResponses },
         },
       },
+      "/v1/context/preview-task-context": {
+        post: {
+          operationId: "previewTaskContext",
+          description: "Body-free, non-persisting explanation of deterministic context selection and available fallback modes.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("BuildTaskContextRequest") } } },
+          responses: { "200": response("Explainable task context preview", reference("PreviewTaskContextResult")), ...problemResponses },
+        },
+      },
       "/v1/workspaces/{workspaceId}/documentation-sources/preview": {
         post: {
           operationId: "previewDocumentationSource",

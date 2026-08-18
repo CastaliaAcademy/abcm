@@ -1,0 +1,5 @@
+apiVersion: abcm/v1
+kind: service
+id: orders
+name: Orders
+aliases: [order-processing]

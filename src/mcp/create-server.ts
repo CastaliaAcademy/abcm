@@ -39,6 +39,7 @@ import {
   agentInstructionsOutputSchema,
   contextBuildInputSchema,
   contextBuildOutputSchema,
+  contextPreviewOutputSchema,
   documentationApplyInputSchema,
   documentationPreviewInputSchema,
   documentationPreviewOutputSchema,
@@ -404,6 +405,21 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     );
   }
   if (dependencies.contextBuilder !== undefined && dependencies.contextPrincipal !== undefined) {
+    server.registerTool(
+      "context.preview_task_context",
+      {
+        title: "Preview task context selection",
+        description: "Explain the deterministic document selection, projections, omissions, budget, and fallback modes without persisting a fingerprint or returning document bodies.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: contextBuildInputSchema,
+        outputSchema: contextPreviewOutputSchema,
+      },
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextBuilder!.preview(
+        normalizeBuildTaskContextInput(input),
+        dependencies.contextPrincipal!,
+        signal,
+      )) }), context.mcpReq.signal, operationTimeoutMs),
+    );
     server.registerTool(
       "context.build_task_context",
       {

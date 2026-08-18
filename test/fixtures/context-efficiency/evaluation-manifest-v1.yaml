@@ -34,6 +34,7 @@ scenarios:
   - id: synthetic-relevance
     goldDocumentIds: [gold-a, gold-b, gold-c, gold-d]
     mandatoryDocumentIds: [gold-a, gold-b, gold-c, gold-d]
+    goldClaimIds: [claim-a, claim-b]
   - id: synthetic-hidden-sibling
     goldDocumentIds: [gold-a]
     mandatoryDocumentIds: [gold-a]

@@ -17,6 +17,7 @@ function receipt(input: {
   success?: boolean;
   repeatedDigests?: string[];
   unauthorizedDisclosureCount?: number;
+  claims?: string[];
   fallback?: { availableModes: string[]; usedMode?: string; recoveredDocumentIds?: string[]; addedTokens?: number };
 }) {
   return retrievalRunReceiptSchema.parse({
@@ -34,6 +35,7 @@ function receipt(input: {
       documentId,
       tokenEstimate: Math.floor(input.tokens / input.selected.length) + (index === 0 ? input.tokens % input.selected.length : 0),
     })),
+    retrievedClaimIds: input.claims ?? ["claim-a", "claim-b"],
     totalInputTokens: input.tokens,
     taskSucceeded: input.success ?? true,
     totalCost: input.tokens / 1_000_000,
@@ -54,21 +56,21 @@ describe("сравнение ABCM с прямым чтением и поиско
       receipt({ variant: "abcmAutomatic", selected: ["gold-a", "gold-b", "gold-c", "gold-d"], tokens: 7_000 }),
     ]);
 
-    expect(report.variants.abcmAutomatic.gates).toEqual({
+    expect(report.variants.abcmAutomatic!.gates).toEqual({
       taskRelevance: "pass",
       fallbackFlexibility: "pass",
       determinism: "pass",
       workspaceIsolation: "pass",
       contextEfficiency: "pass",
     });
-    expect(report.variants.abcmAutomatic.metrics).toEqual(expect.objectContaining({
+    expect(report.variants.abcmAutomatic!.metrics).toEqual(expect.objectContaining({
       mandatoryRecall: 1,
       precision: 1,
       deterministicResultRate: 1,
       unauthorizedDisclosureCount: 0,
       tokenReductionVsDirect: expect.closeTo(5 / 12, 8),
     }));
-    expect(report.variants.abcmAutomatic.overall).toBe("pass");
+    expect(report.variants.abcmAutomatic!.overall).toBe("pass");
   });
 
   test("не засчитывает сокращение токенов, если ABCM уступает прямому поиску по обязательному контексту", async () => {
@@ -76,12 +78,23 @@ describe("сравнение ABCM с прямым чтением и поиско
       receipt({ variant: "direct", selected: ["gold-a", "gold-b", "gold-c", "gold-d"], tokens: 12_000 }),
       receipt({ variant: "abcmAutomatic", selected: ["gold-a", "gold-b", "gold-c"], tokens: 2_000 }),
     ]);
-    const result = report.variants.abcmAutomatic;
+    const result = report.variants.abcmAutomatic!;
 
     expect(result.gates.taskRelevance).toBe("fail");
     expect(result.gates.contextEfficiency).toBe("not_evaluable");
     expect(result.metrics.tokenReductionVsDirect).toBeUndefined();
     expect(result.overall).toBe("fail");
+  });
+
+  test("не считает совпадение document ids достаточным при потере известного смыслового утверждения", async () => {
+    const report = evaluateContextEfficiency(await manifest(), [
+      receipt({ variant: "direct", selected: ["gold-a", "gold-b", "gold-c", "gold-d"], tokens: 12_000 }),
+      receipt({ variant: "abcmAutomatic", selected: ["gold-a", "gold-b", "gold-c", "gold-d"], claims: ["claim-a"], tokens: 7_000 }),
+    ]).variants.abcmAutomatic!;
+
+    expect(report.metrics.claimRecall).toBe(0.5);
+    expect(report.gates.taskRelevance).toBe("fail");
+    expect(report.gates.contextEfficiency).toBe("not_evaluable");
   });
 
   test("показывает восстановление через fallback, не скрывая отказ автоматического resolver", async () => {
@@ -99,7 +112,7 @@ describe("сравнение ABCM с прямым чтением и поиско
         },
       }),
     ]);
-    const result = report.variants.abcmGuided;
+    const result = report.variants.abcmGuided!;
 
     expect(result.primary.taskRelevance).toBe("fail");
     expect(result.effective.taskRelevance).toBe("pass");
@@ -112,11 +125,11 @@ describe("сравнение ABCM с прямым чтением и поиско
     const unstable = evaluateContextEfficiency(await manifest(), [
       baseline,
       receipt({ variant: "abcmAutomatic", selected: ["gold-a", "gold-b", "gold-c", "gold-d"], tokens: 7_000, repeatedDigests: [sha("a"), sha("b")] }),
-    ]).variants.abcmAutomatic;
+    ]).variants.abcmAutomatic!;
     const leaking = evaluateContextEfficiency(await manifest(), [
       baseline,
       receipt({ variant: "abcmAutomatic", selected: ["gold-a", "gold-b", "gold-c", "gold-d"], tokens: 7_000, unauthorizedDisclosureCount: 1 }),
-    ]).variants.abcmAutomatic;
+    ]).variants.abcmAutomatic!;
 
     expect(unstable.gates.determinism).toBe("fail");
     expect(unstable.overall).toBe("fail");
@@ -129,7 +142,7 @@ describe("сравнение ABCM с прямым чтением и поиско
     const report = evaluateContextEfficiency(await manifest(), [
       receipt({ variant: "direct", selected: ["gold-a", "gold-b", "gold-c", "gold-d"], tokens: 12_000 }),
       receipt({ variant: "abcmAutomatic", selected: ["gold-a", "gold-b", "gold-c", "gold-d"], tokens: 7_000, success: false }),
-    ]).variants.abcmAutomatic;
+    ]).variants.abcmAutomatic!;
 
     expect(report.metrics.costPerSuccessfulTask).toBeUndefined();
     expect(report.gates.contextEfficiency).toBe("not_evaluable");

@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.7.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.8.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.7.0
+Версия: 1.8.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -19,9 +19,10 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 3. Явно определить целевое рабочее пространство и проект. Запрещено угадывать их идентификаторы.
 4. Вызвать scope_map.scan, если актуальная ревизия карты отсутствует.
 5. До толкования терминов проекта или определения пути задачи вызвать context.get_domain_language с якорем workspaceId и projectId.
-6. Вызвать context.build_task_context, передав полученный bootstrap id, явную роль, тип задачи и цель.
-7. Работать только с ограниченным контекстным пакетом и файлами, которые намеренно прочитаны для задачи. По умолчанию запрещено сканировать всё рабочее пространство.
-8. Сохранить в итоговом отчёте контрольные суммы, ревизии карты, доказательства и результаты проверок.
+6. Если scope, причины выбора или ожидаемый размер спорны, сначала вызвать context.preview_task_context: preview не записывает fingerprint и не возвращает тела документов.
+7. Вызвать context.build_task_context, передав полученный bootstrap id, явную роль, тип задачи и цель.
+8. Работать только с ограниченным контекстным пакетом и файлами, которые намеренно прочитаны для задачи. По умолчанию запрещено сканировать всё рабочее пространство.
+9. Сохранить в итоговом отчёте контрольные суммы, ревизии карты, доказательства и результаты проверок.
 
 Если обязательная операция недоступна, остановитесь и сообщите об отсутствующей возможности. Запрещено подменять разрешение контекста ABCM неограниченным сканированием файловой системы.
 
@@ -186,6 +187,14 @@ MCP-пример:
     })
 
 REST использует то же тело в POST /v1/context/build-task-context. Можно передать canonical id или URI abcm://scope/<id>. От одного до восьми exact scopes должны быть уникальны после canonicalization. Legacy array targetHints и componentNames остаются fuzzy hints и не объявляют дополнительные scopes.
+
+Для проверки выбора до materialization передайте то же тело в context.preview_task_context или POST /v1/context/preview-task-context. Ответ содержит selectionPolicyVersion, причины, effectivePriority, выбранную проекцию, tokenEstimate, omissions и fallbackModes, но не содержит тела документов и не создаёт ContextFingerprint.
+
+Правильно: при неожиданном scope или шумном списке сначала изучить preview, затем уточнить exact scope, taskType, keywords или explicit document links и только после этого построить bundle.
+
+Fallback при недостаточном автоматическом контексте выполняется явно и ограниченно: direct-search внутри разрешённых path prefixes, explicit documents через типизированный abcm:// URI либо bounded resource/file read. Первичный промах resolver должен оставаться видимым в отчёте; запрещено выдавать восстановленный результат за успешный автоматический выбор.
+
+Контрпример: скрыто просканировать весь workspace после неполного preview, смешать найденные файлы с bundle и заявить, что resolver выбрал их автоматически.
 
 Проверяйте ответ:
 
@@ -380,6 +389,7 @@ REST-эквиваленты:
 - POST /v1/workspaces/{workspaceId}/files/batch:apply: атомарный смешанный пакет create/update/delete/move.
 - Маршруты сканирования и чтения scope-map рабочего пространства: перестроение и чтение ограниченной топологии.
 - POST /v1/context/domain-language: bootstrap языка предметной области.
+- POST /v1/context/preview-task-context: объяснимый body-free preview без записи fingerprint.
 - POST /v1/context/build-task-context: неизменяемый контекст задачи.
 - Маршруты preview, apply, sync и cutover документации: управляемый жизненный цикл внешних документов.
 - GET /openapi.json: точный машиночитаемый контракт.
@@ -396,6 +406,7 @@ REST-эквиваленты:
 - workspace.batch_apply: атомарная смешанная мутация до 100 операций с dry-run, MapRevision и idempotency receipt.
 - scope_map.scan: получение актуальной ревизии ScopeMap.
 - context.get_domain_language: обязательный bootstrap языка до толкования пути задачи.
+- context.preview_task_context: объяснимый выбор документов, проекций, бюджета и fallback без materialized bodies и производной записи.
 - context.build_task_context: ограниченный контекстный пакет задачи.
 - documentation_source.preview, apply, sync, cutover: импорт документации и передача владения, если эти операции настроены.
 - Ресурсы MCP предоставляют ограниченную карту и содержимое проекта; сначала обнаруживайте ресурсы, а не угадывайте URI.

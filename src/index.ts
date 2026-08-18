@@ -6,7 +6,7 @@ export {
   ABCM_AGENT_INSTRUCTIONS_VERSION,
   getAbcmAgentInstructions,
 } from "./agent-instructions/agent-instructions.js";
-export { ContextBuilder } from "./context/context-builder.js";
+export { CONTEXT_SELECTION_POLICY_VERSION, ContextBuilder } from "./context/context-builder.js";
 export { DirectoryContextFingerprintStore } from "./context/directory-context-fingerprint-store.js";
 export { emitAudit, emitMetric, InMemoryAbcmObservability, observeOperation } from "./core/observability.js";
 export type {
@@ -33,6 +33,7 @@ export type {
   ContextFingerprintDocument,
   ContextFingerprintStore,
   ContextOmission,
+  ContextSelectionPreview,
   DocumentProjectionMode,
   MaterializedDocumentProjection,
   SelectedContextDocument,
@@ -41,6 +42,20 @@ export type {
 export type { AbcmRuntimeOptions } from "./app/create-runtime.js";
 export { SqliteScopeMapStore } from "./derived-store/sqlite-scope-map-store.js";
 export { SqliteWorkspaceMapStore } from "./derived-store/sqlite-workspace-map-store.js";
+export {
+  contextEfficiencyManifestSchema,
+  contextEfficiencyPriorityOrder,
+  retrievalRunReceiptSchema,
+} from "./evaluation/context-efficiency-contracts.js";
+export type {
+  ContextEfficiencyFallbackMode,
+  ContextEfficiencyManifest,
+  RetrievalRunReceipt,
+} from "./evaluation/context-efficiency-contracts.js";
+export { evaluateContextEfficiency } from "./evaluation/context-efficiency-evaluator.js";
+export type { ContextEfficiencyReport, ContextEfficiencyVariantResult } from "./evaluation/context-efficiency-evaluator.js";
+export { runDirectSearchBaseline } from "./evaluation/direct-search-baseline.js";
+export type { DirectSearchBaselineRequest, DirectSearchBaselineResult } from "./evaluation/direct-search-baseline.js";
 export type {
   RuntimeOwnerHandle,
   ScanLeaseHandle,

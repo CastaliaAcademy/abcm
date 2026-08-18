@@ -1,0 +1,4 @@
+apiVersion: abcm/v1
+kind: workflow
+id: benchmark-workflow
+name: Context efficiency benchmark

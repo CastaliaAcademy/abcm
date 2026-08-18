@@ -47,6 +47,8 @@ async function fixture(builderOptions: ConstructorParameters<typeof ContextBuild
   await addScope(root, "project/catalog/search", "feature", "search");
   await addScope(root, "other-project", "project", "other-project");
   await document(root, "artifacts/conventions/security.md", "id: security-baseline\nkind: convention\ntitle: Security baseline\nrequired: true", "Never expose SECRET-SOURCE.");
+  await document(root, "artifacts/navigation/archive-index.md", "id: archive-index\nkind: index\ntitle: Search archive index", "Navigation-only historical search records.");
+  await document(root, "artifacts/templates/search-template.md", "id: search-template\nkind: template\ntitle: Generic search template", "Reusable template, not a task contract.");
   await document(root, "project/artifacts/overview.md", "id: project-overview\nkind: guide\ntitle: Project overview", "Commerce overview and background details.");
   await document(root, "project/catalog/search/artifacts/adr/ADR-SEARCH.md", "id: ADR-SEARCH\nkind: adr\ntitle: Search ADR\nprojection: summary", "# Decision\n\nUse deterministic indexing.\n\n# Consequences\n\nKeep source authoritative.");
   await document(root, "project/catalog/search/artifacts/implementation.md", "id: search-implementation\nkind: guide\ntitle: Search implementation\nrequiredFor: [executor-agent]", "Implement the search boundary exactly.");
@@ -81,6 +83,18 @@ function request(bootstrapId: string) {
 }
 
 describe("ContextBuilder", () => {
+  test("предварительно объясняет выбор без записи fingerprint и без содержимого документов", async () => {
+    const { root, builder, bootstrap } = await fixture();
+    const preview = await builder.preview(request(bootstrap.bootstrapId), principal);
+
+    expect(preview.selectionPolicyVersion).toBe("context-selection/v2");
+    expect(preview.selectedDocuments.map(item => item.documentId)).toEqual(["security-baseline", "search-implementation", "ADR-SEARCH", "project-overview"]);
+    expect(preview.fallbackModes).toEqual(["direct-search", "explicit-documents", "bounded-resource-read"]);
+    expect(JSON.stringify(preview)).not.toContain("Never expose SECRET-SOURCE");
+    expect(JSON.stringify(preview)).not.toContain("Use deterministic indexing");
+    expect(await readFile(join(root, ".abcm", "fingerprints", "sentinel"), "utf8").catch(() => "missing")).toBe("missing");
+  });
+
   test("materializes a deterministic bounded bundle and body-free fingerprint", async () => {
     const { root, builder, bootstrap } = await fixture();
     const first = await builder.build(request(bootstrap.bootstrapId), principal);
@@ -91,6 +105,8 @@ describe("ContextBuilder", () => {
     expect(first.mapRevision).toBe(bootstrap.mapRevision);
     expect(first.primaryTargetScope).toBe("search");
     expect(first.selectedDocuments.map(item => item.documentId)).toEqual(["security-baseline", "search-implementation", "ADR-SEARCH", "project-overview"]);
+    expect(first.selectedDocuments.map(item => item.documentId)).not.toContain("archive-index");
+    expect(first.selectedDocuments.map(item => item.documentId)).not.toContain("search-template");
     expect(JSON.stringify(first)).not.toContain("FOREIGN-PROJECT-SECRET");
     expect(first.selectedDocuments.find(item => item.documentId === "security-baseline")?.selectionReasons).toContain("required_applicable");
     expect(first.selectedDocuments.find(item => item.documentId === "search-implementation")?.selectionReasons).toContain("role_required");
@@ -170,6 +186,15 @@ describe("ContextBuilder", () => {
       expect(mcp.isError).not.toBe(true);
       expect(mcp.structuredContent).toEqual(expect.objectContaining({ bundleDigest: restBody.bundleDigest, selectedDocuments: restBody.selectedDocuments }));
       expect(JSON.stringify(mcp.structuredContent)).not.toContain('"nodes"');
+
+      const previewRestResponse = await runtime.restHandler(new Request("http://localhost/v1/context/preview-task-context", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      }));
+      const previewRest = await previewRestResponse.json();
+      const previewMcp = await client.callTool({ name: "context.preview_task_context", arguments: body });
+      expect(previewMcp.isError).not.toBe(true);
+      expect(previewMcp.structuredContent).toEqual(previewRest);
+      expect(JSON.stringify(previewRest)).not.toContain("Implement the search boundary exactly");
     } finally {
       await client.close(); await server.close(); await runtime.close();
     }
@@ -195,7 +220,7 @@ describe("ContextBuilder", () => {
     const restBody = await rest.json() as {
       bundleDigest: string;
       affectedScopes: string[];
-      affectedScopeDetails: Array<{ scopeId: string; origin: string }>;
+      affectedScopeDetails: Array<{ scopeId: string; origin: string; depth: number }>;
       multiScopePolicyDigest: string;
       budgetAllocation: Array<{ bucketId: string }>;
       selectedDocuments: Array<{ documentId: string }>;

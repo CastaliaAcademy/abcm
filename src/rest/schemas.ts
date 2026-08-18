@@ -13,6 +13,7 @@ import {
 import {
   contextBuildInputSchema,
   contextBuildOutputSchema,
+  contextPreviewOutputSchema,
   documentationPreviewInputSchema,
   documentationPreviewOutputSchema,
   documentationCutoverInputSchema,
@@ -58,6 +59,7 @@ export const REST_SHARED_SCHEMAS = {
   DomainLanguageResult: domainLanguageOutputSchema,
   BuildTaskContextRequest: contextBuildInputSchema,
   BuildTaskContextResult: contextBuildOutputSchema,
+  PreviewTaskContextResult: contextPreviewOutputSchema,
   DocumentationPreviewRequest: restDocumentationPreviewInputSchema,
   DocumentationPreviewResult: documentationPreviewOutputSchema,
   DocumentationSyncResult: documentationSyncOutputSchema,

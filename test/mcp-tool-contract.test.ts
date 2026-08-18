@@ -76,6 +76,7 @@ describe("MCP tool contract", () => {
         "workspace.delete_directory",
         "scope_map.scan",
         "context.get_domain_language",
+        "context.preview_task_context",
         "context.build_task_context",
         "documentation_source.preview",
         "documentation_source.apply",
@@ -84,7 +85,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.7.0",
+        version: "1.8.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
@@ -96,7 +97,7 @@ describe("MCP tool contract", () => {
         expect(tool.outputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));
         expect(tool.annotations?.openWorldHint).toBe(false);
       }
-      const contextTool = listed.tools.find(tool => tool.name === "context.build_task_context") as {
+      const contextTool = listed.tools.find(tool => tool.name === "context.build_task_context") as unknown as {
         inputSchema: { properties: { targetHints: { anyOf: Array<{ properties?: { scopeIds?: { minItems?: number; maxItems?: number; items?: unknown } } }> } } };
         outputSchema: { required?: string[]; properties: Record<string, unknown> };
       };
@@ -158,6 +159,11 @@ describe("MCP tool contract", () => {
         ["workspace.delete_directory", { workspaceId: "missing", path: "a", recursive: true }, "WORKSPACE_NOT_FOUND"],
         ["scope_map.scan", { workspaceId: "missing" }, "WORKSPACE_NOT_FOUND"],
         ["context.get_domain_language", { anchor: { workspaceId: "missing", projectId: "missing" } }, "MAP_NOT_BUILT"],
+        [
+          "context.preview_task_context",
+          { domainLanguageBootstrapId: "missing", roleId: "role", taskType: "test", goal: "test" },
+          "DOMAIN_LANGUAGE_BOOTSTRAP_REQUIRED",
+        ],
         [
           "context.build_task_context",
           { domainLanguageBootstrapId: "missing", roleId: "role", taskType: "test", goal: "test" },

@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 
+import { ABCM_AGENT_INSTRUCTIONS_VERSION } from "../agent-instructions/agent-instructions.js";
 import { buildTaskContextSchema } from "../context/schema.js";
 import { projectLanguageTagSchema } from "../core/project-language.js";
 import {
@@ -17,7 +18,7 @@ import {
 
 export const agentInstructionsInputSchema = z.object({}).strict();
 export const agentInstructionsOutputSchema = z.object({
-  version: z.literal("1.7.0"),
+  version: z.literal(ABCM_AGENT_INSTRUCTIONS_VERSION),
   contentType: z.literal("text/markdown; charset=utf-8"),
   checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   content: z.string().min(1),
@@ -205,6 +206,37 @@ export const contextBuildOutputSchema = z.object({
   contextFingerprintLocation: z.string(),
 }).strict();
 
+const contextPreviewDocumentSchema = z.object({
+  documentId: z.string(),
+  scopeId: z.string(),
+  relativePath: z.string(),
+  checksum,
+  mandatory: z.boolean(),
+  effectivePriority: z.number().int().nonnegative(),
+  selectionReasons: z.array(z.string()),
+  projection: z.object({
+    mode: z.enum(["full", "section", "summary", "metadata", "reference"]),
+    authoritative: z.boolean(),
+    sourceDocumentId: z.string(),
+    sourceChecksum: checksum,
+  }).strict(),
+  tokenEstimate: z.number().int().nonnegative(),
+}).strict();
+export const contextPreviewOutputSchema = z.object({
+  previewDigest: checksum,
+  selectionPolicyVersion: z.literal("context-selection/v2"),
+  mapRevision: checksum,
+  mapDigest: checksum,
+  primaryTargetScope: z.string(),
+  affectedScopes: z.array(z.string()),
+  budgetProfile: z.string(),
+  budget: z.object({ softLimitTokens: z.number().int().nonnegative(), hardLimitTokens: z.number().int().positive() }).strict(),
+  selectedDocuments: z.array(contextPreviewDocumentSchema),
+  omissions: z.array(z.unknown()),
+  tokenEstimate: z.number().int().nonnegative(),
+  fallbackModes: z.tuple([z.literal("direct-search"), z.literal("explicit-documents"), z.literal("bounded-resource-read")]),
+}).strict();
+
 const documentationOperationSchema = z.object({
   operation: z.enum(["create", "update", "move", "delete", "unchanged", "conflict"]),
   sourcePath: z.string(),
@@ -278,6 +310,7 @@ export const ABCM_MCP_TOOL_SCHEMAS = {
   "scope_map.scan": { input: scopeMapScanInputSchema, output: scopeMapScanOutputSchema },
   "context.get_domain_language": { input: domainLanguageInputSchema, output: domainLanguageOutputSchema },
   "context.build_task_context": { input: contextBuildInputSchema, output: contextBuildOutputSchema },
+  "context.preview_task_context": { input: contextBuildInputSchema, output: contextPreviewOutputSchema },
   "documentation_source.preview": { input: documentationPreviewInputSchema, output: documentationPreviewOutputSchema },
   "documentation_source.apply": { input: documentationApplyInputSchema, output: documentationSyncOutputSchema },
   "documentation_source.sync": { input: documentationSyncInputSchema, output: documentationSyncOutputSchema },

@@ -1,0 +1,3 @@
+apiVersion: abcm/v1
+kind: ContextConfig
+language: ru

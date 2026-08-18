@@ -269,6 +269,14 @@ export function createAbcmRestHandler(
         return json(await dependencies.contextBuilder.build(normalizeBuildTaskContextInput(body), dependencies.contextPrincipal, signal));
       }
 
+      if (request.method === "POST" && url.pathname === "/v1/context/preview-task-context") {
+        if (dependencies.contextBuilder === undefined || dependencies.contextPrincipal === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Context preview access is not configured.");
+        }
+        const body = await readJson(request, contextBuildInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.contextBuilder.preview(normalizeBuildTaskContextInput(body), dependencies.contextPrincipal, signal));
+      }
+
       const documentationApply = /^\/v1\/documentation-imports\/([^/]+)\/apply$/.exec(url.pathname);
       if (request.method === "POST" && documentationApply !== null) {
         if (dependencies.documentation === undefined) {

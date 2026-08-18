@@ -20,6 +20,7 @@ import type {
   ContextFingerprintDocument,
   ContextFingerprintStore,
   ContextOmission,
+  ContextSelectionPreview,
   DocumentProjectionMode,
   MaterializedDocumentProjection,
   SelectedContextDocument,
@@ -36,6 +37,8 @@ const DEFAULT_BUDGETS: Readonly<Record<string, ContextBudgetProfile>> = {
   compact: { softLimitTokens: 2_000, hardLimitTokens: 4_000 },
   expanded: { softLimitTokens: 24_000, hardLimitTokens: 32_000 },
 };
+const PASSIVE_ANCESTOR_KINDS = new Set(["index", "template"]);
+export const CONTEXT_SELECTION_POLICY_VERSION = "context-selection/v2" as const;
 
 interface Candidate {
   document: DocumentRecord;
@@ -158,7 +161,41 @@ export class ContextBuilder {
     }, () => this.#build(request, principal, signal));
   }
 
-  async #build(request: BuildTaskContextRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ContextBundle> {
+  async preview(request: BuildTaskContextRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ContextSelectionPreview> {
+    const bundle = await this.#build(request, principal, signal, false);
+    const selectedDocuments: ContextFingerprintDocument[] = bundle.selectedDocuments.map(item => ({
+      documentId: item.documentId,
+      scopeId: item.scopeId,
+      relativePath: item.relativePath,
+      checksum: item.checksum,
+      mandatory: item.mandatory,
+      effectivePriority: item.effectivePriority,
+      selectionReasons: item.selectionReasons,
+      projection: {
+        mode: item.projection.mode,
+        authoritative: item.projection.authoritative,
+        sourceDocumentId: item.projection.sourceDocumentId,
+        sourceChecksum: item.projection.sourceChecksum,
+      },
+      tokenEstimate: item.tokenEstimate,
+    }));
+    return deepFreeze({
+      previewDigest: digest({ selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION, bundleDigest: bundle.bundleDigest }),
+      selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION,
+      mapRevision: bundle.mapRevision,
+      mapDigest: bundle.mapDigest,
+      primaryTargetScope: bundle.primaryTargetScope,
+      affectedScopes: bundle.affectedScopes,
+      budgetProfile: bundle.budgetProfile,
+      budget: bundle.budget,
+      selectedDocuments,
+      omissions: bundle.omissions,
+      tokenEstimate: bundle.tokenEstimate,
+      fallbackModes: ["direct-search", "explicit-documents", "bounded-resource-read"],
+    });
+  }
+
+  async #build(request: BuildTaskContextRequest, principal: ContextPrincipal, signal?: AbortSignal, persistFingerprint = true): Promise<ContextBundle> {
     throwIfAborted(signal);
     if (!principal.access.workspacePermissions.includes("context.build") && !Object.values(principal.access.scopeGrants ?? {}).some(grants => grants.includes("context.build"))) {
       throw new AbcmError("ACCESS_DENIED", "Context build permission is required.");
@@ -303,6 +340,7 @@ export class ContextBuilder {
       omittedTokens: materialized.filter(item => bucketByDocument.get(item.documentId) === bucketId && budgetOmittedIds.has(item.documentId)).reduce((sum, item) => sum + item.tokenEstimate, 0),
     }));
     const digestInput = {
+      selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION,
       mapRevision: revision.revision,
       mapDigest: revision.digest,
       domainLanguageBootstrapDigest: bootstrap.bootstrapDigest,
@@ -339,7 +377,7 @@ export class ContextBuilder {
       domainLanguageBootstrapId: bootstrap.bootstrapId,
       domainLanguageBootstrapDigest: bootstrap.bootstrapDigest,
       domainLanguageSources: path.domainLanguageSources,
-      configurationDigests: [digest({ budgetProfile: budgetName, budget }), path.multiScopePolicyDigest],
+      configurationDigests: [digest({ selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION, budgetProfile: budgetName, budget }), path.multiScopePolicyDigest],
       roleId: request.roleId,
       taskType: request.taskType,
       primaryTargetScope: path.primaryTargetScopeId,
@@ -358,7 +396,9 @@ export class ContextBuilder {
       selectedDocuments: fingerprintDocuments,
     };
     throwIfAborted(signal);
-    const contextFingerprintLocation = await this.#dependencies.fingerprintStore.write(bootstrap.anchor.workspaceId, request.execution, fingerprint);
+    const contextFingerprintLocation = persistFingerprint
+      ? await this.#dependencies.fingerprintStore.write(bootstrap.anchor.workspaceId, request.execution, fingerprint)
+      : "";
     return deepFreeze({
       contextBundleId,
       bundleDigest,
@@ -455,7 +495,11 @@ export class ContextBuilder {
         if (document.contextPolicy === "explicit-only") continue;
         if (document.roleSelectors.length > 0 && !document.roleSelectors.includes(request.roleId)) continue;
         if (document.taskSelectors.length > 0 && !document.taskSelectors.includes(request.taskType)) continue;
-        if (pathScopes.has(document.scopeId)) reasons.add("target_scope");
+        if (pathScopes.has(document.scopeId)) {
+          if (affected.has(document.scopeId)) reasons.add("target_scope");
+          else if (PASSIVE_ANCESTOR_KINDS.has(document.kind)) continue;
+          else reasons.add("optional_background");
+        }
         else if (affected.has(document.scopeId)) reasons.add("related_scope");
         else if (inApplicableBoundary(document.scopeId) && document.domain !== undefined && canonicalSet.has(document.domain)) reasons.add("domain_or_entity_match");
         else {
