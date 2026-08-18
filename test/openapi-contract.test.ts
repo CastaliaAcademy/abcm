@@ -75,6 +75,29 @@ describe("OpenAPI contract", () => {
       SyncConflictResolution: expect.objectContaining({ oneOf: expect.any(Array) }),
       Problem: expect.objectContaining({ additionalProperties: false }),
     }));
+    const contextInput = document.components.schemas.BuildTaskContextRequest as {
+      properties: { targetHints: { anyOf: Array<{ properties?: { scopeIds?: { minItems?: number; maxItems?: number; items?: unknown } } }> } };
+    };
+    const contextOutput = document.components.schemas.BuildTaskContextResult as {
+      required?: string[];
+      properties: Record<string, unknown>;
+    };
+    const structuredHints = contextInput.properties.targetHints.anyOf.find(option => option.properties?.scopeIds !== undefined);
+    expect(structuredHints?.properties?.scopeIds).toEqual(expect.objectContaining({
+      minItems: 1,
+      maxItems: 8,
+      items: expect.objectContaining({ anyOf: expect.any(Array) }),
+    }));
+    expect(contextOutput.required).toEqual(expect.arrayContaining([
+      "multiScopePolicyDigest",
+      "affectedScopeDetails",
+      "budgetAllocation",
+    ]));
+    expect(contextOutput.properties).toEqual(expect.objectContaining({
+      multiScopePolicyDigest: expect.any(Object),
+      affectedScopeDetails: expect.any(Object),
+      budgetAllocation: expect.any(Object),
+    }));
   });
 
   test("serves the same OpenAPI document through the REST adapter", async () => {

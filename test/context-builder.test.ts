@@ -174,4 +174,57 @@ describe("ContextBuilder", () => {
       await client.close(); await server.close(); await runtime.close();
     }
   });
+
+  test("preserves structured multi-scope semantics through REST and MCP", async () => {
+    const { root } = await fixture();
+    const runtime = createAbcmRuntime({ id: "test", root }, { contextPrincipal: principal });
+    await runtime.scopeMap.scan("test");
+    const bootstrap = await runtime.domainLanguage.createBootstrap({ anchor: { workspaceId: "test", projectId: "commerce" }, roleId: "executor-agent" }, principal);
+    const body = {
+      ...request(bootstrap.bootstrapId),
+      goal: "Implement search and coordinate the other project",
+      targetHints: {
+        scopeIds: ["search", "other-project"],
+        componentNames: ["search"],
+      },
+    };
+    const rest = await runtime.restHandler(new Request("http://localhost/v1/context/build-task-context", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+    expect(rest.status).toBe(200);
+    const restBody = await rest.json() as {
+      bundleDigest: string;
+      affectedScopes: string[];
+      affectedScopeDetails: Array<{ scopeId: string; origin: string }>;
+      multiScopePolicyDigest: string;
+      budgetAllocation: Array<{ bucketId: string }>;
+      selectedDocuments: Array<{ documentId: string }>;
+    };
+    expect(restBody.affectedScopes).toEqual(["search", "other-project"]);
+    expect(restBody.affectedScopeDetails).toEqual([
+      { scopeId: "search", origin: "primary", depth: 0 },
+      { scopeId: "other-project", origin: "explicit", depth: 0 },
+    ]);
+    expect(restBody.multiScopePolicyDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(restBody.budgetAllocation.map(item => item.bucketId)).toEqual(expect.arrayContaining(["search", "other-project"]));
+    expect(restBody.selectedDocuments.map(item => item.documentId)).toContain("foreign-required");
+
+    const server = runtime.createMcpServer();
+    const client = new Client({ name: "multi-scope-context-client", version: "0.1.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport); await client.connect(clientTransport);
+    try {
+      const mcp = await client.callTool({ name: "context.build_task_context", arguments: body });
+      expect(mcp.isError).not.toBe(true);
+      expect(mcp.structuredContent).toEqual(expect.objectContaining({
+        bundleDigest: restBody.bundleDigest,
+        affectedScopes: restBody.affectedScopes,
+        affectedScopeDetails: restBody.affectedScopeDetails,
+        multiScopePolicyDigest: restBody.multiScopePolicyDigest,
+        budgetAllocation: restBody.budgetAllocation,
+      }));
+    } finally {
+      await client.close(); await server.close(); await runtime.close();
+    }
+  });
 });

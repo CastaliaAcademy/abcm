@@ -94,6 +94,26 @@ describe("MCP tool contract", () => {
         expect(tool.outputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));
         expect(tool.annotations?.openWorldHint).toBe(false);
       }
+      const contextTool = listed.tools.find(tool => tool.name === "context.build_task_context") as {
+        inputSchema: { properties: { targetHints: { anyOf: Array<{ properties?: { scopeIds?: { minItems?: number; maxItems?: number; items?: unknown } } }> } } };
+        outputSchema: { required?: string[]; properties: Record<string, unknown> };
+      };
+      const structuredHints = contextTool.inputSchema.properties.targetHints.anyOf.find(option => option.properties?.scopeIds !== undefined);
+      expect(structuredHints?.properties?.scopeIds).toEqual(expect.objectContaining({
+        minItems: 1,
+        maxItems: 8,
+        items: expect.objectContaining({ anyOf: expect.any(Array) }),
+      }));
+      expect(contextTool.outputSchema.required).toEqual(expect.arrayContaining([
+        "multiScopePolicyDigest",
+        "affectedScopeDetails",
+        "budgetAllocation",
+      ]));
+      expect(contextTool.outputSchema.properties).toEqual(expect.objectContaining({
+        multiScopePolicyDigest: expect.any(Object),
+        affectedScopeDetails: expect.any(Object),
+        budgetAllocation: expect.any(Object),
+      }));
     } finally {
       await client.close();
       await server.close();
