@@ -22,6 +22,7 @@ export { buildTaskContextSchema, normalizeBuildTaskContextInput } from "./contex
 export type {
   BuildTaskContextRequest,
   ContextBundleCatalogRecord,
+  ContextBudgetAllocation,
   ContextBudgetProfile,
   ContextBuilderOptions,
   ContextBundle,
@@ -55,7 +56,7 @@ export {
   ABCM_SPEC_VERSION,
 } from "./core/server-info.js";
 export { DomainLanguageService } from "./domain-language/domain-language-service.js";
-export { ScopePathResolver } from "./domain-language/scope-path-resolver.js";
+export { DEFAULT_MULTI_SCOPE_CONTEXT_POLICY, ScopePathResolver } from "./domain-language/scope-path-resolver.js";
 export { SkillConnectionResolver } from "./skills/skill-connection-resolver.js";
 export type {
   ConnectedSkillRecord,
@@ -68,6 +69,8 @@ export type {
 export type { DomainLanguageServiceOptions } from "./domain-language/domain-language-service.js";
 export { parseContextPrincipalEnvironment } from "./domain-language/context-principal-config.js";
 export type {
+  AffectedScopeDetail,
+  AffectedScopeOrigin,
   ConceptDefinition,
   ContextAnchor,
   ContextPrincipal,
@@ -78,10 +81,12 @@ export type {
   DomainLanguageBootstrapRequest,
   DomainLanguageSource,
   EffectiveDomainLanguage,
+  MultiScopeContextPolicy,
   NormalizedTaskIntent,
   ResolvedScopePath,
   ResolveTaskPathRequest,
   ResolverPass,
+  ScopePathResolverOptions,
   ScopeResolutionEvidence,
 } from "./domain-language/types.js";
 export { parseDocumentationSources } from "./documentation/config.js";

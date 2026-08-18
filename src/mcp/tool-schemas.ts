@@ -17,7 +17,7 @@ import {
 
 export const agentInstructionsInputSchema = z.object({}).strict();
 export const agentInstructionsOutputSchema = z.object({
-  version: z.literal("1.6.0"),
+  version: z.literal("1.7.0"),
   contentType: z.literal("text/markdown; charset=utf-8"),
   checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   content: z.string().min(1),
@@ -163,6 +163,19 @@ export const domainLanguageOutputSchema = z.object({
   expiresAt: z.string(),
 }).strict();
 
+const affectedScopeDetailSchema = z.object({
+  scopeId: z.string(),
+  origin: z.enum(["primary", "explicit", "relation"]),
+  depth: z.number().int().nonnegative(),
+  viaScopeId: z.string().optional(),
+  relationType: z.string().optional(),
+}).strict();
+const contextBudgetAllocationSchema = z.object({
+  bucketId: z.string(),
+  selectedTokens: z.number().int().nonnegative(),
+  omittedTokens: z.number().int().nonnegative(),
+}).strict();
+
 export const contextBuildInputSchema = buildTaskContextSchema;
 export const contextBuildOutputSchema = z.object({
   contextBundleId: z.string(),
@@ -177,6 +190,9 @@ export const contextBuildOutputSchema = z.object({
   budget: z.object({ softLimitTokens: z.number().int().nonnegative(), hardLimitTokens: z.number().int().positive() }).strict(),
   primaryTargetScope: z.string(),
   affectedScopes: z.array(z.string()),
+  affectedScopeDetails: z.array(affectedScopeDetailSchema),
+  multiScopePolicyDigest: checksum,
+  budgetAllocation: z.array(contextBudgetAllocationSchema),
   resolvedScopePath: z.record(z.string(), z.unknown()),
   skillConnectionReasons: z.record(z.string(), z.array(z.string())),
   connectedSkills: z.array(z.unknown()),

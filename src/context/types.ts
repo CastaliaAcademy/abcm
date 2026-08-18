@@ -1,4 +1,4 @@
-import type { ResolvedScopePath } from "../domain-language/types.js";
+import type { AffectedScopeDetail, ResolvedScopePath } from "../domain-language/types.js";
 import type { ConnectedSkillRecord, SkillConnectionReason } from "../skills/types.js";
 
 export type SelectionReason =
@@ -36,6 +36,7 @@ export interface BuildTaskContextRequest {
   canonicalTerms?: readonly string[];
   keywords?: readonly string[];
   targetHints?: readonly string[];
+  exactScopeIds?: readonly string[];
   explicitLinks?: readonly string[];
   artifacts?: readonly string[];
   repositoryPaths?: readonly string[];
@@ -86,6 +87,12 @@ export interface ContextFingerprintDocument {
   tokenEstimate: number;
 }
 
+export interface ContextBudgetAllocation {
+  bucketId: string;
+  selectedTokens: number;
+  omittedTokens: number;
+}
+
 export interface ContextFingerprint {
   fingerprintId: string;
   workspaceId: string;
@@ -101,6 +108,9 @@ export interface ContextFingerprint {
   taskType: string;
   primaryTargetScope: string;
   affectedScopes: readonly string[];
+  affectedScopeDetails: readonly AffectedScopeDetail[];
+  multiScopePolicyDigest: string;
+  budgetAllocation: readonly ContextBudgetAllocation[];
   connectedSkills: readonly {
     skillId: string;
     skillDigest: string;
@@ -128,6 +138,9 @@ export interface ContextBundle {
   budget: ContextBudgetProfile;
   primaryTargetScope: string;
   affectedScopes: readonly string[];
+  affectedScopeDetails: readonly AffectedScopeDetail[];
+  multiScopePolicyDigest: string;
+  budgetAllocation: readonly ContextBudgetAllocation[];
   resolvedScopePath: ResolvedScopePath;
   skillConnectionReasons: Readonly<Record<string, readonly SkillConnectionReason[]>>;
   connectedSkills: readonly ConnectedSkillRecord[];

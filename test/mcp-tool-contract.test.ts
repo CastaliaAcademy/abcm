@@ -52,7 +52,7 @@ describe("MCP tool contract", () => {
       const listed = await client.listTools();
       expect(client.getNegotiatedProtocolVersion()).toBe("2025-11-25");
       expect(client.getServerCapabilities()?.experimental?.["abcm.dev/contract"]).toEqual({
-        contractVersion: "0.3.0",
+        contractVersion: "0.4.0",
         specificationVersion: "0.5.0",
         supportedProtocolVersions: ["2025-11-25"],
         operationTimeoutMs: 30000,
@@ -84,11 +84,13 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.6.0",
+        version: "1.7.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
       }));
+      expect((instructions.structuredContent as { content: string }).content).toContain("targetHints.scopeIds");
+      expect((instructions.structuredContent as { content: string }).content).toContain("Недоступный explicit scope");
       for (const tool of listed.tools) {
         expect(tool.inputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));
         expect(tool.outputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));

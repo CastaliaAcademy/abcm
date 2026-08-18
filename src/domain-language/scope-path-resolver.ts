@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { posix } from "node:path";
 
 import { AbcmError } from "../core/errors.js";
@@ -7,13 +8,16 @@ import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { AbcmPermission, MapRevision, ScopeNode } from "../scope-map/types.js";
 import { DomainLanguageService } from "./domain-language-service.js";
 import type {
+  AffectedScopeDetail,
   ContextPrincipal,
   DomainLanguageBootstrap,
   EffectiveDomainLanguage,
+  MultiScopeContextPolicy,
   NormalizedTaskIntent,
   ResolvedScopePath,
   ResolveTaskPathRequest,
   ResolverPass,
+  ScopePathResolverOptions,
   ScopeResolutionEvidence,
 } from "./types.js";
 
@@ -32,6 +36,16 @@ const SCORE = {
   keyword: 100,
 } as const;
 
+export const DEFAULT_MULTI_SCOPE_CONTEXT_POLICY: MultiScopeContextPolicy = Object.freeze({
+  version: "multi-scope-v1",
+  maxExplicitScopes: 8,
+  maxAffectedScopes: 16,
+  maxRelationDepth: 2,
+  relationDirection: "outgoing",
+  allowedRelationTypes: Object.freeze(["affects", "depends-on"]),
+  optionalBudgetAllocation: "deterministic-round-robin",
+});
+
 function unique(values: readonly string[] | undefined): string[] {
   return [...new Set((values ?? []).map(value => value.trim()).filter(Boolean))].sort();
 }
@@ -44,11 +58,33 @@ export class ScopePathResolver {
   readonly #domainLanguage: DomainLanguageService;
   readonly #scopeMap: ScopeMapService;
   readonly #observability: AbcmObservability | undefined;
+  readonly #policy: MultiScopeContextPolicy;
+  readonly #policyDigest: string;
 
-  constructor(domainLanguage: DomainLanguageService, scopeMap: ScopeMapService, observability?: AbcmObservability) {
+  constructor(
+    domainLanguage: DomainLanguageService,
+    scopeMap: ScopeMapService,
+    observability?: AbcmObservability,
+    options: ScopePathResolverOptions = {},
+  ) {
     this.#domainLanguage = domainLanguage;
     this.#scopeMap = scopeMap;
     this.#observability = observability;
+    const configured = options.multiScopePolicy ?? DEFAULT_MULTI_SCOPE_CONTEXT_POLICY;
+    const allowedRelationTypes = [...new Set(configured.allowedRelationTypes)].sort();
+    if (
+      configured.version.trim() === "" ||
+      !Number.isSafeInteger(configured.maxExplicitScopes) || configured.maxExplicitScopes < 1 ||
+      !Number.isSafeInteger(configured.maxAffectedScopes) || configured.maxAffectedScopes < configured.maxExplicitScopes ||
+      !Number.isSafeInteger(configured.maxRelationDepth) || configured.maxRelationDepth < 0 || configured.maxRelationDepth > 8 ||
+      configured.relationDirection !== "outgoing" ||
+      configured.optionalBudgetAllocation !== "deterministic-round-robin" ||
+      allowedRelationTypes.length === 0
+    ) {
+      throw new Error("Multi-scope context policy is invalid.");
+    }
+    this.#policy = Object.freeze({ ...configured, allowedRelationTypes: Object.freeze(allowedRelationTypes) });
+    this.#policyDigest = `sha256:${createHash("sha256").update(JSON.stringify(this.#policy)).digest("hex")}`;
   }
 
   async resolve(request: ResolveTaskPathRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ResolvedScopePath> {
@@ -63,40 +99,52 @@ export class ScopePathResolver {
     throwIfAborted(signal);
     const bootstrap = this.#domainLanguage.validateBootstrap(request.domainLanguageBootstrapId, principal);
     const revision = this.#scopeMap.getActiveRevision(bootstrap.anchor.workspaceId);
-    const firstIntent = this.#normalizeIntent(request, bootstrap.effectiveLanguage);
-    const universe = this.#candidateUniverse(revision, bootstrap, principal);
-    const first = this.#select(revision, universe.nodes, firstIntent, 1, bootstrap.effectiveLanguage);
+    const exactScopeIds = this.#canonicalExactScopeIds(request.exactScopeIds);
+    const normalizedRequest = exactScopeIds === undefined ? request : { ...request, exactScopeIds };
+    const firstIntent = this.#normalizeIntent(normalizedRequest, bootstrap.effectiveLanguage);
+    const universe = exactScopeIds === undefined ? this.#candidateUniverse(revision, bootstrap, principal) : undefined;
+    const exactScopes = exactScopeIds === undefined ? undefined : this.#resolveExactScopes(revision, bootstrap, exactScopeIds, principal);
+    const first = exactScopes === undefined
+      ? this.#select(revision, universe!.nodes, firstIntent, 1, bootstrap.effectiveLanguage)
+      : {
+          node: exactScopes[0]!,
+          evidence: [{ tier: "exact" as const, value: exactScopes[0]!.scopeId, score: SCORE.exact }],
+          score: SCORE.exact,
+        };
     const firstLocal = await this.#domainLanguage.buildEffectiveLanguageForPath(bootstrap.bootstrapId, first.node.scopeId, principal, signal);
     throwIfAborted(signal);
-    const localIntent = this.#normalizeIntent(request, firstLocal.effectiveLanguage);
+    const localIntent = this.#normalizeIntent(normalizedRequest, firstLocal.effectiveLanguage);
     const passes: ResolverPass[] = [this.#pass(1, first)];
     let selected = first;
     let effective = firstLocal;
-    if (JSON.stringify(localIntent) !== JSON.stringify(firstIntent)) {
-      selected = this.#select(revision, universe.nodes, localIntent, 2, firstLocal.effectiveLanguage);
+    if (exactScopes === undefined && JSON.stringify(localIntent) !== JSON.stringify(firstIntent)) {
+      selected = this.#select(revision, universe!.nodes, localIntent, 2, firstLocal.effectiveLanguage);
       passes.push(this.#pass(2, selected));
       const secondLocal = await this.#domainLanguage.buildEffectiveLanguageForPath(bootstrap.bootstrapId, selected.node.scopeId, principal, signal);
       throwIfAborted(signal);
-      const secondIntent = this.#normalizeIntent(request, secondLocal.effectiveLanguage);
+      const secondIntent = this.#normalizeIntent(normalizedRequest, secondLocal.effectiveLanguage);
       if (JSON.stringify(secondIntent) !== JSON.stringify(localIntent)) {
         throw new AbcmError("PATH_RESOLUTION_NOT_CONVERGED", "Local domain language changed target meaning after the bounded second pass.");
       }
       effective = secondLocal;
     }
     const scopeIds = this.#physicalPath(revision, selected.node.scopeId);
-    const affectedScopeIds = this.#affectedScopes(revision, selected.node.scopeId, principal);
+    const affectedScopeDetails = this.#affectedScopes(revision, exactScopes ?? [selected.node], principal);
+    const affectedScopeIds = affectedScopeDetails.map(detail => detail.scopeId);
     return {
       mapRevision: revision.revision,
       bootstrapId: bootstrap.bootstrapId,
       primaryTargetScopeId: selected.node.scopeId,
       scopeIds,
       affectedScopeIds,
+      affectedScopeDetails,
+      multiScopePolicyDigest: this.#policyDigest,
       normalizedIntent: localIntent,
       effectiveDomainLanguage: effective.effectiveLanguage,
       domainLanguageSources: effective.sources,
       resolverTrace: {
-        candidateCount: universe.nodes.length,
-        filteredByAccess: universe.filteredByAccess,
+        candidateCount: universe?.nodes.length ?? exactScopes!.length,
+        filteredByAccess: universe?.filteredByAccess ?? 0,
         passes,
       },
     };
@@ -134,6 +182,7 @@ export class ScopePathResolver {
       canonicalTerms: [...new Set(canonicalTerms)].sort(),
       keywords: unique(request.keywords).map(normalized),
       targetHints: unique(request.targetHints).map(normalized),
+      exactScopeIds: [...(request.exactScopeIds ?? [])],
       explicitLinks: unique(request.explicitLinks),
       artifacts: unique(request.artifacts),
       repositoryPaths: unique(request.repositoryPaths).map(path => posix.normalize(path.replaceAll("\\", "/"))),
@@ -224,17 +273,76 @@ export class ScopePathResolver {
     return result;
   }
 
-  #affectedScopes(revision: MapRevision, targetId: string, principal: ContextPrincipal): string[] {
-    const ids = new Set([targetId]);
-    for (const relation of revision.relations) {
-      if (relation.status !== "resolved" || relation.relationType === "parent-child") continue;
-      if (relation.fromId === targetId) ids.add(relation.toId);
-      if (relation.toId === targetId) ids.add(relation.fromId);
+  #canonicalExactScopeIds(references: readonly string[] | undefined): string[] | undefined {
+    if (references === undefined) return undefined;
+    if (references.length < 1 || references.length > this.#policy.maxExplicitScopes) this.#invalidExactScope();
+    const result: string[] = [];
+    const seen = new Set<string>();
+    for (const reference of references) {
+      const match = /^(?:abcm:\/\/scope\/)?([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)$/.exec(reference);
+      if (match === null || seen.has(match[1]!)) this.#invalidExactScope();
+      seen.add(match[1]!);
+      result.push(match[1]!);
     }
-    return [...ids].filter(id => {
-      const node = revision.nodes.find(candidate => candidate.scopeId === id);
-      return node !== undefined && this.#hasPermission(principal, node, "scope.discover");
-    }).sort();
+    return result;
+  }
+
+  #resolveExactScopes(
+    revision: MapRevision,
+    bootstrap: DomainLanguageBootstrap,
+    scopeIds: readonly string[],
+    principal: ContextPrincipal,
+  ): ScopeNode[] {
+    const result: ScopeNode[] = [];
+    for (const scopeId of scopeIds) {
+      const node = revision.nodes.find(candidate => candidate.scopeId === scopeId);
+      if (node === undefined || node.status !== "valid" || !this.#canUseScope(principal, node)) this.#invalidExactScope();
+      result.push(node);
+    }
+    if (!this.#isDescendantOrSelf(revision, result[0]!, bootstrap.anchor.projectId)) this.#invalidExactScope();
+    return result;
+  }
+
+  #affectedScopes(revision: MapRevision, roots: readonly ScopeNode[], principal: ContextPrincipal): AffectedScopeDetail[] {
+    const details: AffectedScopeDetail[] = roots.map((node, index) => ({
+      scopeId: node.scopeId,
+      origin: index === 0 ? "primary" : "explicit",
+      depth: 0,
+    }));
+    const visited = new Set(details.map(detail => detail.scopeId));
+    const queue = details.map(detail => ({ scopeId: detail.scopeId, depth: 0 }));
+    const allowed = new Set(this.#policy.allowedRelationTypes);
+    for (let index = 0; index < queue.length && details.length < this.#policy.maxAffectedScopes; index += 1) {
+      const current = queue[index]!;
+      if (current.depth >= this.#policy.maxRelationDepth) continue;
+      const relations = revision.relations
+        .filter(relation => relation.status === "resolved" && relation.fromId === current.scopeId && allowed.has(relation.relationType))
+        .sort((left, right) => left.relationType.localeCompare(right.relationType) || left.toId.localeCompare(right.toId));
+      for (const relation of relations) {
+        if (details.length >= this.#policy.maxAffectedScopes || visited.has(relation.toId)) continue;
+        const node = revision.nodes.find(candidate => candidate.scopeId === relation.toId);
+        if (node === undefined || node.status !== "valid" || !this.#canUseScope(principal, node)) continue;
+        const detail: AffectedScopeDetail = {
+          scopeId: node.scopeId,
+          origin: "relation",
+          depth: current.depth + 1,
+          viaScopeId: current.scopeId,
+          relationType: relation.relationType,
+        };
+        details.push(detail);
+        visited.add(node.scopeId);
+        queue.push({ scopeId: node.scopeId, depth: detail.depth });
+      }
+    }
+    return details;
+  }
+
+  #canUseScope(principal: ContextPrincipal, node: ScopeNode): boolean {
+    return (["scope.discover", "scope.read_metadata", "context.build"] as const).every(permission => this.#hasPermission(principal, node, permission));
+  }
+
+  #invalidExactScope(): never {
+    throw new AbcmError("TARGET_SCOPE_INVALID", "An exact target scope is invalid or unavailable.");
   }
 
   #isDescendantOrSelf(revision: MapRevision, node: ScopeNode, ancestorId: string): boolean {

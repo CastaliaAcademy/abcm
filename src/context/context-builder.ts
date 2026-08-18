@@ -12,6 +12,7 @@ import type { SkillContextRequirement } from "../skills/types.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
 import type {
   BuildTaskContextRequest,
+  ContextBudgetAllocation,
   ContextBudgetProfile,
   ContextBuilderOptions,
   ContextBundle,
@@ -117,6 +118,14 @@ function hasDocumentAccess(principal: ContextPrincipal, node: ScopeNode): boolea
   return node.aliases.some(alias => principal.access.scopeGrants?.[alias]?.includes("document.read") === true);
 }
 
+function hasScopeMetadataAccess(principal: ContextPrincipal, node: ScopeNode): boolean {
+  return (["scope.discover", "scope.read_metadata"] as const).every(permission => {
+    if (principal.access.workspacePermissions.includes(permission)) return true;
+    if (principal.access.scopeGrants?.[node.scopeId]?.includes(permission) === true) return true;
+    return node.aliases.some(alias => principal.access.scopeGrants?.[alias]?.includes(permission) === true);
+  });
+}
+
 export class ContextBuilder {
   readonly #dependencies: ContextBuilderDependencies;
   readonly #budgets: Readonly<Record<string, ContextBudgetProfile>>;
@@ -170,6 +179,7 @@ export class ContextBuilder {
       ...(request.canonicalTerms === undefined ? {} : { canonicalTerms: request.canonicalTerms }),
       ...(request.keywords === undefined ? {} : { keywords: request.keywords }),
       ...(request.targetHints === undefined ? {} : { targetHints: request.targetHints }),
+      ...(request.exactScopeIds === undefined ? {} : { exactScopeIds: request.exactScopeIds }),
       ...(request.explicitLinks === undefined ? {} : { explicitLinks: request.explicitLinks }),
       ...(request.artifacts === undefined ? {} : { artifacts: request.artifacts }),
       ...(request.repositoryPaths === undefined ? {} : { repositoryPaths: request.repositoryPaths }),
@@ -195,6 +205,7 @@ export class ContextBuilder {
       path.normalizedIntent.canonicalDomains,
       path.normalizedIntent.canonicalTerms,
       skills.contextRequirements,
+      principal,
     );
     const materialized: SelectedContextDocument[] = [];
     const omissions: ContextOmission[] = [...lifecycleOmissions];
@@ -244,16 +255,53 @@ export class ContextBuilder {
         documentIds: materialized.filter(item => item.mandatory).map(item => item.documentId),
       });
     }
+    const bucketByDocument = new Map(materialized.map(item => [item.documentId, this.#budgetBucket(revision, item.scopeId, path.affectedScopeIds)]));
     const selected: SelectedContextDocument[] = [];
     let tokenEstimate = skillTokens;
-    for (const item of materialized) {
-      if (!item.mandatory && tokenEstimate + item.tokenEstimate > budget.softLimitTokens) {
-        omissions.push({ documentId: item.documentId, reason: "budget_exceeded", selectionReasons: item.selectionReasons });
-        continue;
+    if (request.exactScopeIds === undefined) {
+      for (const item of materialized) {
+        if (!item.mandatory && tokenEstimate + item.tokenEstimate > budget.softLimitTokens) {
+          omissions.push({ documentId: item.documentId, reason: "budget_exceeded", selectionReasons: item.selectionReasons });
+          continue;
+        }
+        selected.push(item); tokenEstimate += item.tokenEstimate;
       }
-      selected.push(item); tokenEstimate += item.tokenEstimate;
+    } else {
+      const mandatory = materialized.filter(item => item.mandatory);
+      selected.push(...mandatory);
+      tokenEstimate += mandatory.reduce((sum, item) => sum + item.tokenEstimate, 0);
+      const optional = materialized.filter(item => !item.mandatory);
+      const bucketOrder = [...path.affectedScopeIds];
+      if (optional.some(item => bucketByDocument.get(item.documentId) === "shared")) bucketOrder.push("shared");
+      const queues = new Map(bucketOrder.map(bucketId => [
+        bucketId,
+        optional.filter(item => bucketByDocument.get(item.documentId) === bucketId),
+      ]));
+      let remaining = optional.length;
+      while (remaining > 0) {
+        for (const bucketId of bucketOrder) {
+          const item = queues.get(bucketId)?.shift();
+          if (item === undefined) continue;
+          remaining -= 1;
+          if (tokenEstimate + item.tokenEstimate > budget.softLimitTokens) {
+            omissions.push({ documentId: item.documentId, reason: "budget_exceeded", selectionReasons: item.selectionReasons });
+          } else {
+            selected.push(item);
+            tokenEstimate += item.tokenEstimate;
+          }
+        }
+      }
     }
     const orderedOmissions = omissions.sort((left, right) => left.documentId.localeCompare(right.documentId) || left.reason.localeCompare(right.reason));
+    const selectedIds = new Set(selected.map(item => item.documentId));
+    const budgetOmittedIds = new Set(orderedOmissions.filter(item => item.reason === "budget_exceeded").map(item => item.documentId));
+    const allocationOrder = [...path.affectedScopeIds];
+    if (materialized.some(item => bucketByDocument.get(item.documentId) === "shared")) allocationOrder.push("shared");
+    const budgetAllocation: ContextBudgetAllocation[] = allocationOrder.map(bucketId => ({
+      bucketId,
+      selectedTokens: materialized.filter(item => bucketByDocument.get(item.documentId) === bucketId && selectedIds.has(item.documentId)).reduce((sum, item) => sum + item.tokenEstimate, 0),
+      omittedTokens: materialized.filter(item => bucketByDocument.get(item.documentId) === bucketId && budgetOmittedIds.has(item.documentId)).reduce((sum, item) => sum + item.tokenEstimate, 0),
+    }));
     const digestInput = {
       mapRevision: revision.revision,
       mapDigest: revision.digest,
@@ -264,6 +312,9 @@ export class ContextBuilder {
       budgetProfile: budgetName,
       budget,
       resolvedScopePath: path,
+      affectedScopeDetails: path.affectedScopeDetails,
+      multiScopePolicyDigest: path.multiScopePolicyDigest,
+      budgetAllocation,
       connectedSkills: skills.connectedSkills,
       selectedDocuments: selected,
       omissions: orderedOmissions,
@@ -288,11 +339,14 @@ export class ContextBuilder {
       domainLanguageBootstrapId: bootstrap.bootstrapId,
       domainLanguageBootstrapDigest: bootstrap.bootstrapDigest,
       domainLanguageSources: path.domainLanguageSources,
-      configurationDigests: [digest({ budgetProfile: budgetName, budget })],
+      configurationDigests: [digest({ budgetProfile: budgetName, budget }), path.multiScopePolicyDigest],
       roleId: request.roleId,
       taskType: request.taskType,
       primaryTargetScope: path.primaryTargetScopeId,
       affectedScopes: path.affectedScopeIds,
+      affectedScopeDetails: path.affectedScopeDetails,
+      multiScopePolicyDigest: path.multiScopePolicyDigest,
+      budgetAllocation,
       connectedSkills: skills.connectedSkills.map(skill => ({
         skillId: skill.skillId, skillDigest: skill.skillDigest, strategy: skill.strategy,
         connectionReasons: skill.connectionReasons, ...(skill.approvalId === undefined ? {} : { approvalId: skill.approvalId }),
@@ -318,6 +372,9 @@ export class ContextBuilder {
       budget,
       primaryTargetScope: path.primaryTargetScopeId,
       affectedScopes: path.affectedScopeIds,
+      affectedScopeDetails: path.affectedScopeDetails,
+      multiScopePolicyDigest: path.multiScopePolicyDigest,
+      budgetAllocation,
       resolvedScopePath: path,
       skillConnectionReasons: Object.fromEntries(skills.connectedSkills.map(skill => [skill.skillId, skill.connectionReasons])),
       connectedSkills: skills.connectedSkills,
@@ -340,11 +397,13 @@ export class ContextBuilder {
     canonicalDomains: readonly string[],
     canonicalTerms: readonly string[],
     requirements: readonly SkillContextRequirement[],
+    principal: ContextPrincipal,
   ) {
     const candidates = new Map<string, Candidate>();
     const omissions: ContextOmission[] = [];
     const pathScopes = new Set(pathScopeIds);
     const affected = new Set(affectedScopeIds);
+    const multiScopeBoundary = request.exactScopeIds === undefined ? undefined : this.#ancestorUnion(revision, affectedScopeIds, principal);
     const explicitLinks = [...(request.explicitDocumentLinks ?? []), ...(request.explicitLinks ?? []).filter(link => !link.startsWith("abcm://skill/") && documentId(link) !== undefined)];
     const explicitIds = new Set<string>();
     for (const link of explicitLinks) {
@@ -372,12 +431,13 @@ export class ContextBuilder {
       }
       return false;
     };
+    const inApplicableBoundary = (scopeId: string): boolean => multiScopeBoundary?.has(scopeId) ?? inProject(scopeId);
     const keywordSet = new Set((request.keywords ?? []).map(value => value.toLocaleLowerCase("en-US")));
     const canonicalSet = new Set([...canonicalDomains, ...canonicalTerms]);
     for (const document of revision.documents) {
       const reasons = new Set<SelectionReason>();
       const explicitlyLinked = explicitIds.has(document.documentId);
-      const applicableBoundary = pathScopes.has(document.scopeId) || affected.has(document.scopeId) || inProject(document.scopeId);
+      const applicableBoundary = pathScopes.has(document.scopeId) || affected.has(document.scopeId) || inApplicableBoundary(document.scopeId);
       if (!applicableBoundary && !explicitlyLinked) continue;
       if (document.requiredSelectors.includes("always")) reasons.add("required_applicable");
       if (document.contextPolicy === "operator" || document.contextPolicy === "operator-controlled") reasons.add("operator_controlled_applicable");
@@ -397,10 +457,10 @@ export class ContextBuilder {
         if (document.taskSelectors.length > 0 && !document.taskSelectors.includes(request.taskType)) continue;
         if (pathScopes.has(document.scopeId)) reasons.add("target_scope");
         else if (affected.has(document.scopeId)) reasons.add("related_scope");
-        else if (inProject(document.scopeId) && document.domain !== undefined && canonicalSet.has(document.domain)) reasons.add("domain_or_entity_match");
+        else if (inApplicableBoundary(document.scopeId) && document.domain !== undefined && canonicalSet.has(document.domain)) reasons.add("domain_or_entity_match");
         else {
           const metadataTokens = new Set(`${document.documentId} ${document.kind} ${document.title} ${(document.tags ?? []).join(" ")}`.toLocaleLowerCase("en-US").split(/[^a-z0-9.-]+/).filter(Boolean));
-          if (inProject(document.scopeId) && [...keywordSet].some(keyword => metadataTokens.has(keyword))) reasons.add("semantic_or_keyword_match");
+          if (inApplicableBoundary(document.scopeId) && [...keywordSet].some(keyword => metadataTokens.has(keyword))) reasons.add("semantic_or_keyword_match");
           else continue;
         }
       }
@@ -415,5 +475,34 @@ export class ContextBuilder {
 
   #reasons(candidate: Candidate): SelectionReason[] {
     return [...candidate.reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right));
+  }
+
+  #ancestorUnion(revision: MapRevision, scopeIds: readonly string[], principal: ContextPrincipal): Set<string> {
+    const byId = new Map(revision.nodes.map(node => [node.scopeId, node]));
+    const result = new Set<string>();
+    for (const scopeId of scopeIds) {
+      let current = byId.get(scopeId);
+      while (current !== undefined) {
+        if (hasScopeMetadataAccess(principal, current)) result.add(current.scopeId);
+        current = current.parentScopeId === undefined ? undefined : byId.get(current.parentScopeId);
+      }
+    }
+    return result;
+  }
+
+  #budgetBucket(revision: MapRevision, documentScopeId: string, affectedScopeIds: readonly string[]): string {
+    const matches = affectedScopeIds.filter(scopeId => this.#isAncestor(revision, documentScopeId, scopeId));
+    if (matches.length === 1) return matches[0]!;
+    return "shared";
+  }
+
+  #isAncestor(revision: MapRevision, ancestorId: string, targetId: string): boolean {
+    const byId = new Map(revision.nodes.map(node => [node.scopeId, node]));
+    let current = byId.get(targetId);
+    while (current !== undefined) {
+      if (current.scopeId === ancestorId) return true;
+      current = current.parentScopeId === undefined ? undefined : byId.get(current.parentScopeId);
+    }
+    return false;
   }
 }

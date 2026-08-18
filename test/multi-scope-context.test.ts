@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { ContextBuilder } from "../src/context/context-builder.js";
+import { DirectoryContextFingerprintStore } from "../src/context/directory-context-fingerprint-store.js";
 import { buildTaskContextSchema, normalizeBuildTaskContextInput } from "../src/context/schema.js";
 import { DomainLanguageService } from "../src/domain-language/domain-language-service.js";
 import { ScopePathResolver } from "../src/domain-language/scope-path-resolver.js";
 import type { ContextPrincipal, ResolveTaskPathRequest } from "../src/domain-language/types.js";
 import { ScopeMapService } from "../src/scope-map/scope-map-service.js";
+import { SkillConnectionResolver } from "../src/skills/skill-connection-resolver.js";
+import { WorkspaceFileService } from "../src/workspace/file-service.js";
 import { WorkspaceRegistry } from "../src/workspace/registry.js";
 
 const roots: string[] = [];
@@ -31,6 +35,26 @@ async function addRelations(root: string, path: string, relations: readonly { id
   await writeFile(join(directory, "relations.yaml"), `apiVersion: abcm/v1\nkind: ScopeRelations\nrelations:\n${body}`);
 }
 
+async function addDocument(root: string, scopePath: string, id: string, body: string, required = false): Promise<string> {
+  const directory = join(root, scopePath, "artifacts");
+  await mkdir(directory, { recursive: true });
+  const content = `---\nid: ${id}\nkind: guide\ntitle: ${id}\n${required ? "required: true\n" : ""}---\n\n${body}\n`;
+  await writeFile(join(directory, `${id}.md`), content);
+  return content;
+}
+
+async function addScopeSkill(root: string, scopePath: string, id: string): Promise<string> {
+  const directory = join(root, scopePath, "agents/skills", id);
+  await mkdir(directory, { recursive: true });
+  const content = `---\nname: ${id}\ndescription: ${id}\ncompatibility: ABCM MVP\nmetadata:\n  abcm-skill-strategy: scope\n  abcm-roles: executor-agent\n---\n\n# ${id}\n\nBODY-${id}\n`;
+  await writeFile(join(directory, "SKILL.md"), content);
+  return content;
+}
+
+function tokenEstimate(content: string): number {
+  return Math.ceil(new TextEncoder().encode(content).byteLength / 4);
+}
+
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "abcm-multi-scope-"));
   roots.push(root);
@@ -51,7 +75,7 @@ async function fixture() {
   const scopeMap = new ScopeMapService(registry);
   await scopeMap.scan("test");
   const domainLanguage = new DomainLanguageService(registry, scopeMap);
-  return { root, scopeMap, domainLanguage, resolver: new ScopePathResolver(domainLanguage, scopeMap) };
+  return { root, registry, scopeMap, domainLanguage, resolver: new ScopePathResolver(domainLanguage, scopeMap) };
 }
 
 const fullPrincipal: ContextPrincipal = {
@@ -163,5 +187,125 @@ describe("multi-scope context contract", () => {
       code: "TARGET_SCOPE_INVALID",
       details: undefined,
     });
+  });
+
+  test("applies configured closure bounds and includes the policy in deterministic identity", async () => {
+    const { domainLanguage, scopeMap, resolver } = await fixture();
+    const bootstrap = await domainLanguage.createBootstrap({ anchor: { workspaceId: "test", projectId: "commerce" } }, fullPrincipal);
+    const defaultResult = await resolver.resolve(exactRequest(bootstrap.bootstrapId, ["catalog", "ledger"]), fullPrincipal);
+    const bounded = new ScopePathResolver(domainLanguage, scopeMap, undefined, { multiScopePolicy: {
+      version: "multi-scope-test-bounded-v1",
+      maxExplicitScopes: 2,
+      maxAffectedScopes: 3,
+      maxRelationDepth: 1,
+      relationDirection: "outgoing",
+      allowedRelationTypes: ["depends-on"],
+      optionalBudgetAllocation: "deterministic-round-robin",
+    } });
+    const first = await bounded.resolve(exactRequest(bootstrap.bootstrapId, ["catalog", "ledger"]), fullPrincipal);
+    const second = await bounded.resolve(exactRequest(bootstrap.bootstrapId, ["catalog", "ledger"]), fullPrincipal);
+
+    expect(first.affectedScopeIds).toEqual(["catalog", "ledger", "billing"]);
+    expect(first.affectedScopeDetails.at(-1)).toEqual({
+      scopeId: "billing", origin: "relation", depth: 1, viaScopeId: "catalog", relationType: "depends-on",
+    });
+    expect(first.multiScopePolicyDigest).toBe(second.multiScopePolicyDigest);
+    expect(first.multiScopePolicyDigest).not.toBe(defaultResult.multiScopePolicyDigest);
+  });
+
+  test("connects context from both projects and allocates optional budget round-robin reproducibly", async () => {
+    const { root, registry, scopeMap, domainLanguage } = await fixture();
+    const catalogA = await addDocument(root, "commerce/catalog", "catalog-a", "A".repeat(160));
+    const catalogB = await addDocument(root, "commerce/catalog", "catalog-b", "B".repeat(160));
+    const ledgerA = await addDocument(root, "finance/ledger", "ledger-a", "C".repeat(160));
+    const ledgerB = await addDocument(root, "finance/ledger", "ledger-b", "D".repeat(160));
+    const catalogSkill = await addScopeSkill(root, "commerce/catalog", "catalog-skill");
+    const ledgerSkill = await addScopeSkill(root, "finance/ledger", "ledger-skill");
+    await scopeMap.scan("test");
+    const principal: ContextPrincipal = {
+      principalId: "agent:multi-scope-builder",
+      access: { workspacePermissions: ["scope.discover", "scope.read_metadata", "context.build", "document.read"] },
+    };
+    const bootstrap = await domainLanguage.createBootstrap({ anchor: { workspaceId: "test", projectId: "commerce" }, roleId: "executor-agent" }, principal);
+    const selectedBudget = tokenEstimate(catalogSkill) + tokenEstimate(ledgerSkill) + tokenEstimate(catalogA) + tokenEstimate(ledgerA) + tokenEstimate(catalogB);
+    const builder = new ContextBuilder({
+      files: new WorkspaceFileService(registry),
+      scopeMap,
+      domainLanguage,
+      scopePathResolver: new ScopePathResolver(domainLanguage, scopeMap),
+      skillConnectionResolver: new SkillConnectionResolver(registry, scopeMap),
+      fingerprintStore: new DirectoryContextFingerprintStore(registry),
+      options: { budgetProfiles: { fair: { softLimitTokens: selectedBudget, hardLimitTokens: selectedBudget + tokenEstimate(ledgerB) + 100 } } },
+    });
+    const request = {
+      domainLanguageBootstrapId: bootstrap.bootstrapId,
+      roleId: "executor-agent",
+      taskType: "migration",
+      goal: "Move a contract across projects",
+      exactScopeIds: ["catalog", "ledger"],
+      budgetProfile: "fair",
+      execution: { planId: "PLAN-0030", runId: "round-robin" },
+    } as const;
+    const first = await builder.build(request, principal);
+    const second = await builder.build(request, principal);
+
+    expect(first.connectedSkills.map(skill => skill.skillId)).toEqual(["catalog-skill", "ledger-skill"]);
+    expect(first.selectedDocuments.map(document => document.documentId)).toEqual(["catalog-a", "ledger-a", "catalog-b"]);
+    expect(first.omissions).toContainEqual(expect.objectContaining({ documentId: "ledger-b", reason: "budget_exceeded" }));
+    expect(first.budgetAllocation).toEqual(expect.arrayContaining([
+      { bucketId: "catalog", selectedTokens: tokenEstimate(catalogA) + tokenEstimate(catalogB), omittedTokens: 0 },
+      { bucketId: "ledger", selectedTokens: tokenEstimate(ledgerA), omittedTokens: tokenEstimate(ledgerB) },
+    ]));
+    expect(second.bundleDigest).toBe(first.bundleDigest);
+    expect(second.budgetAllocation).toEqual(first.budgetAllocation);
+
+    const fingerprint = JSON.parse(await readFile(join(root, first.contextFingerprintLocation, "fingerprint.json"), "utf8")) as Record<string, unknown>;
+    expect(fingerprint).toEqual(expect.objectContaining({
+      affectedScopes: first.affectedScopes,
+      affectedScopeDetails: first.affectedScopeDetails,
+      multiScopePolicyDigest: first.multiScopePolicyDigest,
+      budgetAllocation: first.budgetAllocation,
+    }));
+    expect(JSON.stringify(fingerprint)).not.toContain("BODY-catalog-skill");
+    expect(JSON.stringify(fingerprint)).not.toContain("A".repeat(80));
+  });
+
+  test("excludes a hidden relation scope before document omissions and allocation", async () => {
+    const { root, registry, scopeMap, domainLanguage } = await fixture();
+    await addDocument(root, "finance/secret", "secret-required", "HIDDEN-SCOPE-DOCUMENT", true);
+    await addDocument(root, "finance", "hidden-ancestor-required", "HIDDEN-ANCESTOR-DOCUMENT", true);
+    await scopeMap.scan("test");
+    const grants = ["scope.discover", "scope.read_metadata", "context.build", "document.read"] as const;
+    const principal: ContextPrincipal = {
+      principalId: "agent:hidden-document",
+      access: { workspacePermissions: [], scopeGrants: {
+        workflow: grants,
+        commerce: grants,
+        catalog: grants,
+        billing: grants,
+        ledger: grants,
+      } },
+    };
+    const bootstrap = await domainLanguage.createBootstrap({ anchor: { workspaceId: "test", projectId: "commerce" }, roleId: "executor-agent" }, principal);
+    const builder = new ContextBuilder({
+      files: new WorkspaceFileService(registry), scopeMap, domainLanguage,
+      scopePathResolver: new ScopePathResolver(domainLanguage, scopeMap),
+      skillConnectionResolver: new SkillConnectionResolver(registry, scopeMap),
+      fingerprintStore: new DirectoryContextFingerprintStore(registry),
+    });
+    const result = await builder.build({
+      domainLanguageBootstrapId: bootstrap.bootstrapId,
+      roleId: "executor-agent",
+      taskType: "migration",
+      goal: "Move a contract",
+      exactScopeIds: ["catalog", "ledger"],
+    }, principal);
+
+    expect(result.affectedScopes).toEqual(["catalog", "ledger", "billing"]);
+    expect(JSON.stringify(result)).not.toContain("secret");
+    expect(JSON.stringify(result)).not.toContain("hidden-ancestor");
+    expect(result.omissions).not.toContainEqual(expect.objectContaining({ documentId: "secret-required" }));
+    expect(result.omissions).not.toContainEqual(expect.objectContaining({ documentId: "hidden-ancestor-required" }));
+    expect(result.budgetAllocation.map(record => record.bucketId)).not.toContain("secret");
   });
 });

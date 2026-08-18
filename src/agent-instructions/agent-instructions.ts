@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.6.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.7.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.6.0
+Версия: 1.7.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -166,6 +166,50 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 Правильно: после bootstrap последовательно использовать объявленный термин ScopeMap.
 
 Контрпример: использовать термины «карта проекта», «дерево контекста», «граф репозитория» и ScopeMap как взаимозаменяемые.
+
+## Контекст задачи для нескольких контуров
+
+Когда одна задача явно затрагивает несколько известных scopes, передавайте их отдельным ordered-массивом targetHints.scopeIds. Первый exact scope является primary и ОБЯЗАН находиться внутри anchor-project использованного DomainLanguageBootstrap. Остальные exact scopes могут находиться в других проектах того же workspace; все они разрешаются в одной pinned MapRevision.
+
+MCP-пример:
+
+    context.build_task_context({
+      domainLanguageBootstrapId: "bootstrap-...",
+      roleId: "executor-agent",
+      taskType: "cross-service-migration",
+      goal: "Перенести контракт заказов из catalog в billing",
+      targetHints: {
+        scopeIds: ["catalog", "billing"],
+        componentNames: ["orders"]
+      },
+      budgetProfile: "expanded"
+    })
+
+REST использует то же тело в POST /v1/context/build-task-context. Можно передать canonical id или URI abcm://scope/<id>. От одного до восьми exact scopes должны быть уникальны после canonicalization. Legacy array targetHints и componentNames остаются fuzzy hints и не объявляют дополнительные scopes.
+
+Проверяйте ответ:
+
+- primaryTargetScope — первый подтверждённый exact scope;
+- affectedScopes — primary, остальные explicit scopes и ограниченный outgoing relation closure в стабильном порядке;
+- affectedScopeDetails — disclosure-safe причина, depth и relation evidence каждого включённого scope;
+- multiScopePolicyDigest — версия точных bounds и relation allowlist;
+- budgetAllocation — фактически выбранные и пропущенные optional tokens по scope buckets;
+- bundleDigest и ContextFingerprint — воспроизводимая идентичность всего результата.
+
+Недоступный explicit scope останавливает весь build с generic TARGET_SCOPE_INVALID: нельзя продолжать с частичным bundle. Недоступный relation-derived scope исключается до формирования details, warnings, omissions и allocation; его id запрещено раскрывать. Mandatory context и подключённые skills всех разрешённых scopes резервируются до optional round-robin.
+
+Правильно: передать ["catalog", "billing"], если catalog — primary внутри anchor-project, а billing действительно участвует в одной миграции.
+
+Контрпримеры:
+
+- передать ["billing", "catalog"] лишь потому, что лексикографическая сортировка кажется удобнее, и тем самым незаметно изменить primary;
+- добавить предположительный или недоступный scope «на всякий случай»;
+- поместить scope ids в componentNames и ожидать exact multi-scope semantics;
+- считать affectedScopes разрешением на запись или distributed transaction;
+- продолжить работу после TARGET_SCOPE_INVALID с самостоятельно уменьшенным списком;
+- упомянуть hidden relation target в отчёте, omission или диагностике.
+
+В версии multi-scope-v1 Primary EffectiveDomainLanguage нормализует intent для всей задачи. Secondary scopes добавляют применимые документы, skills и ancestor policy, но не переопределяют смысл goal.
 
 ## Протокол выполнения задачи
 
