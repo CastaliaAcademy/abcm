@@ -12,7 +12,9 @@ import type { ContextPrincipal } from "../domain-language/types.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
+import type { WorkspaceBatchService } from "../workspace/batch-service.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
+import type { WorkspaceUploadService } from "../workspace/upload-service.js";
 import type { ObsidianSyncService } from "../sync/obsidian-sync-service.js";
 import {
   syncApplyBatchSchema,
@@ -27,6 +29,8 @@ import {
   restDocumentationPreviewInputSchema,
   restDocumentationCutoverInputSchema,
   restMoveFileInputSchema,
+  restWorkspaceBatchApplyInputSchema,
+  restWorkspaceUploadStartInputSchema,
   workspaceRegistrationSchema,
 } from "./schemas.js";
 import { contextBuildInputSchema, domainLanguageInputSchema } from "../mcp/tool-schemas.js";
@@ -34,6 +38,8 @@ import { resolveRestLimitOptions, type AbcmRestLimitOptions } from "./config.js"
 
 export interface AbcmRestDependencies {
   files: WorkspaceFileService;
+  uploads?: WorkspaceUploadService;
+  batches?: WorkspaceBatchService;
   scopeMap: ScopeMapService;
   scopeMapAccess?: ScopeMapAccess;
   domainLanguage?: DomainLanguageService;
@@ -295,6 +301,51 @@ export function createAbcmRestHandler(
       if (!match) return problem(new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found."));
       const workspaceId = decodeURIComponent(match[1] ?? "");
       const endpoint = match[2]!;
+
+      if (request.method === "POST" && endpoint === "/uploads") {
+        if (dependencies.uploads === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        const body = await readJson(request, restWorkspaceUploadStartInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.uploads.start({ workspaceId, ...body }, signal), 201);
+      }
+
+      const uploadChunk = /^\/uploads\/(upl_[a-f0-9]{32})\/chunks\/([0-9]+)$/.exec(endpoint);
+      if (request.method === "PUT" && uploadChunk !== null) {
+        if (dependencies.uploads === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        const index = Number(uploadChunk[2]);
+        if (!Number.isSafeInteger(index)) throw new AbcmError("REQUEST_INVALID", "Upload chunk index is invalid.");
+        const checksum = request.headers.get("x-content-sha256")?.trim();
+        if (checksum === undefined || !/^sha256:[a-f0-9]{64}$/.test(checksum)) {
+          throw new AbcmError("REQUEST_INVALID", "X-Content-Sha256 must contain the decoded chunk checksum.");
+        }
+        const content = await readBoundedBytes(request, maxRequestBodyBytes, signal);
+        return json(await dependencies.uploads.append({
+          workspaceId,
+          uploadId: uploadChunk[1]!,
+          index,
+          content: "",
+          encoding: "base64",
+          checksum,
+        }, content, signal));
+      }
+
+      const uploadComplete = /^\/uploads\/(upl_[a-f0-9]{32})\/complete$/.exec(endpoint);
+      if (request.method === "POST" && uploadComplete !== null) {
+        if (dependencies.uploads === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        return json(await dependencies.uploads.complete(workspaceId, uploadComplete[1]!, signal));
+      }
+
+      const uploadAbort = /^\/uploads\/(upl_[a-f0-9]{32})$/.exec(endpoint);
+      if (request.method === "DELETE" && uploadAbort !== null) {
+        if (dependencies.uploads === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        await dependencies.uploads.abort(workspaceId, uploadAbort[1]!, signal);
+        return new Response(null, { status: 204 });
+      }
+
+      if (request.method === "POST" && endpoint === "/files/batch:apply") {
+        if (dependencies.batches === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        const body = await readJson(request, restWorkspaceBatchApplyInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.batches.apply({ workspaceId, ...body }, signal));
+      }
 
       const projectSync = /^\/projects\/([^/]+)\/sync(\/.*)$/.exec(endpoint);
       if (projectSync !== null) {

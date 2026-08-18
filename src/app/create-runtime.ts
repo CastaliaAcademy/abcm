@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import { createAbcmMcpHttpHandler } from "../mcp/create-http-handler.js";
 import { createAbcmMcpServer } from "../mcp/create-server.js";
 import { ContextBuilder } from "../context/context-builder.js";
@@ -18,11 +20,14 @@ import { ScopeMapReconcileCoordinator, type ScopeMapReconcileOptions } from "../
 import { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
 import { SkillConnectionResolver } from "../skills/skill-connection-resolver.js";
+import { WorkspaceBatchService } from "../workspace/batch-service.js";
 import { WorkspaceFileService } from "../workspace/file-service.js";
+import { WorkspaceMutationCoordinator } from "../workspace/mutation-coordinator.js";
 import { ObsidianSyncService, type ObsidianSyncServiceOptions } from "../sync/obsidian-sync-service.js";
 import { WorkspaceProvisioningService } from "../workspace/provisioning-service.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
-import type { WorkspaceDefinition } from "../workspace/types.js";
+import type { MutationAuthorizer, WorkspaceDefinition } from "../workspace/types.js";
+import { WorkspaceUploadService } from "../workspace/upload-service.js";
 
 export interface AbcmRuntimeOptions {
   bearerToken?: string;
@@ -33,6 +38,13 @@ export interface AbcmRuntimeOptions {
   mcpOperationTimeoutMs?: number;
   restLimits?: AbcmRestLimitOptions;
   workspaceStoreRoot?: string;
+  fileOperations?: {
+    stateRoot: string;
+    maxUploadBytes?: number;
+    maxChunkBytes?: number;
+    uploadTtlMs?: number;
+    maxBatchBytes?: number;
+  };
   scopeMapStore?: ScopeMapStore;
   sqliteDerivedStoreEnabled?: boolean;
   sqliteDerivedStoreOptions?: SqliteWorkspaceMapStoreOptions;
@@ -79,17 +91,41 @@ export function createAbcmRuntime(
   const scopeMapReconciler = new ScopeMapReconcileCoordinator(registry, scopeMap, options.scopeMapReconcile);
   let documentation: DirectoryDocumentationSyncService | undefined;
   let obsidianSync: ObsidianSyncService | undefined;
+  const mutationCoordinator = new WorkspaceMutationCoordinator(options.fileOperations === undefined
+    ? {}
+    : { databasePath: resolve(options.fileOperations.stateRoot, "mutation-lock.sqlite") });
+  const authorizeMutation: MutationAuthorizer = async (workspaceId, paths, operation) => {
+    await documentation?.authorizeMutation(workspaceId, paths);
+    await scopeMap.authorizeArtifactMutation(workspaceId, paths, operation);
+  };
   const files = new WorkspaceFileService(registry, {
     onMutation: async (workspaceId, changedPaths) => {
       await scopeMapReconciler.requestMutation(workspaceId, changedPaths);
       await obsidianSync?.captureWorkspaceMutation(workspaceId, changedPaths);
     },
-    authorizeMutation: async (workspaceId, paths, operation) => {
-      await documentation?.authorizeMutation(workspaceId, paths);
-      await scopeMap.authorizeArtifactMutation(workspaceId, paths, operation);
-    },
+    authorizeMutation,
+    mutationCoordinator,
     ...(options.observability === undefined ? {} : { observability: options.observability }),
   });
+  const uploads = options.fileOperations === undefined
+    ? undefined
+    : new WorkspaceUploadService(registry, {
+        stateRoot: options.fileOperations.stateRoot,
+        ...(options.fileOperations.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.fileOperations.maxUploadBytes }),
+        ...(options.fileOperations.maxChunkBytes === undefined ? {} : { maxChunkBytes: options.fileOperations.maxChunkBytes }),
+        ...(options.fileOperations.uploadTtlMs === undefined ? {} : { uploadTtlMs: options.fileOperations.uploadTtlMs }),
+      });
+  const batches = uploads === undefined || options.fileOperations === undefined
+    ? undefined
+    : new WorkspaceBatchService(registry, uploads, scopeMap, {
+        stateRoot: options.fileOperations.stateRoot,
+        mutationCoordinator,
+        authorizeMutation,
+        ...(options.fileOperations.maxBatchBytes === undefined ? {} : { maxBatchBytes: options.fileOperations.maxBatchBytes }),
+        onCommitted: async (workspaceId, changedPaths) => {
+          await obsidianSync?.captureWorkspaceMutation(workspaceId, changedPaths);
+        },
+      });
   if (options.obsidianSync !== undefined) {
     obsidianSync = new ObsidianSyncService(registry, files, {
       ...options.obsidianSync,
@@ -126,6 +162,8 @@ export function createAbcmRuntime(
   const baseRestHandler = createAbcmRestHandler(
     {
       files,
+      ...(uploads === undefined ? {} : { uploads }),
+      ...(batches === undefined ? {} : { batches }),
       scopeMap,
       domainLanguage,
       contextBuilder,
@@ -143,6 +181,8 @@ export function createAbcmRuntime(
       : createAbcmMcpHttpHandler(
           {
             files,
+            ...(uploads === undefined ? {} : { uploads }),
+            ...(batches === undefined ? {} : { batches }),
             scopeMap,
             defaultWorkspaceId: defaultWorkspace.id,
             domainLanguage,
@@ -182,6 +222,12 @@ export function createAbcmRuntime(
   return {
     registry,
     files,
+    uploads,
+    batches,
+    ready: Promise.all([
+      uploads?.ready ?? Promise.resolve(),
+      batches?.ready ?? Promise.resolve(),
+    ]).then(() => undefined),
     scopeMap,
     domainLanguage,
     scopePathResolver,
@@ -200,6 +246,8 @@ export function createAbcmRuntime(
     createMcpServer: () =>
       createAbcmMcpServer({
         files,
+        ...(uploads === undefined ? {} : { uploads }),
+        ...(batches === undefined ? {} : { batches }),
         scopeMap,
         defaultWorkspaceId: defaultWorkspace.id,
         domainLanguage,
@@ -220,7 +268,11 @@ export function createAbcmRuntime(
           try {
             obsidianSync?.close();
           } finally {
-            ownedScopeMapStore?.close();
+            try {
+              ownedScopeMapStore?.close();
+            } finally {
+              mutationCoordinator.close();
+            }
           }
         }
       }

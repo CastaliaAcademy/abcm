@@ -2,10 +2,22 @@ import { z } from "zod/v4";
 
 import { buildTaskContextSchema } from "../context/schema.js";
 import { projectLanguageTagSchema } from "../core/project-language.js";
+import {
+  workspaceBatchApplyInputSchema,
+  workspaceBatchApplyOutputSchema,
+  workspaceUploadAbortInputSchema,
+  workspaceUploadAbortOutputSchema,
+  workspaceUploadChunkInputSchema,
+  workspaceUploadChunkOutputSchema,
+  workspaceUploadCompleteInputSchema,
+  workspaceUploadCompleteOutputSchema,
+  workspaceUploadStartInputSchema,
+  workspaceUploadStartOutputSchema,
+} from "../workspace/file-operation-contracts.js";
 
 export const agentInstructionsInputSchema = z.object({}).strict();
 export const agentInstructionsOutputSchema = z.object({
-  version: z.literal("1.4.0"),
+  version: z.literal("1.5.0"),
   contentType: z.literal("text/markdown; charset=utf-8"),
   checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   content: z.string().min(1),
@@ -58,63 +70,6 @@ export const workspaceWriteFileOutputSchema = z.object({ entry: fileEntrySchema.
 
 export const workspaceDeleteFileInputSchema = z.object({ workspaceId, path: path.min(1), ifMatch: z.string().optional() }).strict();
 export const workspaceDeleteFileOutputSchema = z.object({ deleted: z.literal(true) }).strict();
-
-const batchWriteFileSchema = z.object({
-  path: path.min(1),
-  content: z.string(),
-  encoding: z.enum(["utf8", "base64"]).default("utf8"),
-}).strict();
-const batchUpdateFileSchema = batchWriteFileSchema.extend({ ifMatch: checksum }).strict();
-const batchDeleteFileSchema = z.object({ path: path.min(1), ifMatch: checksum }).strict();
-
-function uniqueBatchPaths(items: readonly { path: string }[]): boolean {
-  return new Set(items.map(item => item.path)).size === items.length;
-}
-
-const batchCreateFiles = z.array(batchWriteFileSchema).min(1).max(100)
-  .refine(uniqueBatchPaths, { message: "Batch file paths must be unique." });
-const batchUpdateFiles = z.array(batchUpdateFileSchema).min(1).max(100)
-  .refine(uniqueBatchPaths, { message: "Batch file paths must be unique." });
-const batchDeleteFiles = z.array(batchDeleteFileSchema).min(1).max(100)
-  .refine(uniqueBatchPaths, { message: "Batch file paths must be unique." });
-
-const batchMutationErrorSchema = z.object({
-  code: z.string(),
-  message: z.string(),
-  details: z.record(z.string(), z.unknown()).optional(),
-}).strict();
-const batchMutationFailureSchema = z.object({
-  index: z.number().int().nonnegative(),
-  path: z.string(),
-  status: z.literal("failed"),
-  error: batchMutationErrorSchema,
-}).strict();
-const batchWriteSuccessSchema = z.object({
-  index: z.number().int().nonnegative(),
-  path: z.string(),
-  status: z.literal("succeeded"),
-  entry: fileEntrySchema.extend({ checksum }),
-}).strict();
-const batchDeleteSuccessSchema = z.object({
-  index: z.number().int().nonnegative(),
-  path: z.string(),
-  status: z.literal("succeeded"),
-  deleted: z.literal(true),
-}).strict();
-
-export const workspaceBatchCreateFilesInputSchema = z.object({ workspaceId, files: batchCreateFiles }).strict();
-export const workspaceBatchUpdateFilesInputSchema = z.object({ workspaceId, files: batchUpdateFiles }).strict();
-export const workspaceBatchDeleteFilesInputSchema = z.object({ workspaceId, files: batchDeleteFiles }).strict();
-export const workspaceBatchWriteFilesOutputSchema = z.object({
-  succeeded: z.number().int().nonnegative(),
-  failed: z.number().int().nonnegative(),
-  results: z.array(z.discriminatedUnion("status", [batchWriteSuccessSchema, batchMutationFailureSchema])),
-}).strict();
-export const workspaceBatchDeleteFilesOutputSchema = z.object({
-  succeeded: z.number().int().nonnegative(),
-  failed: z.number().int().nonnegative(),
-  results: z.array(z.discriminatedUnion("status", [batchDeleteSuccessSchema, batchMutationFailureSchema])),
-}).strict();
 
 export const workspaceMoveFileInputSchema = z.object({
   workspaceId,
@@ -281,9 +236,11 @@ export const ABCM_MCP_TOOL_SCHEMAS = {
   "workspace.read_file": { input: workspaceReadFileInputSchema, output: workspaceReadFileOutputSchema },
   "workspace.write_file": { input: workspaceWriteFileInputSchema, output: workspaceWriteFileOutputSchema },
   "workspace.delete_file": { input: workspaceDeleteFileInputSchema, output: workspaceDeleteFileOutputSchema },
-  "workspace.batch_create_files": { input: workspaceBatchCreateFilesInputSchema, output: workspaceBatchWriteFilesOutputSchema },
-  "workspace.batch_update_files": { input: workspaceBatchUpdateFilesInputSchema, output: workspaceBatchWriteFilesOutputSchema },
-  "workspace.batch_delete_files": { input: workspaceBatchDeleteFilesInputSchema, output: workspaceBatchDeleteFilesOutputSchema },
+  "workspace.upload_start": { input: workspaceUploadStartInputSchema, output: workspaceUploadStartOutputSchema },
+  "workspace.upload_chunk": { input: workspaceUploadChunkInputSchema, output: workspaceUploadChunkOutputSchema },
+  "workspace.upload_complete": { input: workspaceUploadCompleteInputSchema, output: workspaceUploadCompleteOutputSchema },
+  "workspace.upload_abort": { input: workspaceUploadAbortInputSchema, output: workspaceUploadAbortOutputSchema },
+  "workspace.batch_apply": { input: workspaceBatchApplyInputSchema, output: workspaceBatchApplyOutputSchema },
   "workspace.move_file": { input: workspaceMoveFileInputSchema, output: workspaceMoveFileOutputSchema },
   "workspace.create_directory": { input: workspaceCreateDirectoryInputSchema, output: workspaceCreateDirectoryOutputSchema },
   "scope_map.scan": { input: scopeMapScanInputSchema, output: scopeMapScanOutputSchema },

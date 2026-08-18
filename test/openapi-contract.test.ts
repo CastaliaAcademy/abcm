@@ -16,9 +16,13 @@ describe("OpenAPI contract", () => {
     expect(createAbcmOpenApiDocument()).toEqual(document);
     expect(document.openapi).toBe("3.1.0");
     expect(Object.values(document.paths).flatMap(path => Object.values(path).map(operation => operation.operationId)).sort()).toEqual([
+      "abortWorkspaceUpload",
+      "appendWorkspaceUploadChunk",
       "applyDocumentationImport",
       "applyObsidianSyncBatch",
+      "applyWorkspaceFileBatch",
       "buildTaskContext",
+      "completeWorkspaceUpload",
       "createDirectory",
       "createObsidianPairing",
       "createWorkspace",
@@ -41,11 +45,18 @@ describe("OpenAPI contract", () => {
       "resolveObsidianSyncConflict",
       "revokeObsidianDevice",
       "scanScopeMap",
+      "startWorkspaceUpload",
       "synchronizeDocumentationSource",
       "writeFile",
     ]);
     expect(document.components.schemas).toEqual(expect.objectContaining({
       FileEntry: expect.objectContaining({ additionalProperties: false }),
+      WorkspaceUploadStartRequest: expect.objectContaining({ additionalProperties: false }),
+      WorkspaceUploadStartResult: expect.objectContaining({ additionalProperties: false }),
+      WorkspaceUploadChunkResult: expect.objectContaining({ additionalProperties: false }),
+      WorkspaceUploadCompleteResult: expect.objectContaining({ additionalProperties: false }),
+      WorkspaceBatchApplyRequest: expect.objectContaining({ additionalProperties: false }),
+      WorkspaceBatchApplyResult: expect.objectContaining({ additionalProperties: false }),
       DomainLanguageRequest: expect.objectContaining({ additionalProperties: false }),
       BuildTaskContextRequest: expect.objectContaining({ additionalProperties: false }),
       DocumentationPreviewRequest: expect.objectContaining({ additionalProperties: false }),

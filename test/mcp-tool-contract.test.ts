@@ -16,7 +16,8 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-contract-"));
   const source = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-source-"));
   const workspaceStore = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-workspaces-"));
-  roots.push(root, source, workspaceStore);
+  const fileOperationState = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-file-ops-"));
+  roots.push(root, source, workspaceStore, fileOperationState);
   await writeFile(join(root, "scope.yaml"), "apiVersion: abcm/v1\nkind: workflow\nid: test\nname: Test\n");
   await mkdir(join(root, "domain-language"));
   await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
@@ -32,8 +33,10 @@ async function fixture() {
       scopeMapAccess: access,
       documentationSources: [{ id: "docs", workspaceId: "test", root: source, targetBasePath: "artifacts/mirror" }],
       workspaceStoreRoot: workspaceStore,
+      fileOperations: { stateRoot: fileOperationState },
     },
   );
+  await runtime.ready;
   const server = runtime.createMcpServer();
   const client = new Client({ name: "tool-contract-client", version: "0.1.0" }, { supportedProtocolVersions: ["2025-11-25"] });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -49,7 +52,7 @@ describe("MCP tool contract", () => {
       const listed = await client.listTools();
       expect(client.getNegotiatedProtocolVersion()).toBe("2025-11-25");
       expect(client.getServerCapabilities()?.experimental?.["abcm.dev/contract"]).toEqual({
-        contractVersion: "0.2.0",
+        contractVersion: "0.3.0",
         specificationVersion: "0.5.0",
         supportedProtocolVersions: ["2025-11-25"],
         operationTimeoutMs: 30000,
@@ -62,9 +65,11 @@ describe("MCP tool contract", () => {
         "workspace.read_file",
         "workspace.write_file",
         "workspace.delete_file",
-        "workspace.batch_create_files",
-        "workspace.batch_update_files",
-        "workspace.batch_delete_files",
+        "workspace.upload_start",
+        "workspace.upload_chunk",
+        "workspace.upload_complete",
+        "workspace.upload_abort",
+        "workspace.batch_apply",
         "workspace.move_file",
         "workspace.create_directory",
         "scope_map.scan",
@@ -77,7 +82,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.4.0",
+        version: "1.5.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
@@ -118,6 +123,11 @@ describe("MCP tool contract", () => {
         ["workspace.read_file", { workspaceId: "missing", path: "a.md" }, "WORKSPACE_NOT_FOUND"],
         ["workspace.write_file", { workspaceId: "missing", path: "a.md", content: "a" }, "WORKSPACE_NOT_FOUND"],
         ["workspace.delete_file", { workspaceId: "missing", path: "a.md" }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.upload_start", { workspaceId: "missing", size: 0, checksum: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.upload_chunk", { workspaceId: "missing", uploadId: `upl_${"0".repeat(32)}`, index: 0, content: "", checksum: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.upload_complete", { workspaceId: "missing", uploadId: `upl_${"0".repeat(32)}` }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.upload_abort", { workspaceId: "missing", uploadId: `upl_${"0".repeat(32)}` }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.batch_apply", { workspaceId: "missing", idempotencyKey: "missing-workspace", expectedMapRevision: `sha256:${"0".repeat(64)}`, operations: [{ operation: "delete", path: "a.md", ifMatch: `sha256:${"0".repeat(64)}` }] }, "WORKSPACE_NOT_FOUND"],
         ["workspace.move_file", { workspaceId: "missing", from: "a.md", to: "b.md" }, "WORKSPACE_NOT_FOUND"],
         ["workspace.create_directory", { workspaceId: "missing", path: "a" }, "WORKSPACE_NOT_FOUND"],
         ["scope_map.scan", { workspaceId: "missing" }, "WORKSPACE_NOT_FOUND"],

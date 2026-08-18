@@ -17,8 +17,22 @@ import type { ContextPrincipal } from "../domain-language/types.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
+import type { WorkspaceBatchService } from "../workspace/batch-service.js";
+import {
+  workspaceBatchApplyInputSchema,
+  workspaceBatchApplyOutputSchema,
+  workspaceUploadAbortInputSchema,
+  workspaceUploadAbortOutputSchema,
+  workspaceUploadChunkInputSchema,
+  workspaceUploadChunkOutputSchema,
+  workspaceUploadCompleteInputSchema,
+  workspaceUploadCompleteOutputSchema,
+  workspaceUploadStartInputSchema,
+  workspaceUploadStartOutputSchema,
+} from "../workspace/file-operation-contracts.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
 import type { WorkspaceProvisioningService } from "../workspace/provisioning-service.js";
+import type { WorkspaceUploadService } from "../workspace/upload-service.js";
 import { McpResourceCatalog, toMcpProtocolError } from "./resource-catalog.js";
 import {
   agentInstructionsInputSchema,
@@ -40,11 +54,6 @@ import {
   workspaceCreateOutputSchema,
   workspaceCreateDirectoryInputSchema,
   workspaceCreateDirectoryOutputSchema,
-  workspaceBatchCreateFilesInputSchema,
-  workspaceBatchUpdateFilesInputSchema,
-  workspaceBatchDeleteFilesInputSchema,
-  workspaceBatchWriteFilesOutputSchema,
-  workspaceBatchDeleteFilesOutputSchema,
   workspaceDeleteFileInputSchema,
   workspaceDeleteFileOutputSchema,
   workspaceListFilesInputSchema,
@@ -59,6 +68,8 @@ import {
 
 export interface AbcmMcpDependencies {
   files: WorkspaceFileService;
+  uploads?: WorkspaceUploadService;
+  batches?: WorkspaceBatchService;
   scopeMap: ScopeMapService;
   defaultWorkspaceId: string;
   scopeMapAccess?: ScopeMapAccess;
@@ -112,84 +123,10 @@ async function toolResult(
   }
 }
 
-interface BatchWriteFileInput {
-  path: string;
-  content: string;
-  encoding: "utf8" | "base64";
-  ifMatch?: string;
-}
-
-interface BatchDeleteFileInput {
-  path: string;
-  ifMatch: string;
-}
-
 function decodeToolContent(content: string, encoding: "utf8" | "base64"): Uint8Array {
   return encoding === "base64"
     ? new Uint8Array(Buffer.from(content, "base64"))
     : new TextEncoder().encode(content);
-}
-
-function batchFailure(index: number, path: string, error: AbcmError) {
-  return {
-    index,
-    path,
-    status: "failed" as const,
-    error: {
-      code: error.code,
-      message: error.message,
-      ...(error.details === undefined ? {} : { details: error.details }),
-    },
-  };
-}
-
-async function batchWriteFiles(
-  filesService: WorkspaceFileService,
-  workspaceId: string,
-  files: readonly BatchWriteFileInput[],
-  mode: "create" | "update",
-  signal: AbortSignal,
-): Promise<Record<string, unknown>> {
-  const results = [];
-  let succeeded = 0;
-  for (const [index, file] of files.entries()) {
-    try {
-      const entry = await filesService.write(
-        workspaceId,
-        file.path,
-        decodeToolContent(file.content, file.encoding),
-        mode === "create" ? { ifNoneMatch: "*" } : { ifMatch: file.ifMatch! },
-        signal,
-      );
-      results.push({ index, path: file.path, status: "succeeded" as const, entry });
-      succeeded += 1;
-    } catch (error) {
-      if (!(error instanceof AbcmError)) throw error;
-      results.push(batchFailure(index, file.path, error));
-    }
-  }
-  return { succeeded, failed: files.length - succeeded, results };
-}
-
-async function batchDeleteFiles(
-  filesService: WorkspaceFileService,
-  workspaceId: string,
-  files: readonly BatchDeleteFileInput[],
-  signal: AbortSignal,
-): Promise<Record<string, unknown>> {
-  const results = [];
-  let succeeded = 0;
-  for (const [index, file] of files.entries()) {
-    try {
-      await filesService.delete(workspaceId, file.path, { ifMatch: file.ifMatch }, signal);
-      results.push({ index, path: file.path, status: "succeeded" as const, deleted: true as const });
-      succeeded += 1;
-    } catch (error) {
-      if (!(error instanceof AbcmError)) throw error;
-      results.push(batchFailure(index, file.path, error));
-    }
-  }
-  return { succeeded, failed: files.length - succeeded, results };
 }
 
 /** Creates an unconnected ABCM MCP server and optionally registers workspace capabilities. */
@@ -308,51 +245,76 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         return { deleted: true };
       }, context.mcpReq.signal, operationTimeoutMs),
   );
-  server.registerTool(
-    "workspace.batch_create_files",
-    {
-      title: "Batch-create workspace files",
-      description: "Create 1-100 unique files with implicit ifNoneMatch=* and ordered best-effort per-file results.",
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-      inputSchema: workspaceBatchCreateFilesInputSchema,
-      outputSchema: workspaceBatchWriteFilesOutputSchema,
-    },
-    async (input, context) => toolResult(
-      signal => batchWriteFiles(dependencies.files, input.workspaceId, input.files, "create", signal),
-      context.mcpReq.signal,
-      operationTimeoutMs,
-    ),
-  );
-  server.registerTool(
-    "workspace.batch_update_files",
-    {
-      title: "Batch-update workspace files",
-      description: "Update 1-100 unique files with required checksums and ordered best-effort per-file results.",
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-      inputSchema: workspaceBatchUpdateFilesInputSchema,
-      outputSchema: workspaceBatchWriteFilesOutputSchema,
-    },
-    async (input, context) => toolResult(
-      signal => batchWriteFiles(dependencies.files, input.workspaceId, input.files, "update", signal),
-      context.mcpReq.signal,
-      operationTimeoutMs,
-    ),
-  );
-  server.registerTool(
-    "workspace.batch_delete_files",
-    {
-      title: "Batch-delete workspace files",
-      description: "Delete 1-100 unique files with required checksums and ordered best-effort per-file results.",
-      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-      inputSchema: workspaceBatchDeleteFilesInputSchema,
-      outputSchema: workspaceBatchDeleteFilesOutputSchema,
-    },
-    async (input, context) => toolResult(
-      signal => batchDeleteFiles(dependencies.files, input.workspaceId, input.files, signal),
-      context.mcpReq.signal,
-      operationTimeoutMs,
-    ),
-  );
+  if (dependencies.uploads !== undefined) {
+    server.registerTool(
+      "workspace.upload_start",
+      {
+        title: "Start workspace file upload",
+        description: "Start a durable checksum-bound upload before referencing its bytes from workspace.batch_apply.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: workspaceUploadStartInputSchema,
+        outputSchema: workspaceUploadStartOutputSchema,
+      },
+      async (input, context) => toolResult(signal => dependencies.uploads!.start(input, signal), context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "workspace.upload_chunk",
+      {
+        title: "Append workspace upload chunk",
+        description: "Append the next base64-encoded chunk with its decoded-byte checksum; exact retries are idempotent.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: workspaceUploadChunkInputSchema,
+        outputSchema: workspaceUploadChunkOutputSchema,
+      },
+      async (input, context) => toolResult(
+        signal => dependencies.uploads!.append(input, decodeToolContent(input.content, input.encoding), signal),
+        context.mcpReq.signal,
+        operationTimeoutMs,
+      ),
+    );
+    server.registerTool(
+      "workspace.upload_complete",
+      {
+        title: "Complete workspace file upload",
+        description: "Verify declared size and checksum, then make the upload immutable and usable by workspace.batch_apply.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: workspaceUploadCompleteInputSchema,
+        outputSchema: workspaceUploadCompleteOutputSchema,
+      },
+      async (input, context) => toolResult(
+        signal => dependencies.uploads!.complete(input.workspaceId, input.uploadId, signal),
+        context.mcpReq.signal,
+        operationTimeoutMs,
+      ),
+    );
+    server.registerTool(
+      "workspace.upload_abort",
+      {
+        title: "Abort workspace file upload",
+        description: "Delete one upload session and its staged bytes.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+        inputSchema: workspaceUploadAbortInputSchema,
+        outputSchema: workspaceUploadAbortOutputSchema,
+      },
+      async (input, context) => toolResult(async signal => {
+        await dependencies.uploads!.abort(input.workspaceId, input.uploadId, signal);
+        return { aborted: true };
+      }, context.mcpReq.signal, operationTimeoutMs),
+    );
+  }
+  if (dependencies.batches !== undefined) {
+    server.registerTool(
+      "workspace.batch_apply",
+      {
+        title: "Atomically apply workspace file operations",
+        description: "Validate and atomically apply 1-100 mixed create, update, delete, and move operations using completed upload references.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+        inputSchema: workspaceBatchApplyInputSchema,
+        outputSchema: workspaceBatchApplyOutputSchema,
+      },
+      async (input, context) => toolResult(signal => dependencies.batches!.apply(input, signal), context.mcpReq.signal, operationTimeoutMs),
+    );
+  }
   server.registerTool(
     "workspace.move_file",
     {

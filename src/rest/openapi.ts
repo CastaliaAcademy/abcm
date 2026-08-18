@@ -31,6 +31,7 @@ const problemResponses = {
   "403": { $ref: "#/components/responses/Problem" },
   "404": { $ref: "#/components/responses/Problem" },
   "409": { $ref: "#/components/responses/Problem" },
+  "410": { $ref: "#/components/responses/Problem" },
   "412": { $ref: "#/components/responses/Problem" },
   "413": { $ref: "#/components/responses/Problem" },
   "415": { $ref: "#/components/responses/Problem" },
@@ -107,6 +108,54 @@ export function createAbcmOpenApiDocument(): JsonObject {
           parameters: [workspaceId, filePath, parameter("If-Match", "header", false, { type: "string" }), parameter("If-None-Match", "header", false, { type: "string", enum: ["*"] })],
           requestBody: { required: true, content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } } },
           responses: { "200": response("File entry", reference("FileEntry")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/uploads": {
+        post: {
+          operationId: "startWorkspaceUpload",
+          description: "Start a durable upload whose completed bytes can be referenced by workspace batch operations.",
+          parameters: [workspaceId],
+          requestBody: { required: true, content: { "application/json": { schema: reference("WorkspaceUploadStartRequest") } } },
+          responses: { "201": response("Upload session started", reference("WorkspaceUploadStartResult")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/uploads/{uploadId}/chunks/{index}": {
+        put: {
+          operationId: "appendWorkspaceUploadChunk",
+          description: "Append the next raw byte chunk. Repeating the same index and checksum is idempotent.",
+          parameters: [
+            workspaceId,
+            parameter("uploadId", "path", true, { type: "string", pattern: "^upl_[a-f0-9]{32}$" }),
+            parameter("index", "path", true, { type: "integer", minimum: 0 }),
+            parameter("X-Content-Sha256", "header", true, { type: "string", pattern: "^sha256:[a-f0-9]{64}$" }),
+          ],
+          requestBody: { required: true, content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } } },
+          responses: { "200": response("Upload chunk accepted", reference("WorkspaceUploadChunkResult")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/uploads/{uploadId}/complete": {
+        post: {
+          operationId: "completeWorkspaceUpload",
+          description: "Validate the declared size and checksum, then make the upload immutable.",
+          parameters: [workspaceId, parameter("uploadId", "path", true, { type: "string", pattern: "^upl_[a-f0-9]{32}$" })],
+          responses: { "200": response("Upload completed", reference("WorkspaceUploadCompleteResult")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/uploads/{uploadId}": {
+        delete: {
+          operationId: "abortWorkspaceUpload",
+          description: "Delete an upload session and its staged bytes.",
+          parameters: [workspaceId, parameter("uploadId", "path", true, { type: "string", pattern: "^upl_[a-f0-9]{32}$" })],
+          responses: { "204": response("Upload aborted"), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/files/batch:apply": {
+        post: {
+          operationId: "applyWorkspaceFileBatch",
+          description: "Validate and atomically apply mixed create, update, delete, and move operations. Create and update operations reference completed uploads.",
+          parameters: [workspaceId],
+          requestBody: { required: true, content: { "application/json": { schema: reference("WorkspaceBatchApplyRequest") } } },
+          responses: { "200": response("Batch validated or applied", reference("WorkspaceBatchApplyResult")), ...problemResponses },
         },
       },
       "/v1/workspaces/{workspaceId}/files/move": {

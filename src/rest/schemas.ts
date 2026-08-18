@@ -1,6 +1,14 @@
 import { z } from "zod/v4";
 
 import { OBSIDIAN_SYNC_REST_SCHEMAS } from "../sync/rest-schemas.js";
+import {
+  workspaceBatchApplyRequestSchema,
+  workspaceBatchApplyOutputSchema,
+  workspaceUploadChunkOutputSchema,
+  workspaceUploadCompleteOutputSchema,
+  workspaceUploadStartInputSchema,
+  workspaceUploadStartOutputSchema,
+} from "../workspace/file-operation-contracts.js";
 
 import {
   contextBuildInputSchema,
@@ -25,6 +33,8 @@ export const workspaceRegistrationOutputSchema = workspaceCreateOutputSchema;
 
 export const restMoveFileInputSchema = workspaceMoveFileInputSchema.omit({ workspaceId: true });
 export const restCreateDirectoryInputSchema = workspaceCreateDirectoryInputSchema.omit({ workspaceId: true });
+export const restWorkspaceUploadStartInputSchema = workspaceUploadStartInputSchema.omit({ workspaceId: true });
+export const restWorkspaceBatchApplyInputSchema = workspaceBatchApplyRequestSchema;
 export const restDocumentationPreviewInputSchema = documentationPreviewInputSchema.omit({ workspaceId: true });
 export const restDocumentationCutoverInputSchema = documentationCutoverInputSchema.omit({ sourceId: true });
 
@@ -35,6 +45,12 @@ export const REST_SHARED_SCHEMAS = {
   WorkspaceRegistrationResult: workspaceRegistrationOutputSchema,
   MoveFileRequest: restMoveFileInputSchema,
   CreateDirectoryRequest: restCreateDirectoryInputSchema,
+  WorkspaceUploadStartRequest: restWorkspaceUploadStartInputSchema,
+  WorkspaceUploadStartResult: workspaceUploadStartOutputSchema,
+  WorkspaceUploadChunkResult: workspaceUploadChunkOutputSchema,
+  WorkspaceUploadCompleteResult: workspaceUploadCompleteOutputSchema,
+  WorkspaceBatchApplyRequest: restWorkspaceBatchApplyInputSchema,
+  WorkspaceBatchApplyResult: workspaceBatchApplyOutputSchema,
   DomainLanguageRequest: domainLanguageInputSchema,
   DomainLanguageResult: domainLanguageOutputSchema,
   BuildTaskContextRequest: contextBuildInputSchema,

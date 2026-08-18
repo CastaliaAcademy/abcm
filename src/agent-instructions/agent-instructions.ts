@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.4.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.5.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.4.0
+Версия: 1.5.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -176,9 +176,12 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 5. Читайте дополнительные файлы только тогда, когда это обосновано задачей или ссылкой из выбранного документа.
 6. Перед записью прочитайте текущий файл и сохраните его контрольную сумму.
 7. Для замены используйте ifMatch, для создания — ifNoneMatch=*.
-8. Для пакетных мутаций используйте отдельные batch-операции, проверяйте failed и каждый элемент results; пакет выполняется последовательно в режиме best-effort и не откатывает уже успешные элементы.
-9. Выполните повторное сканирование либо дождитесь сканирования после мутации, затем проверьте ревизию карты и диагностики.
-10. Выполните план проверки фичи и сохраните доказательства. Запрещено заявлять о проверках, которые не выполнялись.
+8. Для двух и более связанных изменений либо когда частичный результат недопустим используйте отдельные upload-сессии и workspace.batch_apply.
+9. Для каждого нового содержимого объявите размер и SHA-256 всего файла через workspace.upload_start, передайте последовательные chunks с SHA-256 декодированных байтов и завершите upload через workspace.upload_complete.
+10. До применения пакета получите активную ревизию ScopeMap. Сначала можно выполнить dryRun=true, затем применить тот же набор с dryRun=false и устойчивым idempotencyKey.
+11. Проверьте status, replayed, каждый элемент results, warnings, mapRevisionBefore и mapRevisionAfter. Ошибка валидации или commit откатывает весь пакет.
+12. Для одиночной мутации выполните повторное сканирование либо дождитесь фонового reconcile. Успешный batch_apply выполняет один reconcile сам; ревизия может остаться прежней, если изменённый файл не влияет на входы ScopeMap.
+13. Выполните план проверки фичи и сохраните доказательства. Запрещено заявлять о проверках, которые не выполнялись.
 
 Правильная замена через MCP:
 
@@ -192,19 +195,82 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 
 Контрпример: при замене существующего файла не передавать ifMatch. Это отключает защиту от конкурентной записи и может затереть изменения человека или другого агента.
 
-Правильное пакетное создание через MCP:
+## Отдельная upload-передача и атомарный batch_apply
 
-    workspace.batch_create_files({
+Upload-сессия хранится вне канонического рабочего пространства и сама по себе не создаёт файл проекта. Она привязана к workspaceId, объявленному размеру и SHA-256 всего содержимого. Chunks передаются строго по порядку, начиная с index=0. Точный повтор уже принятого chunk с тем же размером и checksum безопасен; другой байтовый состав для занятого index является конфликтом. Завершённый upload неизменяем, имеет срок жизни и может использоваться только в том же workspace.
+
+В MCP содержимое chunk передаётся строкой base64. В REST содержимое передаётся реальными байтами application/octet-stream, а checksum декодированных байтов — в X-Content-Sha256. Во всех checksum используется форма sha256:<64 lowercase hex>.
+
+Пример MCP для файла с заранее вычисленными размером и контрольными суммами (значения в угловых скобках нужно заменить реальными):
+
+    workspace.upload_start({
       workspaceId: "castalia-public",
-      files: [
-        { path: "sample-project/docs/a.md", content: "A", encoding: "utf8" },
-        { path: "sample-project/docs/b.md", content: "B", encoding: "utf8" }
+      size: 12,
+      checksum: "sha256:<full-file-checksum>",
+      contentType: "text/markdown; charset=utf-8"
+    })
+
+    workspace.upload_chunk({
+      workspaceId: "castalia-public",
+      uploadId: "upl_<id-from-start>",
+      index: 0,
+      content: "IyDQotC10YHRgg==",
+      encoding: "base64",
+      checksum: "sha256:<checksum-of-decoded-chunk>"
+    })
+
+    workspace.upload_complete({
+      workspaceId: "castalia-public",
+      uploadId: "upl_<id-from-start>"
+    })
+
+После подготовки всех uploadId примените один смешанный пакет:
+
+    workspace.batch_apply({
+      workspaceId: "castalia-public",
+      idempotencyKey: "agent-task-42-apply-1",
+      expectedMapRevision: "sha256:<active-map-revision>",
+      dryRun: false,
+      operations: [
+        {
+          operation: "create",
+          path: "sample-project/docs/new.md",
+          uploadId: "upl_<completed-upload-id>",
+          ifNoneMatch: "*"
+        },
+        {
+          operation: "update",
+          path: "sample-project/docs/current.md",
+          uploadId: "upl_<another-completed-upload-id>",
+          ifMatch: "sha256:<current-file-checksum>"
+        },
+        {
+          operation: "move",
+          from: "sample-project/docs/old-name.md",
+          to: "sample-project/docs/new-name.md",
+          ifMatch: "sha256:<source-file-checksum>",
+          overwrite: false
+        },
+        {
+          operation: "delete",
+          path: "sample-project/docs/obsolete.md",
+          ifMatch: "sha256:<current-file-checksum>"
+        }
       ]
     })
 
-Операция сама применяет ifNoneMatch=* к каждому элементу. Для workspace.batch_update_files и workspace.batch_delete_files каждый элемент ОБЯЗАН содержать актуальный ifMatch. В одном пакете допускается от 1 до 100 уникальных путей. Результаты сохраняют исходный порядок и для каждого пути содержат status=succeeded либо status=failed со стабильным кодом ошибки. Успех одних элементов не откатывается из-за ошибки других.
+Операции create и update содержат uploadId, но не содержат inline content. Delete не содержит содержимого вообще. Move переносит уже существующие байты и также не требует uploadId. В пакете допускается от 1 до 100 операций; один путь нельзя затронуть дважды, включая from и to. Все пути, uploadId, checksum, права, expectedMapRevision и лимиты проверяются до commit. При любой ошибке ни одна операция не должна остаться применённой. После успеха тот же запрос с тем же idempotencyKey возвращает сохранённый receipt с replayed=true; тот же ключ с другим запросом запрещён.
 
-Контрпример: считать весь пакет успешным, не проверив failed и все элементы results. Это может скрыть частично применённую мутацию.
+REST-последовательность эквивалентна:
+
+    POST /v1/workspaces/{workspaceId}/uploads
+    PUT /v1/workspaces/{workspaceId}/uploads/{uploadId}/chunks/0
+    POST /v1/workspaces/{workspaceId}/uploads/{uploadId}/complete
+    POST /v1/workspaces/{workspaceId}/files/batch:apply
+
+Для PUT тело содержит raw bytes, Content-Type: application/octet-stream и обязательный X-Content-Sha256. Неиспользуемую upload-сессию удаляйте через workspace.upload_abort либо DELETE /v1/workspaces/{workspaceId}/uploads/{uploadId}.
+
+Контрпримеры: передать content прямо в batch_apply; сослаться на незавершённый upload; повторно использовать idempotencyKey с другим набором операций; затронуть один путь двумя операциями; применить пакет с устаревшим expectedMapRevision; считать новую MapRevision обязательной для изменения обычного неиндексируемого файла.
 
 ## Планы, фичи и доказательства
 
@@ -231,7 +297,9 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 
 - GET /v1/agent-instructions: эта инструкция.
 - POST /v1/workspaces: объявление управляемого хранилища, если включено создание рабочих пространств.
-- Маршруты files/content, directories и move рабочего пространства: безопасный жизненный цикл файлов.
+- Маршруты files/content, directories и move рабочего пространства: безопасный жизненный цикл одиночных файлов.
+- Маршруты uploads: отдельная передача и проверка байтов до файловой мутации.
+- POST /v1/workspaces/{workspaceId}/files/batch:apply: атомарный смешанный пакет create/update/delete/move.
 - Маршруты сканирования и чтения scope-map рабочего пространства: перестроение и чтение ограниченной топологии.
 - POST /v1/context/domain-language: bootstrap языка предметной области.
 - POST /v1/context/build-task-context: неизменяемый контекст задачи.
@@ -245,7 +313,8 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 - agent_instructions.get: эта инструкция; вызывайте первой.
 - workspace.create: создание server-owned рабочего пространства с обязательным языком, если provisioning включён оператором.
 - workspace.list_files, read_file, write_file, delete_file, move_file, create_directory: безопасный жизненный цикл одиночных файлов.
-- workspace.batch_create_files, batch_update_files, batch_delete_files: последовательные пакетные мутации до 100 уникальных путей с обязательной проверкой результата каждого элемента.
+- workspace.upload_start, upload_chunk, upload_complete, upload_abort: отдельная checksum-bound передача байтов.
+- workspace.batch_apply: атомарная смешанная мутация до 100 операций с dry-run, MapRevision и idempotency receipt.
 - scope_map.scan: получение актуальной ревизии ScopeMap.
 - context.get_domain_language: обязательный bootstrap языка до толкования пути задачи.
 - context.build_task_context: ограниченный контекстный пакет задачи.

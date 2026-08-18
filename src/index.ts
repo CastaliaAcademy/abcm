@@ -148,11 +148,17 @@ export { SqliteObsidianDeviceStore } from "./sync/sqlite-device-store.js";
 export type { DeviceAuthenticationScope, ObsidianDevicePrincipal, ObsidianProjectScope, SqliteObsidianDeviceStoreOptions } from "./sync/sqlite-device-store.js";
 export { SqliteSyncJournal, syncJournalMutationSchema } from "./sync/sqlite-sync-journal.js";
 export type { SqliteSyncJournalOptions, SyncJournalChanges, SyncJournalMutation, SyncJournalObject, SyncJournalRecordResult, SyncJournalTombstone } from "./sync/sqlite-sync-journal.js";
+export { WorkspaceBatchService } from "./workspace/batch-service.js";
+export type { WorkspaceBatchServiceOptions } from "./workspace/batch-service.js";
+export * from "./workspace/file-operation-contracts.js";
 export { WorkspaceFileService } from "./workspace/file-service.js";
+export { WorkspaceMutationCoordinator } from "./workspace/mutation-coordinator.js";
 export { discoverManagedWorkspaces, WorkspaceProvisioningService } from "./workspace/provisioning-service.js";
 export type { WorkspaceProvisioningDependencies } from "./workspace/provisioning-service.js";
 export { WorkspaceRegistry } from "./workspace/registry.js";
 export { SafeWorkspacePath } from "./workspace/safe-path.js";
+export { WorkspaceUploadService } from "./workspace/upload-service.js";
+export type { CompletedWorkspaceUpload, WorkspaceUploadServiceOptions } from "./workspace/upload-service.js";
 export type {
   DeletePreconditions,
   FileEntry,
