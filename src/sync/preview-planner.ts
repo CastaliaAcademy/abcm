@@ -12,6 +12,12 @@ export interface SyncPreviewInventoryEntry {
   size: number;
 }
 
+export interface SyncLocalIdentityHint {
+  objectId: string;
+  previousPath: string;
+  path: string;
+}
+
 export interface SyncPreviewServerEntry extends SyncPreviewInventoryEntry {
   objectId: string;
 }
@@ -30,6 +36,7 @@ interface PlannerInput {
   base: readonly SyncBaseStateEntry[];
   local: readonly SyncPreviewInventoryEntry[];
   server: readonly SyncPreviewServerEntry[];
+  identityHints?: readonly SyncLocalIdentityHint[];
   objectIdForPath(path: string): string;
 }
 
@@ -41,6 +48,7 @@ function planKnownObject(
   base: SyncBaseStateEntry,
   local: SyncPreviewInventoryEntry | undefined,
   server: SyncPreviewServerEntry | undefined,
+  identityHinted = false,
 ): PlannedSyncPreviewItem | undefined {
   if (local === undefined && server === undefined) return undefined;
   if (local === undefined) {
@@ -96,7 +104,7 @@ function planKnownObject(
     const moveOnly = moved && local.checksum === base.checksum;
     const updateOnly = !moved;
     return {
-      action: moveOnly ? "move-server" : updateOnly ? "update-server" : "conflict",
+      action: moved && (moveOnly || identityHinted) ? "move-server" : updateOnly ? "update-server" : "conflict",
       objectId: base.objectId,
       path: local.path,
       ...(moved ? { previousPath: server.path } : {}),
@@ -119,20 +127,24 @@ function planKnownObject(
 export function planIdentityAwarePreview(input: PlannerInput): PlannedSyncPreviewItem[] {
   const localByPath = new Map(input.local.map(entry => [portablePathKey(entry.path), entry]));
   const serverByObject = new Map(input.server.map(entry => [entry.objectId, entry]));
+  const hintsByObject = new Map((input.identityHints ?? []).map(hint => [hint.objectId, hint]));
   const usedLocal = new Set<SyncPreviewInventoryEntry>();
   const usedServer = new Set<SyncPreviewServerEntry>();
   const items: PlannedSyncPreviewItem[] = [];
 
   for (const base of input.base) {
-    let local = localByPath.get(portablePathKey(base.path));
-    if (local === undefined) {
+    const hint = hintsByObject.get(base.objectId);
+    let local = hint === undefined
+      ? localByPath.get(portablePathKey(base.path))
+      : localByPath.get(portablePathKey(hint.path));
+    if (local === undefined && hint === undefined) {
       const candidates = input.local.filter(candidate => !usedLocal.has(candidate) && candidate.checksum === base.checksum);
       if (candidates.length === 1) local = candidates[0];
     }
     const server = serverByObject.get(base.objectId);
     if (local !== undefined) usedLocal.add(local);
     if (server !== undefined) usedServer.add(server);
-    const item = planKnownObject(base, local, server);
+    const item = planKnownObject(base, local, server, hint !== undefined);
     if (item !== undefined) items.push(item);
   }
 

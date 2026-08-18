@@ -117,13 +117,50 @@ export const syncBaseStateSchema = z.array(syncBaseEntrySchema).max(10_000).supe
   });
 });
 
+export const syncIdentityHintSchema = z.object({
+  objectId: syncObjectIdSchema,
+  previousPath: syncPortablePathSchema,
+  path: syncPortablePathSchema,
+}).strict().refine(hint => portablePathKey(hint.previousPath) !== portablePathKey(hint.path), {
+  message: "Identity hint source and target paths must differ.",
+});
+const syncIdentityHintsSchema = z.array(syncIdentityHintSchema).max(10_000).superRefine((hints, context) => {
+  const objectIds = new Set<string>();
+  const targets = new Set<string>();
+  hints.forEach((hint, index) => {
+    const targetKey = portablePathKey(hint.path);
+    if (objectIds.has(hint.objectId)) context.addIssue({ code: "custom", path: [index, "objectId"], message: "Identity hints contain a duplicate object identity." });
+    if (targets.has(targetKey)) context.addIssue({ code: "custom", path: [index, "path"], message: "Identity hints contain a portable target collision." });
+    objectIds.add(hint.objectId);
+    targets.add(targetKey);
+  });
+});
+
 export const syncPreviewRequestSchema = z.object({
   cursor: syncCursorSchema.nullable(),
   inventory: syncPortableInventorySchema,
   base: syncBaseStateSchema.optional(),
+  identityHints: syncIdentityHintsSchema.optional(),
   include: z.array(z.string().min(1).max(256)).max(64).optional(),
   exclude: z.array(z.string().min(1).max(256)).max(64).optional(),
-}).strict();
+}).strict().superRefine((request, context) => {
+  if (request.identityHints === undefined) return;
+  if (request.base === undefined) {
+    context.addIssue({ code: "custom", path: ["identityHints"], message: "Identity hints require a persisted base state." });
+    return;
+  }
+  const baseByObject = new Map(request.base.map(entry => [entry.objectId, entry]));
+  const inventoryPaths = new Set(request.inventory.map(entry => portablePathKey(entry.path)));
+  request.identityHints.forEach((hint, index) => {
+    const base = baseByObject.get(hint.objectId);
+    if (base === undefined || portablePathKey(base.path) !== portablePathKey(hint.previousPath)) {
+      context.addIssue({ code: "custom", path: ["identityHints", index, "previousPath"], message: "Identity hint does not match the persisted base object." });
+    }
+    if (!inventoryPaths.has(portablePathKey(hint.path))) {
+      context.addIssue({ code: "custom", path: ["identityHints", index, "path"], message: "Identity hint target is absent from local inventory." });
+    }
+  });
+});
 
 export const syncPreviewActionSchema = z.enum(["create-local", "create-server", "update-local", "update-server", "delete-local", "delete-server", "move-local", "move-server", "conflict", "noop"]);
 export const syncPreviewItemSchema = z.object({

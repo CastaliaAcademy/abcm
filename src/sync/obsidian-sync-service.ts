@@ -192,6 +192,12 @@ export class ObsidianSyncService {
       : planIdentityAwarePreview({
         base: parsed.base.filter(entry => includedByFilters(entry.path, parsed.include, parsed.exclude)),
         local: localInventory,
+        ...(parsed.identityHints === undefined ? {} : {
+          identityHints: parsed.identityHints.filter(hint =>
+            includedByFilters(hint.previousPath, parsed.include, parsed.exclude) &&
+            includedByFilters(hint.path, parsed.include, parsed.exclude)
+          ),
+        }),
         server: server.map(entry => ({
           ...entry,
           objectId: journal.getObjectByPath(entry.path)?.objectId ?? this.#initialObjectId(workspaceId, projectId, entry.path),
@@ -492,7 +498,7 @@ export class ObsidianSyncService {
         } else if (operation.kind === "delete") {
           await this.#files.delete(principal.workspaceId, this.#fullPath(principal, operation.path), { ifMatch: operation.baseChecksum }, signal);
         } else {
-          this.#content(operation);
+          const content = this.#content(operation);
           entry = await this.#files.move(
             principal.workspaceId,
             this.#fullPath(principal, operation.previousPath),
@@ -500,7 +506,18 @@ export class ObsidianSyncService {
             { ifMatch: operation.baseChecksum },
             signal,
           );
-          moveContentType = (await this.#files.read(principal.workspaceId, this.#fullPath(principal, operation.path), signal)).contentType;
+          if (entry.checksum !== operation.checksum) {
+            entry = await this.#files.write(
+              principal.workspaceId,
+              this.#fullPath(principal, operation.path),
+              content,
+              { ifMatch: entry.checksum },
+              signal,
+            );
+            moveContentType = operation.contentType;
+          } else {
+            moveContentType = (await this.#files.read(principal.workspaceId, this.#fullPath(principal, operation.path), signal)).contentType;
+          }
         }
       } finally {
         this.#captureSuppression -= 1;
