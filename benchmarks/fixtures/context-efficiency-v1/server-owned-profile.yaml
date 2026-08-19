@@ -1,0 +1,327 @@
+schemaVersion: abcm.eval.execution-profile/v1
+id: docker-known-data-server-owned-v1
+version: 1.0.0
+status: qualification
+workspaceId: benchmark
+phase: retrieval
+dataset:
+  schemaVersion: abcm.eval.business.v1
+  id: docker-known-data-server-owned-dataset-v1
+  title: Server-owned known-data V0-V5 qualification
+  status: qualification
+  language: ru
+  ownerScope: abcm
+  sourceBaseline:
+    path: abcm/artifacts/evals/capability/castalia-context-efficiency-baseline-2026-08-18.md
+    sourceCommit: 1733dacd5d23471b0aca19984edc5006d05d88d1
+    sourceChecksum: sha256:1111111111111111111111111111111111111111111111111111111111111111
+  metrics:
+    mandatoryRecall: known gold
+    precision: known gold
+    tokenReduction: relative to V0
+  proposedGates:
+    source: PLAN-0031
+  scenarios:
+    - { id: BIZ-SRV-001, title: "Known-data 01", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-002, title: "Known-data 02", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-003, title: "Known-data 03", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-004, title: "Known-data 04", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-005, title: "Known-data 05", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-006, title: "Known-data 06", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-007, title: "Known-data 07", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-008, title: "Known-data 08", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-009, title: "Known-data 09", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-010, title: "Known-data 10", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-011, title: "Known-data 11", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-012, title: "Known-data 12", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-013, title: "Known-data 13", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-014, title: "Known-data 14", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-015, title: "Known-data 15", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+    - { id: BIZ-SRV-016, title: "Known-data 16", fixture: known-data, when: "Order retry context", then: ["Required documents selected"] }
+fixtures:
+  schemaVersion: abcm.eval.fixtures.v1
+  id: docker-known-data-server-owned-fixtures-v1
+  title: Known-data Docker fixture
+  status: qualification
+  language: ru
+  ownerScope: abcm
+  reproducibility:
+    pin: [workspace snapshot, container image, execution profile]
+    rawEvidence: [body-free receipt]
+  real: []
+  synthetic:
+    - { id: known-data, scopes: 3, files: 10, documents: 6, skills: 0 }
+  adversarial: []
+repetitions: 2
+blindSeedDigest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+baselineIdentityDigest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+executionEnvironmentDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+measurementWindowDigest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+gatePolicy:
+  mandatoryRecallMin: 1
+  precisionMin: 0.8
+  relevantTokenRatioMin: 0.7
+  taskSuccessRateMaxDegradationVsV0: 0.02
+  deterministicBundleRateMin: 1
+  stableErrorClassificationRateMin: 1
+  unauthorizedLeakageMax: 0
+  tokenReductionMin: 0.25
+  costPerSuccessfulTaskReductionMin: 0.2
+  requiredFallbackModes: [direct-search, explicit-documents, bounded-resource-read, explainable-preview]
+scenarios:
+  - scenarioId: BIZ-SRV-001
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-002
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-003
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-004
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-005
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-006
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-007
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-008
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-009
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-010
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-011
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-012
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-013
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-014
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-015
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+  - scenarioId: BIZ-SRV-016
+    directSearch: { queryTerms: [order, security, retry, api], allowedPathPrefixes: [commerce] }
+    context:
+      projectId: commerce
+      roleId: implementation-agent
+      taskType: implementation
+      goal: Изменить обработку заказов и сохранить безопасность, повторные попытки и API-контракт.
+      keywords: [order, security, retry, api]
+      exactScopeIds: [orders]
+      budgetProfile: expanded
+    goldDocumentIds: [order-contract, order-security, order-retry, order-api]
+    mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+    goldClaims:
+      - { id: claim-idempotency, allTerms: [idempotency] }
+      - { id: claim-retry, allTerms: [retry] }
+    forbiddenMarkers: [FOREIGN_SECRET_MARKER]

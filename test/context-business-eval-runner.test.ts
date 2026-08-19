@@ -236,7 +236,7 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
     }
   });
 
-  test("публикует единый REST run/list контракт без тел документов", async () => {
+  test("публикует REST run/list только через server-owned profile и отклоняет клиентские manifests", async () => {
     const root = await mkdtemp(join(tmpdir(), "abcm-business-eval-rest-"));
     try {
       const registry = new WorkspaceRegistry([{ id: "test-workspace", root }]);
@@ -254,9 +254,23 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
       const handler = createAbcmRestHandler({
         files: new WorkspaceFileService(registry),
         scopeMap: new ScopeMapService(registry),
-        contextBusinessEvaluations: runner,
+        contextBusinessEvaluations: {
+          listProfiles: () => [{ id: "approved-v1", version: "1.0.0", workspaceId: "test-workspace", datasetId: dataset.id, phase: "retrieval", scenarioCount: dataset.scenarios.length }],
+          list: (workspaceId, datasetId) => runner.list(workspaceId, datasetId),
+          run: async request => {
+            if ((request as { profileId?: string }).profileId !== "approved-v1") throw new Error("unknown profile");
+            return runner.run(dataset, fixtures, { ...input(), repetitions: 1 });
+          },
+        },
       });
-      const body = { dataset, fixtures, input: { ...input(), repetitions: 1 } };
+      const rejected = await handler(new Request("http://localhost/v1/context/business-evaluations", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dataset, fixtures, input: input() }),
+      }));
+      expect(rejected.status).toBe(400);
+      const profiles = await handler(new Request("http://localhost/v1/context/business-evaluation-profiles"));
+      expect(profiles.status).toBe(200);
+      expect(await profiles.json()).toEqual({ profiles: [expect.objectContaining({ id: "approved-v1" })] });
+      const body = { profileId: "approved-v1" };
       const created = await handler(new Request("http://localhost/v1/context/business-evaluations", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
       }));

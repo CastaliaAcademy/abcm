@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.14.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.15.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.14.0
+Версия: 1.15.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -36,7 +36,9 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 - ScopeMap: неизменяемая ревизия, производная от контуров, связей, документов, исполняемых ресурсов, навыков и диагностик.
 - Контекстный пакет (Context bundle): неизменяемая ограниченная бюджетом выборка для одной задачи, роли, цели и ревизии карты.
 - Cache контекста: производное versioned-представление, ключ которого включает principal/access digest, MapRevision, проект, запрос, budget и версии selection/projection policy. Состояние hit, miss или stale является наблюдаемым и не меняет bundleDigest.
-- Business-eval run: серверное исполнение pinned manifest для вариантов V0–V5. Оно сохраняет неизменяемый body-free receipt, но само по себе не доказывает качество продукта без пройденных relevance, fallback, determinism, isolation и task-success gates.
+- Business-eval profile: версионированный операторский профиль на сервере, который связывает workspace, запросы, fixtures, gold-набор, V0–V5 и пороги. Агент может выбрать только зарегистрированный profileId и не может передать серверу manifest, абсолютный путь или исполняемый код.
+- Business-eval run: серверное исполнение зарегистрированного профиля для вариантов V0–V5. Оно сохраняет неизменяемый receipt без тел документов, но само по себе не доказывает качество продукта без пройденных relevance, fallback, determinism, isolation и task-success gates.
+- Task-success worker: отдельный процесс, который получает слепое задание и уже собранный ABCM контекст, вызывает закреплённую языковую модель и возвращает только контрольные суммы, вердикт и числовые показатели. Ключ модели, полный ответ и номер варианта не хранятся в ABCM receipt; после перезапуска восстанавливаются только безтекстовые завершённые результаты, а контекст формируется заново из закреплённого снимка.
 - Навык (Skill): повторно используемая процедура с объявленными требованиями к контексту. Навык дополняет рабочий процесс, но не может отменять инструкции рабочего пространства или границы доступа.
 - План (Plan): контракт разработки с трассировкой требований. Планы фич, планы проверки, доказательства и записи трассировки хранятся вместе с ним.
 - Источник документации (Documentation source): внешний каталог, например хранилище Obsidian, который можно предварительно сравнить, синхронизировать и явно перевести под управление ABCM.
@@ -254,7 +256,14 @@ Fallback при недостаточном автоматическом конт
 13. Выполните план проверки фичи и сохраните доказательства. Запрещено заявлять о проверках, которые не выполнялись.
 14. Если сервер предоставляет outcome API, после фактической проверки зарегистрируйте отдельный context.record_outcome для каждого repeat. Укажите fingerprintId, тот же runId, rubric/model/evidence digests, usage и стоимость; не помещайте в receipt тела документов или полный output задачи.
 15. Если выбранный документ оказался полезным, шумным или обязательным, можно создать context.propose_feedback. Указывайте только documentId из собственного ContextFingerprint и rationaleDigest. Ответ всегда имеет status=proposed: он не меняет active ranking или dataset без regression gates и отдельного решения оператора.
-16. Если сервер предоставляет business-eval API, запускайте context.run_business_evaluation только с утверждёнными dataset/fixtures и полной pinned identity: workspace snapshot, access, request set, baseline, selection/cache policies, budget, execution environment и measurement window, а для task-success также model и blind judge rubric. V0 является baseline; V3 обязан фиксировать cold cache, V4 — warm cache. Повтор той же identity возвращает прежний receipt; новый временной замер обязан иметь новый measurementWindowDigest. Проверяйте variantAggregates: V1/V2 являются диагностическими comparators, а эффективность V3–V5 вычисляется только после correctness, quality и fallback gates. Получайте историю через context.list_business_evaluations. Не помещайте в manifests, observations или receipts document bodies, bearer tokens и полный model output.
+16. Если сервер предоставляет business-eval API, сначала вызовите context.list_business_evaluation_profiles, затем передайте в context.run_business_evaluation только profileId. Dataset, fixtures, gold, workspace snapshot, access, request set, baseline, selection/cache/projection policies, budget и measurement window закрепляет сервер. V0 является baseline; V3 обязан фиксировать cold cache, V4 — warm cache. Проверяйте variantAggregates: V1/V2 являются диагностическими сравнениями, а эффективность V3–V5 вычисляется только после correctness, quality и fallback gates. Получайте историю через context.list_business_evaluations.
+17. Для task-success профиля вызовите context.start_task_success_evaluation и проверяйте состояние через context.get_task_success_evaluation. Внешний worker использует отдельный ключ и REST claim/submit; агенту запрещено запрашивать или передавать этот ключ. Worker не должен видеть variant или gold и не может отправлять в ABCM полный model output. Повторный запуск той же закреплённой identity идемпотентен.
+
+Правильный запуск retrieval-оценки:
+
+    context.run_business_evaluation({ profileId: "docker-known-data-server-owned-v1" })
+
+Контрпример: передать dataset, fixtures, абсолютный путь к corpus или команду запуска. Общая схема обязана отклонить такой запрос; сервер исполняет только заранее зарегистрированные профили.
 
 Правильная замена через MCP:
 

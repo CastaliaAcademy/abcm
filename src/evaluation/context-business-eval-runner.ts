@@ -129,6 +129,7 @@ export const businessEvaluationListRequestSchema = z.object({
 const fallbackModeSchema = z.enum(["direct-search", "explicit-documents", "bounded-resource-read", "explainable-preview"]);
 export const businessVariantObservationSchema = z.object({
   resultDigest: digest,
+  judgeVerdictDigest: digest.optional(),
   selectorTraceDigest: digest,
   selectedDocuments: z.array(z.object({ documentId: id, tokenEstimate: safeCount }).strict()),
   retrievedClaimIds: z.array(id),

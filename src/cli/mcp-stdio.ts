@@ -6,6 +6,7 @@ import { createAbcmRuntime } from "../app/create-runtime.js";
 import { installGracefulShutdown } from "./graceful-shutdown.js";
 import { parseDocumentationSources } from "../documentation/config.js";
 import { parseContextPrincipalEnvironment } from "../domain-language/context-principal-config.js";
+import { loadBusinessEvaluationProfiles } from "../evaluation/context-business-eval-config.js";
 import { parseScopeMapReconcileEnvironment } from "../scope-map/reconcile-config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
 
@@ -26,6 +27,7 @@ const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENT
 const scopeMapReconcile = parseScopeMapReconcileEnvironment(process.env);
 const contextPrincipal = parseContextPrincipalEnvironment(process.env, "stdio-client");
 const mcpOperationTimeoutMs = optionalPositiveInteger("ABCM_MCP_OPERATION_TIMEOUT_MS");
+const businessEvaluationProfiles = await loadBusinessEvaluationProfiles(process.env.ABCM_BUSINESS_EVALUATION_PROFILES);
 
 function optionalPositiveInteger(name: string): number | undefined {
   const value = process.env[name];
@@ -58,6 +60,7 @@ const runtime = createAbcmRuntime(
       },
     }),
     sqliteDerivedStoreEnabled,
+    ...(businessEvaluationProfiles === undefined ? {} : { businessEvaluationProfiles }),
     ...(documentationSources === undefined ? {} : { documentationSources }),
     scopeMapReconcile: {
       ...scopeMapReconcile,

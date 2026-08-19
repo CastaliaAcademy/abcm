@@ -310,6 +310,13 @@ try {
     },
     gatePolicy: businessQualification.gatePolicy,
   });
+  const serverOwnedResponse = await fetch(new URL("/v1/context/business-evaluations", baseUrl), {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ profileId: "docker-known-data-server-owned-v1" }),
+  });
+  if (!serverOwnedResponse.ok) throw new Error(`Server-owned business evaluation failed: ${serverOwnedResponse.status} ${await serverOwnedResponse.text()}`);
+  const serverOwnedReceipt = await serverOwnedResponse.json() as typeof businessReceipt;
   const output = {
     benchmark: "context-efficiency-docker-v1",
     fixture: { workspaceId: fixtureManifest.workspaceId, goldDocumentIds: fixtureManifest.goldDocumentIds, repetitions: fixtureManifest.repetitions },
@@ -324,13 +331,22 @@ try {
       bodyFree: !JSON.stringify(businessReceipt).toLocaleLowerCase("ru-RU").includes("idempotency key"),
       variants: businessReceipt.variantAggregates,
     },
+    serverOwnedBusinessEvaluation: {
+      runId: serverOwnedReceipt.runId,
+      aggregateDigest: serverOwnedReceipt.aggregateDigest,
+      scenarios: new Set(serverOwnedReceipt.runs.map(run => run.scenarioId)).size,
+      observations: serverOwnedReceipt.runs.length,
+      bodyFree: !JSON.stringify(serverOwnedReceipt).includes("idempotency key"),
+      variants: serverOwnedReceipt.variantAggregates,
+    },
   };
   console.log(JSON.stringify(output, null, 2));
   if (process.env.ABCM_BENCH_ENFORCE === "true" && (
     report.variants.abcmAutomatic?.overall !== "pass" ||
     cacheStates[0] !== "miss" ||
     cacheStates.slice(1).some(state => state !== "hit") ||
-    businessReceipt.variantAggregates.some(aggregate => aggregate.variant !== "V0" && aggregate.gates.overall !== "pass")
+    businessReceipt.variantAggregates.some(aggregate => aggregate.variant !== "V0" && aggregate.gates.overall !== "pass") ||
+    serverOwnedReceipt.variantAggregates.some(aggregate => ["V3", "V4", "V5"].includes(aggregate.variant) && aggregate.gates.overall !== "pass")
   )) process.exitCode = 1;
 } finally {
   await client.close();

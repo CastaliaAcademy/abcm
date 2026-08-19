@@ -11,7 +11,13 @@ import type { DomainLanguageService } from "../domain-language/domain-language-s
 import type { ContextPrincipal } from "../domain-language/types.js";
 import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
 import type { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
-import type { ContextBusinessEvalRunner } from "../evaluation/context-business-eval-runner.js";
+import type { BusinessEvaluationApi } from "../evaluation/context-business-eval-profile.js";
+import {
+  taskSuccessClaimRequestSchema,
+  taskSuccessStartRequestSchema,
+  taskSuccessSubmitRequestSchema,
+  type TaskSuccessWorkerCoordinator,
+} from "../evaluation/task-success-worker.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -60,7 +66,8 @@ export interface AbcmRestDependencies {
   contextBuilder?: ContextBuilder;
   contextOutcomes?: ContextOutcomeService;
   contextFeedback?: ContextFeedbackService;
-  contextBusinessEvaluations?: ContextBusinessEvalRunner;
+  contextBusinessEvaluations?: BusinessEvaluationApi;
+  taskSuccessEvaluations?: TaskSuccessWorkerCoordinator;
   workspaces?: WorkspaceRegistrationService;
   documentation?: DirectoryDocumentationSyncService;
   obsidianSync?: ObsidianSyncService;
@@ -325,7 +332,37 @@ export function createAbcmRestHandler(
           throw new AbcmError("ACCESS_DENIED", "Context business evaluation access is not configured.");
         }
         const body = await readJson(request, businessEvaluationRunRequestSchema, maxRequestBodyBytes, signal);
-        return json(await dependencies.contextBusinessEvaluations.run(body.dataset, body.fixtures, body.input, signal), 201);
+        return json(await dependencies.contextBusinessEvaluations.run(body, signal), 201);
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/context/business-evaluation-profiles") {
+        if (dependencies.contextBusinessEvaluations === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Context business evaluation access is not configured.");
+        }
+        return json({ profiles: dependencies.contextBusinessEvaluations.listProfiles() });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/task-success-evaluations") {
+        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success evaluation is not configured.");
+        return json(await dependencies.taskSuccessEvaluations.start(await readJson(request, taskSuccessStartRequestSchema, maxRequestBodyBytes, signal), signal), 202);
+      }
+
+      const taskSuccessSession = /^\/v1\/context\/task-success-evaluations\/(task-session-[a-f0-9]{24})$/.exec(url.pathname);
+      if (request.method === "GET" && taskSuccessSession !== null) {
+        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success evaluation is not configured.");
+        const session = dependencies.taskSuccessEvaluations.get(taskSuccessSession[1]!);
+        if (session === undefined) throw new AbcmError("FILE_NOT_FOUND", "Task-success evaluation session was not found.");
+        return json(session);
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/task-success-worker/jobs/claim") {
+        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success worker is not configured.");
+        return json(await dependencies.taskSuccessEvaluations.claim(await readJson(request, taskSuccessClaimRequestSchema, maxRequestBodyBytes, signal)));
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/task-success-worker/jobs/submit") {
+        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success worker is not configured.");
+        return json(await dependencies.taskSuccessEvaluations.submit(await readJson(request, taskSuccessSubmitRequestSchema, maxRequestBodyBytes, signal), signal));
       }
 
       if (request.method === "GET" && url.pathname === "/v1/context/business-evaluations") {

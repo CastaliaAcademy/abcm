@@ -10,6 +10,8 @@ export interface DirectSearchBaselineRequest {
   claimChecks?: readonly { id: string; allTerms: readonly string[] }[];
   maxFiles?: number;
   maxReadBytes?: number;
+  /** Server-owned authorization filter. It is deliberately excluded from the result identity. */
+  authorizePath?: (path: string) => boolean;
 }
 
 export interface DirectSearchBaselineResult {
@@ -73,6 +75,7 @@ export async function runDirectSearchBaseline(
   const candidates = listed
     .filter(entry => entry.kind === "file")
     .filter(entry => prefixes.some(prefix => entry.path === prefix || entry.path.startsWith(`${prefix}/`)))
+    .filter(entry => request.authorizePath?.(entry.path) ?? true)
     .filter(entry => extensions.some(extension => entry.path.endsWith(extension)))
     .sort((left, right) => left.path.localeCompare(right.path));
   if (candidates.length > maxFiles) throw new Error(`Direct-search candidate count ${candidates.length} exceeds limit ${maxFiles}.`);

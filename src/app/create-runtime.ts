@@ -12,10 +12,13 @@ import { ContextOutcomeService } from "../evaluation/context-outcome-service.js"
 import type { ContextFeedbackCatalog } from "../evaluation/context-feedback.js";
 import { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
 import {
-  ContextBusinessEvalRunner,
   type BusinessEvaluationCatalog,
-  type BusinessVariantExecutor,
 } from "../evaluation/context-business-eval-runner.js";
+import {
+  BusinessEvaluationProfileRegistry,
+  ServerOwnedBusinessEvaluationService,
+} from "../evaluation/context-business-eval-profile.js";
+import { TaskSuccessWorkerCoordinator } from "../evaluation/task-success-worker.js";
 import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-store.js";
 import type { ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "../derived-store/types.js";
 import { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
@@ -70,7 +73,9 @@ export interface AbcmRuntimeOptions {
   contextBuildCacheCatalog?: ContextBuildCacheCatalog;
   contextFeedbackCatalog?: ContextFeedbackCatalog;
   businessEvaluationCatalog?: BusinessEvaluationCatalog;
-  businessVariantExecutor?: BusinessVariantExecutor;
+  businessEvaluationProfiles?: readonly unknown[];
+  businessEvaluationWorkerToken?: string;
+  businessEvaluationTaskStateRoot?: string;
   obsidianSync?: Omit<ObsidianSyncServiceOptions, "observability">;
 }
 
@@ -153,12 +158,12 @@ export function createAbcmRuntime(
   const contextBuildCacheCatalog = options.contextBuildCacheCatalog ?? ownedScopeMapStore;
   const contextFeedbackCatalog = options.contextFeedbackCatalog ?? ownedScopeMapStore;
   const businessEvaluationCatalog = options.businessEvaluationCatalog ?? ownedScopeMapStore;
-  if (options.businessVariantExecutor !== undefined && businessEvaluationCatalog === undefined) {
-    throw new Error("businessVariantExecutor requires a durable businessEvaluationCatalog or sqliteDerivedStoreEnabled=true.");
+  if (options.businessEvaluationProfiles !== undefined && businessEvaluationCatalog === undefined) {
+    throw new Error("businessEvaluationProfiles require a durable businessEvaluationCatalog or sqliteDerivedStoreEnabled=true.");
   }
-  const contextBusinessEvaluations = options.businessVariantExecutor === undefined
-    ? undefined
-    : new ContextBusinessEvalRunner(businessEvaluationCatalog!, options.businessVariantExecutor);
+  if (options.businessEvaluationProfiles !== undefined && options.contextPrincipal === undefined) {
+    throw new Error("businessEvaluationProfiles require contextPrincipal.");
+  }
   const contextOutcomes = contextOutcomeCatalog !== undefined && contextFingerprintCatalog !== undefined && options.contextPrincipal !== undefined
     ? new ContextOutcomeService(contextOutcomeCatalog, contextFingerprintCatalog, options.contextPrincipal)
     : undefined;
@@ -177,6 +182,32 @@ export function createAbcmRuntime(
     ...(options.context === undefined ? {} : { options: options.context }),
     ...(options.observability === undefined ? {} : { observability: options.observability }),
   });
+  const businessEvaluationProfiles = options.businessEvaluationProfiles === undefined
+    ? undefined
+    : new BusinessEvaluationProfileRegistry(options.businessEvaluationProfiles);
+  const contextBusinessEvaluations = businessEvaluationProfiles === undefined
+    ? undefined
+    : new ServerOwnedBusinessEvaluationService(businessEvaluationCatalog!, businessEvaluationProfiles, {
+        files,
+        scopeMap,
+        domainLanguage,
+        scopePathResolver,
+        skillConnectionResolver,
+        fingerprintStore: contextFingerprintStore,
+        principal: options.contextPrincipal!,
+        ...(options.context === undefined ? {} : { options: options.context }),
+        ...(options.observability === undefined ? {} : { observability: options.observability }),
+      });
+  const hasTaskSuccessProfiles = businessEvaluationProfiles?.list().some(profile => profile.phase === "task-success") ?? false;
+  if (hasTaskSuccessProfiles && options.businessEvaluationWorkerToken === undefined) {
+    throw new Error("Task-success business evaluation profiles require businessEvaluationWorkerToken.");
+  }
+  if (hasTaskSuccessProfiles && options.businessEvaluationTaskStateRoot === undefined) {
+    throw new Error("Task-success business evaluation profiles require businessEvaluationTaskStateRoot.");
+  }
+  const taskSuccessEvaluations = contextBusinessEvaluations === undefined || !hasTaskSuccessProfiles
+    ? undefined
+    : new TaskSuccessWorkerCoordinator(contextBusinessEvaluations, { stateRoot: options.businessEvaluationTaskStateRoot! });
   if (documentationState !== undefined && options.documentationSources !== undefined) {
     documentation = new DirectoryDocumentationSyncService({
       registry,
@@ -202,6 +233,7 @@ export function createAbcmRuntime(
       ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
       ...(contextFeedback === undefined ? {} : { contextFeedback }),
       ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
+      ...(taskSuccessEvaluations === undefined ? {} : { taskSuccessEvaluations }),
       ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
       ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
       ...(documentation === undefined ? {} : { documentation }),
@@ -225,6 +257,7 @@ export function createAbcmRuntime(
             ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
             ...(contextFeedback === undefined ? {} : { contextFeedback }),
             ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
+            ...(taskSuccessEvaluations === undefined ? {} : { taskSuccessEvaluations }),
             ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
             ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
             ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),
@@ -240,7 +273,14 @@ export function createAbcmRuntime(
   const staticRestHandler = options.bearerToken === undefined
     ? baseRestHandler
     : requireStaticBearerToken(baseRestHandler, options.bearerToken, options.observability);
+  const workerRestHandler = options.businessEvaluationWorkerToken === undefined
+    ? undefined
+    : requireStaticBearerToken(baseRestHandler, options.businessEvaluationWorkerToken, options.observability);
   const restHandler = async (request: Request) => {
+    if (new URL(request.url).pathname.startsWith("/v1/context/task-success-worker/")) {
+      if (workerRestHandler === undefined) return Response.json({ code: "ACCESS_DENIED", detail: "Task-success worker access is not configured." }, { status: 403 });
+      return workerRestHandler(request);
+    }
     if (obsidianSync !== undefined && options.bearerToken !== undefined) {
       const pathname = new URL(request.url).pathname;
       const usesDeviceAuthentication = pathname === "/v1/obsidian/pairings/redeem"
@@ -265,6 +305,7 @@ export function createAbcmRuntime(
     ready: Promise.all([
       uploads?.ready ?? Promise.resolve(),
       batches?.ready ?? Promise.resolve(),
+      taskSuccessEvaluations?.ready ?? Promise.resolve(),
     ]).then(() => undefined),
     scopeMap,
     domainLanguage,
@@ -279,7 +320,9 @@ export function createAbcmRuntime(
     contextFeedbackCatalog,
     contextFeedback,
     businessEvaluationCatalog,
+    businessEvaluationProfiles,
     contextBusinessEvaluations,
+    taskSuccessEvaluations,
     scopeMapReconciler,
     workspaceProvisioning,
     documentation,
@@ -300,6 +343,7 @@ export function createAbcmRuntime(
         ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
         ...(contextFeedback === undefined ? {} : { contextFeedback }),
         ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
+        ...(taskSuccessEvaluations === undefined ? {} : { taskSuccessEvaluations }),
         ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
         ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
         ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),

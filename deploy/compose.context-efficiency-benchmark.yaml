@@ -16,13 +16,21 @@ services:
       ABCM_MCP_PATH: /mcp
       ABCM_MCP_ALLOWED_HOSTNAMES: localhost,127.0.0.1,[::1]
       ABCM_MCP_ALLOWED_ORIGINS: localhost,127.0.0.1,[::1]
-      ABCM_DERIVED_STORE_ENABLED: "false"
+      ABCM_MCP_OPERATION_TIMEOUT_MS: 300000
+      ABCM_DERIVED_STORE_ENABLED: "true"
+      ABCM_BUSINESS_EVALUATION_PROFILES: /config/server-owned-profile.yaml
     ports:
       - "127.0.0.1:8791:8787"
     volumes:
       - type: bind
         source: ../benchmarks/fixtures/context-efficiency-v1/workspace
         target: /workspace
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../benchmarks/fixtures/context-efficiency-v1/server-owned-profile.yaml
+        target: /config/server-owned-profile.yaml
+        read_only: true
         bind:
           create_host_path: false
     init: true

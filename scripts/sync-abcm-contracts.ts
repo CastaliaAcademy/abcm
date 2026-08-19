@@ -62,7 +62,9 @@ const files = new Map<string, Uint8Array>([
   ["docs/plans/v0.30/plan.md", await localBytes(".abcm-documentation/docs/plans/v0.30/plan.md")],
   ["docs/plans/v0.30/verification-plan.md", await localBytes(".abcm-documentation/docs/plans/v0.30/verification-plan.md")],
   ["docs/plans/v0.30/traceability.yaml", await localBytes(".abcm-documentation/docs/plans/v0.30/traceability.yaml")],
+  ["docs/spec/extensions/context-efficiency-evaluation-v0.1.yaml", await localBytes(".abcm-documentation/docs/spec/extensions/context-efficiency-evaluation-v0.1.yaml")],
   ["artifacts/plans/PLAN-0031/evidence/implementation.md", await localBytes(".abcm-documentation/artifacts/plans/PLAN-0031/evidence/implementation.md")],
+  ["artifacts/plans/PLAN-0031/evidence/server-owned-business-eval-2026-08-19.md", await localBytes(".abcm-documentation/artifacts/plans/PLAN-0031/evidence/server-owned-business-eval-2026-08-19.md")],
 ]);
 
 for (const [path, bytes] of files) await putRemote(path, bytes);

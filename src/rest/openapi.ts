@@ -258,7 +258,7 @@ export function createAbcmOpenApiDocument(): JsonObject {
       "/v1/context/business-evaluations": {
         post: {
           operationId: "runContextBusinessEvaluation",
-          description: "Run a manifest-driven V0-V5 matrix and persist one immutable body-free receipt.",
+          description: "Run one registered server-owned V0-V5 profile and persist one immutable body-free receipt.",
           requestBody: { required: true, content: { "application/json": { schema: reference("BusinessEvaluationRunRequest") } } },
           responses: { "201": response("Immutable business evaluation receipt", reference("BusinessEvaluationReceipt")), ...problemResponses },
         },
@@ -269,6 +269,44 @@ export function createAbcmOpenApiDocument(): JsonObject {
             parameter("datasetId", "query", true, { type: "string", minLength: 1 }),
           ],
           responses: { "200": response("Immutable business evaluation receipts", reference("BusinessEvaluationListResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/business-evaluation-profiles": {
+        get: {
+          operationId: "listContextBusinessEvaluationProfiles",
+          description: "List versioned server-owned business-evaluation profiles. Client-supplied manifests and host paths are not accepted.",
+          responses: { "200": response("Available business evaluation profiles", reference("BusinessEvaluationProfileListResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/task-success-evaluations": {
+        post: {
+          operationId: "startTaskSuccessEvaluation",
+          description: "Prepare transient blind jobs from a server-owned profile; model calls remain outside ABCM.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("TaskSuccessStartRequest") } } },
+          responses: { "202": response("Task-success session", reference("TaskSuccessSession")), ...problemResponses },
+        },
+      },
+      "/v1/context/task-success-evaluations/{sessionId}": {
+        get: {
+          operationId: "getTaskSuccessEvaluation",
+          parameters: [parameter("sessionId", "path", true, { type: "string", pattern: "^task-session-[a-f0-9]{24}$" })],
+          responses: { "200": response("Body-free task-success progress", reference("TaskSuccessSession")), ...problemResponses },
+        },
+      },
+      "/v1/context/task-success-worker/jobs/claim": {
+        post: {
+          operationId: "claimTaskSuccessJob",
+          description: "Worker-token endpoint. Returns one blind prompt and ABCM-prepared context without variant or gold labels.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("TaskSuccessClaimRequest") } } },
+          responses: { "200": response("Claimed blind job or null", reference("TaskSuccessClaimResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/task-success-worker/jobs/submit": {
+        post: {
+          operationId: "submitTaskSuccessJob",
+          description: "Worker-token endpoint. Accepts body-free result digests, verdicts, and measurements; model output is rejected.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("TaskSuccessSubmitRequest") } } },
+          responses: { "200": response("Updated body-free task-success progress", reference("TaskSuccessSession")), ...problemResponses },
         },
       },
       "/v1/workspaces/{workspaceId}/documentation-sources/preview": {

@@ -2,6 +2,13 @@ import { z } from "zod/v4";
 
 import { OBSIDIAN_SYNC_REST_SCHEMAS } from "../sync/rest-schemas.js";
 import {
+  taskSuccessClaimRequestSchema,
+  taskSuccessClaimResultSchema,
+  taskSuccessSessionSchema,
+  taskSuccessStartRequestSchema,
+  taskSuccessSubmitRequestSchema,
+} from "../evaluation/task-success-worker.js";
+import {
   workspaceBatchApplyRequestSchema,
   workspaceBatchApplyOutputSchema,
   workspaceUploadChunkOutputSchema,
@@ -21,6 +28,7 @@ import {
   contextFeedbackProposalSchema,
   contextFeedbackSubmissionSchema,
   businessEvaluationListOutputSchema,
+  businessEvaluationProfileListOutputSchema,
   businessEvaluationReceiptSchema,
   businessEvaluationRunRequestSchema,
   documentationPreviewInputSchema,
@@ -78,6 +86,12 @@ export const REST_SHARED_SCHEMAS = {
   BusinessEvaluationRunRequest: businessEvaluationRunRequestSchema,
   BusinessEvaluationReceipt: businessEvaluationReceiptSchema,
   BusinessEvaluationListResult: businessEvaluationListOutputSchema,
+  BusinessEvaluationProfileListResult: businessEvaluationProfileListOutputSchema,
+  TaskSuccessStartRequest: taskSuccessStartRequestSchema,
+  TaskSuccessSession: taskSuccessSessionSchema,
+  TaskSuccessClaimRequest: taskSuccessClaimRequestSchema,
+  TaskSuccessClaimResult: taskSuccessClaimResultSchema,
+  TaskSuccessSubmitRequest: taskSuccessSubmitRequestSchema,
   DocumentationPreviewRequest: restDocumentationPreviewInputSchema,
   DocumentationPreviewResult: documentationPreviewOutputSchema,
   DocumentationSyncResult: documentationSyncOutputSchema,

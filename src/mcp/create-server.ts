@@ -16,7 +16,8 @@ import type { DomainLanguageService } from "../domain-language/domain-language-s
 import type { ContextPrincipal } from "../domain-language/types.js";
 import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
 import type { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
-import type { ContextBusinessEvalRunner } from "../evaluation/context-business-eval-runner.js";
+import type { BusinessEvaluationApi } from "../evaluation/context-business-eval-profile.js";
+import type { TaskSuccessWorkerCoordinator } from "../evaluation/task-success-worker.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -53,8 +54,13 @@ import {
   contextFeedbackSubmissionSchema,
   businessEvaluationListOutputSchema,
   businessEvaluationListRequestSchema,
+  businessEvaluationProfileListInputSchema,
+  businessEvaluationProfileListOutputSchema,
   businessEvaluationReceiptSchema,
   businessEvaluationRunRequestSchema,
+  taskSuccessEvaluationGetInputSchema,
+  taskSuccessEvaluationSessionOutputSchema,
+  taskSuccessEvaluationStartInputSchema,
   documentationApplyInputSchema,
   documentationPreviewInputSchema,
   documentationPreviewOutputSchema,
@@ -98,7 +104,8 @@ export interface AbcmMcpDependencies {
   contextBuilder?: ContextBuilder;
   contextOutcomes?: ContextOutcomeService;
   contextFeedback?: ContextFeedbackService;
-  contextBusinessEvaluations?: ContextBusinessEvalRunner;
+  contextBusinessEvaluations?: BusinessEvaluationApi;
+  taskSuccessEvaluations?: TaskSuccessWorkerCoordinator;
   documentation?: DirectoryDocumentationSyncService;
   workspaces?: WorkspaceProvisioningService;
   mcpResourcePageSize?: number;
@@ -504,16 +511,31 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
   }
   if (dependencies.contextBusinessEvaluations !== undefined) {
     server.registerTool(
+      "context.list_business_evaluation_profiles",
+      {
+        title: "List business evaluation profiles",
+        description: "List server-owned, versioned V0-V5 execution profiles available to this runtime.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: businessEvaluationProfileListInputSchema,
+        outputSchema: businessEvaluationProfileListOutputSchema,
+      },
+      async (_input, context) => toolResult(
+        async () => ({ profiles: dependencies.contextBusinessEvaluations!.listProfiles() }),
+        context.mcpReq.signal,
+        operationTimeoutMs,
+      ),
+    );
+    server.registerTool(
       "context.run_business_evaluation",
       {
         title: "Run context business evaluation",
-        description: "Run the pinned V0-V5 manifest matrix and persist one immutable body-free receipt.",
+        description: "Run one registered server-owned V0-V5 profile and persist an immutable body-free receipt.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: businessEvaluationRunRequestSchema,
         outputSchema: businessEvaluationReceiptSchema,
       },
       async (input, context) => toolResult(
-        async signal => ({ ...(await dependencies.contextBusinessEvaluations!.run(input.dataset, input.fixtures, input.input, signal)) }),
+        async signal => ({ ...(await dependencies.contextBusinessEvaluations!.run(input, signal)) }),
         context.mcpReq.signal,
         operationTimeoutMs,
       ),
@@ -532,6 +554,34 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         context.mcpReq.signal,
         operationTimeoutMs,
       ),
+    );
+  }
+  if (dependencies.taskSuccessEvaluations !== undefined) {
+    server.registerTool(
+      "context.start_task_success_evaluation",
+      {
+        title: "Start task-success evaluation",
+        description: "Prepare blind jobs from one server-owned profile for an independently authenticated external model worker.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: taskSuccessEvaluationStartInputSchema,
+        outputSchema: taskSuccessEvaluationSessionOutputSchema,
+      },
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.taskSuccessEvaluations!.start(input, signal)) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "context.get_task_success_evaluation",
+      {
+        title: "Get task-success evaluation",
+        description: "Read body-free progress and final receipt identity for one task-success session.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: taskSuccessEvaluationGetInputSchema,
+        outputSchema: taskSuccessEvaluationSessionOutputSchema,
+      },
+      async (input, context) => toolResult(async () => {
+        const session = dependencies.taskSuccessEvaluations!.get(input.sessionId);
+        if (session === undefined) throw new AbcmError("FILE_NOT_FOUND", "Task-success evaluation session was not found.");
+        return { ...session };
+      }, context.mcpReq.signal, operationTimeoutMs),
     );
   }
   if (dependencies.documentation !== undefined) {

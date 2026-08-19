@@ -10,13 +10,17 @@ export { contextFeedbackProposalSchema, contextFeedbackSubmissionSchema } from "
 import {
   businessEvaluationListRequestSchema,
   businessEvaluationReceiptSchema,
-  businessEvaluationRunRequestSchema,
 } from "../evaluation/context-business-eval-runner.js";
 export {
   businessEvaluationListRequestSchema,
   businessEvaluationReceiptSchema,
-  businessEvaluationRunRequestSchema,
 } from "../evaluation/context-business-eval-runner.js";
+import {
+  businessEvaluationProfileSummarySchema,
+  serverOwnedBusinessEvaluationRunRequestSchema,
+} from "../evaluation/context-business-eval-profile.js";
+import { taskSuccessSessionSchema, taskSuccessStartRequestSchema } from "../evaluation/task-success-worker.js";
+export const businessEvaluationRunRequestSchema = serverOwnedBusinessEvaluationRunRequestSchema;
 import {
   workspaceBatchApplyInputSchema,
   workspaceBatchApplyOutputSchema,
@@ -40,6 +44,13 @@ export const agentInstructionsOutputSchema = z.object({
 export const businessEvaluationListOutputSchema = z.object({
   evaluations: z.array(businessEvaluationReceiptSchema),
 }).strict();
+export const businessEvaluationProfileListInputSchema = z.object({}).strict();
+export const businessEvaluationProfileListOutputSchema = z.object({
+  profiles: z.array(businessEvaluationProfileSummarySchema),
+}).strict();
+export const taskSuccessEvaluationStartInputSchema = taskSuccessStartRequestSchema;
+export const taskSuccessEvaluationGetInputSchema = z.object({ sessionId: z.string().regex(/^task-session-[a-f0-9]{24}$/) }).strict();
+export const taskSuccessEvaluationSessionOutputSchema = taskSuccessSessionSchema;
 
 const workspaceId = z.string().min(1);
 const path = z.string();

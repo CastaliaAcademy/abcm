@@ -4,6 +4,7 @@ import { createAbcmRuntime } from "../app/create-runtime.js";
 import { installGracefulShutdown } from "./graceful-shutdown.js";
 import { parseDocumentationSources } from "../documentation/config.js";
 import { parseContextPrincipalEnvironment } from "../domain-language/context-principal-config.js";
+import { loadBusinessEvaluationProfiles } from "../evaluation/context-business-eval-config.js";
 import { parseScopeMapReconcileEnvironment } from "../scope-map/reconcile-config.js";
 import { parseRestLimitEnvironment } from "../rest/config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
@@ -34,6 +35,9 @@ const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENT
 const scopeMapReconcile = parseScopeMapReconcileEnvironment(process.env);
 const restLimits = parseRestLimitEnvironment(process.env);
 const contextPrincipal = parseContextPrincipalEnvironment(process.env, "static-bearer");
+const businessEvaluationProfiles = await loadBusinessEvaluationProfiles(process.env.ABCM_BUSINESS_EVALUATION_PROFILES);
+const businessEvaluationWorkerToken = process.env.ABCM_BUSINESS_EVALUATION_WORKER_TOKEN;
+const businessEvaluationTaskStateRoot = process.env.ABCM_BUSINESS_EVALUATION_TASK_STATE_ROOT;
 
 function commaSeparated(value: string | undefined): string[] | undefined {
   if (value === undefined) return undefined;
@@ -95,6 +99,9 @@ const runtime = createAbcmRuntime(
       },
     }),
     sqliteDerivedStoreEnabled,
+    ...(businessEvaluationProfiles === undefined ? {} : { businessEvaluationProfiles }),
+    ...(businessEvaluationWorkerToken === undefined ? {} : { businessEvaluationWorkerToken }),
+    ...(businessEvaluationTaskStateRoot === undefined ? {} : { businessEvaluationTaskStateRoot: resolve(businessEvaluationTaskStateRoot) }),
     ...(documentationSources === undefined ? {} : { documentationSources }),
     scopeMapReconcile: {
       ...scopeMapReconcile,

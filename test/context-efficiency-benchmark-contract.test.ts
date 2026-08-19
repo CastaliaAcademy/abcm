@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { parseSafeYaml } from "../src/core/safe-yaml.js";
+import { businessEvaluationExecutionProfileSchema } from "../src/evaluation/context-business-eval-profile.js";
 
 describe("контракт Docker benchmark эффективности", () => {
   test("использует известный gold set, десять повторов и отдельный недоступный corpus", async () => {
@@ -44,5 +45,17 @@ describe("контракт Docker benchmark эффективности", () => {
     }));
     expect(manifest.sourceBaseline.sourceCommit).toHaveLength(40);
     expect(manifest.sourceBaseline.sourceChecksum).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  test("поднимает production-like runner только с server-owned профилем", async () => {
+    const profile = businessEvaluationExecutionProfileSchema.parse(parseSafeYaml(
+      await Bun.file("benchmarks/fixtures/context-efficiency-v1/server-owned-profile.yaml").text(),
+    ));
+    expect(profile.dataset.scenarios).toHaveLength(16);
+    expect(profile.scenarios).toHaveLength(16);
+    expect(profile.scenarios.every(scenario => scenario.directSearch.allowedPathPrefixes.every(path => !path.startsWith("/") && !path.includes("..")))).toBe(true);
+    const compose = await Bun.file("deploy/compose.context-efficiency-benchmark.yaml").text();
+    expect(compose).toContain("ABCM_BUSINESS_EVALUATION_PROFILES: /config/server-owned-profile.yaml");
+    expect(compose).toContain("ABCM_DERIVED_STORE_ENABLED: \"true\"");
   });
 });

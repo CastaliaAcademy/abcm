@@ -15,7 +15,7 @@ describe("canonical remote documentation evidence", () => {
     expect(new Set(CANONICAL_REMOTE_EVIDENCE_PATHS).size).toBe(CANONICAL_REMOTE_EVIDENCE_PATHS.length);
   });
 
-  test("sync tooling keeps PLAN-0028 status and GitHub evidence in the canonical layout", async () => {
+  test("sync tooling keeps PLAN-0028 and PLAN-0031 normative evidence in the canonical layout", async () => {
     const source = await Bun.file("scripts/sync-abcm-contracts.ts").text();
     for (const path of [
       "docs/release/known-gaps-v0.1.0.md",
@@ -23,6 +23,8 @@ describe("canonical remote documentation evidence", () => {
       "docs/plans/v0.27/traceability.yaml",
       "docs/plans/v0.27/features/obsidian-bidirectional-sync.md",
       "artifacts/plans/PLAN-0028/evidence/WU-09-github-draft-pr.md",
+      "docs/spec/extensions/context-efficiency-evaluation-v0.1.yaml",
+      "artifacts/plans/PLAN-0031/evidence/server-owned-business-eval-2026-08-19.md",
     ]) {
       expect(source).toContain(`[\"${path}\"`);
     }
