@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.12.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.13.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.12.0
+Версия: 1.13.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -253,7 +253,7 @@ Fallback при недостаточном автоматическом конт
 13. Выполните план проверки фичи и сохраните доказательства. Запрещено заявлять о проверках, которые не выполнялись.
 14. Если сервер предоставляет outcome API, после фактической проверки зарегистрируйте отдельный context.record_outcome для каждого repeat. Укажите fingerprintId, тот же runId, rubric/model/evidence digests, usage и стоимость; не помещайте в receipt тела документов или полный output задачи.
 15. Если выбранный документ оказался полезным, шумным или обязательным, можно создать context.propose_feedback. Указывайте только documentId из собственного ContextFingerprint и rationaleDigest. Ответ всегда имеет status=proposed: он не меняет active ranking или dataset без regression gates и отдельного решения оператора.
-16. Если сервер предоставляет business-eval API, запускайте context.run_business_evaluation только с утверждёнными dataset/fixtures и полной pinned identity: workspace snapshot, access, request set, baseline, selection/cache policies, budget, а для task-success также model и blind judge rubric. V0 является baseline; V3 обязан фиксировать cold cache, V4 — warm cache. Повтор той же identity возвращает прежний receipt. Получайте историю через context.list_business_evaluations. Не помещайте в manifests, observations или receipts document bodies, bearer tokens и полный model output.
+16. Если сервер предоставляет business-eval API, запускайте context.run_business_evaluation только с утверждёнными dataset/fixtures и полной pinned identity: workspace snapshot, access, request set, baseline, selection/cache policies, budget, execution environment и measurement window, а для task-success также model и blind judge rubric. V0 является baseline; V3 обязан фиксировать cold cache, V4 — warm cache. Повтор той же identity возвращает прежний receipt; новый временной замер обязан иметь новый measurementWindowDigest. Проверяйте variantAggregates: V1/V2 являются диагностическими comparators, а эффективность V3–V5 вычисляется только после correctness, quality и fallback gates. Получайте историю через context.list_business_evaluations. Не помещайте в manifests, observations или receipts document bodies, bearer tokens и полный model output.
 
 Правильная замена через MCP:
 

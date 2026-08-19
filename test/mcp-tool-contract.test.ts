@@ -47,6 +47,17 @@ async function fixture() {
         cache: { state: "bypass", policyVersion: "test/v1" },
         latencyMs: { total: 0 },
         fallback: { availableModes: [] },
+        rawMetrics: {
+          mandatoryRecall: 0,
+          precision: 0,
+          relevantTokenRatio: 0,
+          firstAttemptSucceeded: false,
+          explicitLinkResolutionRate: 0,
+          stableErrorClassificationRate: 1,
+          omissionCount: 0,
+          outputTokens: 0,
+          toolTokens: 0,
+        },
       }),
     },
   );
@@ -105,7 +116,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.12.0",
+        version: "1.13.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),

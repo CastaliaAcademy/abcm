@@ -87,9 +87,23 @@ export const businessEvaluationInputSchema = z.object({
     projectionPolicyVersion: id,
     budgetProfileDigest: digest,
     baselineIdentityDigest: digest,
+    executionEnvironmentDigest: digest,
+    measurementWindowDigest: digest,
     modelIdentityDigest: digest.nullable(),
     judgeRubricDigest: digest.nullable(),
     judgeIdentityClass: id.nullable(),
+  }).strict(),
+  gatePolicy: z.object({
+    mandatoryRecallMin: z.number().min(0).max(1),
+    precisionMin: z.number().min(0).max(1),
+    relevantTokenRatioMin: z.number().min(0).max(1),
+    taskSuccessRateMaxDegradationVsV0: z.number().min(0).max(1),
+    deterministicBundleRateMin: z.number().min(0).max(1),
+    stableErrorClassificationRateMin: z.number().min(0).max(1),
+    unauthorizedLeakageMax: safeCount,
+    tokenReductionMin: z.number().min(0).max(1),
+    costPerSuccessfulTaskReductionMin: z.number().min(0).max(1),
+    requiredFallbackModes: z.array(z.enum(["direct-search", "explicit-documents", "bounded-resource-read", "explainable-preview"])).min(1),
   }).strict(),
 }).strict().superRefine((input, context) => {
   if (input.phase === "task-success" && (
@@ -140,6 +154,17 @@ export const businessVariantObservationSchema = z.object({
     recoveredDocumentIds: z.array(id).optional(),
     addedTokens: safeCount.optional(),
   }).strict(),
+  rawMetrics: z.object({
+    mandatoryRecall: z.number().min(0).max(1),
+    precision: z.number().min(0).max(1),
+    relevantTokenRatio: z.number().min(0).max(1),
+    firstAttemptSucceeded: z.boolean(),
+    explicitLinkResolutionRate: z.number().min(0).max(1),
+    stableErrorClassificationRate: z.number().min(0).max(1),
+    omissionCount: safeCount,
+    outputTokens: safeCount,
+    toolTokens: safeCount,
+  }).strict(),
 }).strict().superRefine((observation, context) => {
   const documentIds = observation.selectedDocuments.map(document => document.documentId);
   if (new Set(documentIds).size !== documentIds.length) context.addIssue({ code: "custom", path: ["selectedDocuments"], message: "Selected document ids must be unique." });
@@ -156,6 +181,38 @@ const businessRunObservationReceiptSchema = businessVariantObservationSchema.ext
   repeatIndex: z.number().int().nonnegative(),
   blindLabel: z.string().regex(/^blind-[a-f0-9]{16}$/),
   observationDigest: digest,
+}).strict();
+
+const gateStatusSchema = z.enum(["pass", "fail", "baseline", "not_evaluable"]);
+const businessVariantAggregateSchema = z.object({
+  variant: variantSchema,
+  runCount: z.number().int().positive(),
+  medianInputTokens: z.number().nonnegative(),
+  medianMandatoryRecall: z.number().min(0).max(1),
+  medianPrecision: z.number().min(0).max(1),
+  medianRelevantTokenRatio: z.number().min(0).max(1),
+  taskSuccessRate: z.number().min(0).max(1),
+  firstAttemptSuccessRate: z.number().min(0).max(1),
+  deterministicBundleRate: z.number().min(0).max(1),
+  stableErrorClassificationRate: z.number().min(0).max(1),
+  explicitLinkResolutionRate: z.number().min(0).max(1),
+  unauthorizedDisclosureCount: safeCount,
+  totalCostMicrounits: safeCount,
+  costPerSuccessfulTaskMicrounits: z.number().nonnegative().nullable(),
+  medianOmissionCount: z.number().nonnegative(),
+  latencyMs: z.object({ p50: z.number().nonnegative(), p95: z.number().nonnegative(), p99: z.number().nonnegative() }).strict(),
+  comparisonToV0: z.object({
+    taskSuccessRateDegradation: z.number(),
+    tokenReduction: z.number(),
+    costPerSuccessfulTaskReduction: z.number().nullable(),
+  }).strict(),
+  gates: z.object({
+    correctness: gateStatusSchema,
+    quality: gateStatusSchema,
+    fallbackFlexibility: gateStatusSchema,
+    efficiency: gateStatusSchema,
+    overall: z.enum(["pass", "fail", "baseline"]),
+  }).strict(),
 }).strict();
 
 export const businessEvaluationReceiptSchema = z.object({
@@ -181,6 +238,7 @@ export const businessEvaluationReceiptSchema = z.object({
   ]),
   baselineVariant: z.literal("V0"),
   runs: z.array(businessRunObservationReceiptSchema).min(1),
+  variantAggregates: z.array(businessVariantAggregateSchema).length(6),
   aggregateDigest: digest,
   createdAt: z.string().datetime(),
 }).strict();
@@ -231,6 +289,17 @@ function deepFreeze<T>(value: T): T {
     for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
   }
   return value;
+}
+
+function percentile(values: readonly number[], fraction: number): number {
+  const ordered = [...values].sort((left, right) => left - right);
+  return ordered[Math.min(ordered.length - 1, Math.max(0, Math.ceil(ordered.length * fraction) - 1))]!;
+}
+
+function median(values: readonly number[]): number {
+  const ordered = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(ordered.length / 2);
+  return ordered.length % 2 === 0 ? (ordered[middle - 1]! + ordered[middle]!) / 2 : ordered[middle]!;
 }
 
 export class InMemoryBusinessEvaluationCatalog implements BusinessEvaluationCatalog {
@@ -363,6 +432,7 @@ export class ContextBusinessEvalRunner {
       variants: contextBusinessVariants,
       baselineVariant: "V0" as const,
       runs,
+      variantAggregates: this.#aggregate(runs, input),
     };
     const receipt = businessEvaluationReceiptSchema.parse({
       ...receiptWithoutDigest,
@@ -370,5 +440,81 @@ export class ContextBusinessEvalRunner {
       createdAt: new Date(this.#clock()).toISOString(),
     });
     return this.#catalog.recordBusinessEvaluation(deepFreeze(receipt));
+  }
+
+  #aggregate(runs: readonly z.infer<typeof businessRunObservationReceiptSchema>[], input: BusinessEvaluationInput) {
+    const preliminary = contextBusinessVariants.map(variant => {
+      const selected = runs.filter(run => run.variant === variant);
+      const successful = selected.filter(run => run.taskSucceeded).length;
+      const totalCostMicrounits = selected.reduce((sum, run) => sum + run.totalCostMicrounits, 0);
+      const scenarioGroups = new Map<string, string[]>();
+      for (const run of selected) {
+        const group = scenarioGroups.get(run.scenarioId) ?? [];
+        group.push(run.resultDigest);
+        scenarioGroups.set(run.scenarioId, group);
+      }
+      const deterministicBundleRate = [...scenarioGroups.values()].filter(digests => new Set(digests).size === 1).length / scenarioGroups.size;
+      return {
+        variant,
+        runCount: selected.length,
+        medianInputTokens: median(selected.map(run => run.totalInputTokens)),
+        medianMandatoryRecall: median(selected.map(run => run.rawMetrics.mandatoryRecall)),
+        medianPrecision: median(selected.map(run => run.rawMetrics.precision)),
+        medianRelevantTokenRatio: median(selected.map(run => run.rawMetrics.relevantTokenRatio)),
+        taskSuccessRate: successful / selected.length,
+        firstAttemptSuccessRate: selected.filter(run => run.rawMetrics.firstAttemptSucceeded).length / selected.length,
+        deterministicBundleRate,
+        stableErrorClassificationRate: median(selected.map(run => run.rawMetrics.stableErrorClassificationRate)),
+        explicitLinkResolutionRate: median(selected.map(run => run.rawMetrics.explicitLinkResolutionRate)),
+        unauthorizedDisclosureCount: selected.reduce((sum, run) => sum + run.unauthorizedDisclosureCount, 0),
+        totalCostMicrounits,
+        costPerSuccessfulTaskMicrounits: successful === 0 ? null : totalCostMicrounits / successful,
+        medianOmissionCount: median(selected.map(run => run.rawMetrics.omissionCount)),
+        latencyMs: {
+          p50: percentile(selected.map(run => run.latencyMs.total), 0.5),
+          p95: percentile(selected.map(run => run.latencyMs.total), 0.95),
+          p99: percentile(selected.map(run => run.latencyMs.total), 0.99),
+        },
+      };
+    });
+    const baseline = preliminary.find(aggregate => aggregate.variant === "V0")!;
+    return preliminary.map(aggregate => {
+      const costReduction = aggregate.costPerSuccessfulTaskMicrounits === null || baseline.costPerSuccessfulTaskMicrounits === null || baseline.costPerSuccessfulTaskMicrounits === 0
+        ? null
+        : 1 - aggregate.costPerSuccessfulTaskMicrounits / baseline.costPerSuccessfulTaskMicrounits;
+      const comparisonToV0 = {
+        taskSuccessRateDegradation: baseline.taskSuccessRate - aggregate.taskSuccessRate,
+        tokenReduction: baseline.medianInputTokens === 0 ? 0 : 1 - aggregate.medianInputTokens / baseline.medianInputTokens,
+        costPerSuccessfulTaskReduction: costReduction,
+      };
+      const correctness = aggregate.medianMandatoryRecall >= input.gatePolicy.mandatoryRecallMin &&
+        aggregate.deterministicBundleRate >= input.gatePolicy.deterministicBundleRateMin &&
+        aggregate.stableErrorClassificationRate >= input.gatePolicy.stableErrorClassificationRateMin &&
+        aggregate.unauthorizedDisclosureCount <= input.gatePolicy.unauthorizedLeakageMax;
+      const quality = aggregate.medianPrecision >= input.gatePolicy.precisionMin &&
+        aggregate.medianRelevantTokenRatio >= input.gatePolicy.relevantTokenRatioMin &&
+        comparisonToV0.taskSuccessRateDegradation <= input.gatePolicy.taskSuccessRateMaxDegradationVsV0;
+      const fallbackFlexibility = runs.filter(run => run.variant === aggregate.variant).every(run =>
+        input.gatePolicy.requiredFallbackModes.every(mode => run.fallback.availableModes.includes(mode)),
+      );
+      const isDiagnosticComparator = aggregate.variant === "V1" || aggregate.variant === "V2";
+      const efficiency = aggregate.variant === "V0"
+        ? "baseline" as const
+        : isDiagnosticComparator
+          ? "not_evaluable" as const
+          : !correctness || !quality || !fallbackFlexibility
+          ? "not_evaluable" as const
+          : comparisonToV0.tokenReduction >= input.gatePolicy.tokenReductionMin &&
+              costReduction !== null && costReduction >= input.gatePolicy.costPerSuccessfulTaskReductionMin
+            ? "pass" as const
+            : "fail" as const;
+      return businessVariantAggregateSchema.parse({
+        ...aggregate,
+        comparisonToV0,
+        gates: aggregate.variant === "V0"
+          ? { correctness: correctness ? "pass" : "fail", quality: quality ? "pass" : "fail", fallbackFlexibility: fallbackFlexibility ? "pass" : "fail", efficiency, overall: correctness && quality && fallbackFlexibility ? "baseline" : "fail" }
+          : { correctness: correctness ? "pass" : "fail", quality: quality ? "pass" : "fail", fallbackFlexibility: fallbackFlexibility ? "pass" : "fail", efficiency, overall: correctness && quality && fallbackFlexibility && (isDiagnosticComparator || efficiency === "pass") ? "pass" : "fail" },
+      });
+    });
   }
 }

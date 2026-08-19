@@ -50,6 +50,17 @@ const fixtures = businessFixtureCatalogSchema.parse({
   synthetic: scenarios.map((scenario, index) => ({ id: scenario.fixture, scopes: index + 1, files: 10, documents: 2, skills: 0 })),
   adversarial: [],
 });
+const rawMetrics = {
+  mandatoryRecall: 1,
+  precision: 1,
+  relevantTokenRatio: 1,
+  firstAttemptSucceeded: true,
+  explicitLinkResolutionRate: 1,
+  stableErrorClassificationRate: 1,
+  omissionCount: 0,
+  outputTokens: 10,
+  toolTokens: 5,
+};
 
 function input(policyDigest = sha("4")) {
   return {
@@ -68,9 +79,23 @@ function input(policyDigest = sha("4")) {
       projectionPolicyVersion: "document-projection/v1",
       budgetProfileDigest: sha("8"),
       baselineIdentityDigest: sha("5"),
+      executionEnvironmentDigest: sha("b"),
+      measurementWindowDigest: sha("c"),
       modelIdentityDigest: null,
       judgeRubricDigest: null,
       judgeIdentityClass: null,
+    },
+    gatePolicy: {
+      mandatoryRecallMin: 1,
+      precisionMin: 0.8,
+      relevantTokenRatioMin: 0.7,
+      taskSuccessRateMaxDegradationVsV0: 0.02,
+      deterministicBundleRateMin: 1,
+      stableErrorClassificationRateMin: 1,
+      unauthorizedLeakageMax: 0,
+      tokenReductionMin: 0.25,
+      costPerSuccessfulTaskReductionMin: 0.2,
+      requiredFallbackModes: ["direct-search", "explicit-documents", "bounded-resource-read"] as const,
     },
   };
 }
@@ -88,7 +113,7 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
         selectedDocuments: [{ documentId: `gold-${request.scenario.id}`, tokenEstimate: 100 + index }],
         retrievedClaimIds: [`claim-${request.scenario.id}`],
         totalInputTokens: 100 + index,
-        taskSucceeded: true,
+        taskSucceeded: request.variant !== "V5",
         totalCostMicrounits: 100 + index,
         unauthorizedDisclosureCount: 0,
         errorCode: null,
@@ -99,6 +124,7 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
             : { state: "bypass", policyVersion: "variant-no-cache/v1" },
         latencyMs: { total: 10 + index },
         fallback: { availableModes: ["direct-search", "explicit-documents", "bounded-resource-read"] },
+        rawMetrics: request.variant === "V5" ? { ...rawMetrics, mandatoryRecall: 0, firstAttemptSucceeded: false } : rawMetrics,
       };
     });
 
@@ -118,6 +144,14 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
     expect(Object.isFrozen(receipt)).toBe(true);
     expect(businessEvaluationReceiptSchema.parse(receipt)).toEqual(receipt);
     expect(JSON.stringify(receipt)).not.toContain("documentBody");
+    expect(receipt.variantAggregates).toHaveLength(6);
+    expect(receipt.variantAggregates.find(aggregate => aggregate.variant === "V0")?.gates.overall).toBe("baseline");
+    expect(receipt.variantAggregates.find(aggregate => aggregate.variant === "V3")?.gates.efficiency).toBe("fail");
+    expect(receipt.variantAggregates.find(aggregate => aggregate.variant === "V5")?.gates).toEqual(expect.objectContaining({
+      correctness: "fail",
+      efficiency: "not_evaluable",
+      overall: "fail",
+    }));
 
     const repeated = await runner.run(dataset, fixtures, input());
     expect(repeated).toEqual(receipt);
@@ -134,6 +168,7 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
       resultDigest: sha("1"), selectorTraceDigest: sha("a"), selectedDocuments: [], retrievedClaimIds: [], totalInputTokens: 0, taskSucceeded: false,
       totalCostMicrounits: 0, unauthorizedDisclosureCount: 0, errorCode: null,
       cache: { state: "bypass", policyVersion: "none/v1" }, latencyMs: { total: 1 }, fallback: { availableModes: [] },
+      rawMetrics,
     }));
     await expect(runner.run(missingFixtureDataset, fixtures, input())).rejects.toThrow("unknown fixture");
 
@@ -141,6 +176,7 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
       resultDigest: sha("1"), selectorTraceDigest: sha("a"), selectedDocuments: [], retrievedClaimIds: [], totalInputTokens: 0, taskSucceeded: false,
       totalCostMicrounits: 0, unauthorizedDisclosureCount: 0, errorCode: null, documentBody: "SHOULD_NOT_PERSIST",
       cache: { state: "bypass", policyVersion: "none/v1" }, latencyMs: { total: 1 }, fallback: { availableModes: [] },
+      rawMetrics,
     }));
     await expect(leaking.run(dataset, fixtures, { ...input(), repetitions: 1 })).rejects.toThrow("Unrecognized key");
   });
@@ -158,6 +194,7 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
         resultDigest: sha("1"), selectorTraceDigest: sha("a"), selectedDocuments: [], retrievedClaimIds: [], totalInputTokens: 0,
         taskSucceeded: false, totalCostMicrounits: 0, unauthorizedDisclosureCount: 0, errorCode: "CANCELLED",
         cache: { state: "bypass", policyVersion: "none/v1" }, latencyMs: { total: 1 }, fallback: { availableModes: [] },
+        rawMetrics,
       };
     });
     await expect(runner.run(dataset, fixtures, { ...input(), repetitions: 1 }, controller.signal)).rejects.toThrow("cancelled");
@@ -179,6 +216,7 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
             ? { state: "hit" as const, policyVersion: "context-build-cache/v1" }
             : { state: "bypass" as const, policyVersion: "none/v1" },
         latencyMs: { total: 1 }, fallback: { availableModes: [] },
+        rawMetrics,
       };
     };
     try {
@@ -211,6 +249,7 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
             ? { state: "hit", policyVersion: "context-build-cache/v1" }
             : { state: "bypass", policyVersion: "none/v1" },
         latencyMs: { total: 1 }, fallback: { availableModes: [] },
+        rawMetrics,
       }));
       const handler = createAbcmRestHandler({
         files: new WorkspaceFileService(registry),
