@@ -109,6 +109,12 @@ describe("manifest-driven V0-V5 business evaluation runner", () => {
     expect(new Set(receipt.runs.map(run => `${run.scenarioId}:${run.variant}:${run.repeatIndex}`)).size).toBe(receipt.runs.length);
     expect(receipt.runs.filter(run => run.variant === "V3").every(run => run.cache.state === "miss")).toBe(true);
     expect(receipt.runs.filter(run => run.variant === "V4").every(run => run.cache.state === "hit")).toBe(true);
+    for (const scenario of scenarios) {
+      for (let repeatIndex = 0; repeatIndex < 2; repeatIndex++) {
+        const cold = calls.indexOf(`${scenario.id}:V3:${repeatIndex}`);
+        expect(calls[cold + 1]).toBe(`${scenario.id}:V4:${repeatIndex}`);
+      }
+    }
     expect(Object.isFrozen(receipt)).toBe(true);
     expect(businessEvaluationReceiptSchema.parse(receipt)).toEqual(receipt);
     expect(JSON.stringify(receipt)).not.toContain("documentBody");

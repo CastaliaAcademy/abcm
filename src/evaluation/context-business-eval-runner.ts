@@ -305,11 +305,12 @@ export class ContextBusinessEvalRunner {
     const runs: z.infer<typeof businessRunObservationReceiptSchema>[] = [];
     for (const scenario of dataset.scenarios) {
       for (let repeatIndex = 0; repeatIndex < input.repetitions; repeatIndex++) {
-        const orderedVariants = [...contextBusinessVariants].sort((left, right) =>
-          sha({ seed: input.blindSeedDigest, scenarioId: scenario.id, repeatIndex, variant: left }).localeCompare(
-            sha({ seed: input.blindSeedDigest, scenarioId: scenario.id, repeatIndex, variant: right }),
+        const executionBlocks: readonly (BusinessVariant | readonly ["V3", "V4"])[] = ["V0", "V1", "V2", ["V3", "V4"], "V5"];
+        const orderedVariants = [...executionBlocks].sort((left, right) =>
+          sha({ seed: input.blindSeedDigest, scenarioId: scenario.id, repeatIndex, block: left }).localeCompare(
+            sha({ seed: input.blindSeedDigest, scenarioId: scenario.id, repeatIndex, block: right }),
           ));
-        for (const variant of orderedVariants) {
+        for (const variant of orderedVariants.flatMap(block => typeof block === "string" ? [block] : block)) {
           signal?.throwIfAborted();
           const blindLabel = `blind-${sha({ seed: input.blindSeedDigest, scenarioId: scenario.id, repeatIndex, variant }).slice(-16)}`;
           const observation = businessVariantObservationSchema.parse(await this.#executor({
