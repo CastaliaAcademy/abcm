@@ -4,6 +4,7 @@ import { createAbcmRuntime } from "../app/create-runtime.js";
 import { installGracefulShutdown } from "./graceful-shutdown.js";
 import { parseDocumentationSources } from "../documentation/config.js";
 import { parseContextPrincipalEnvironment } from "../domain-language/context-principal-config.js";
+import { loadBusinessEvaluationProfiles } from "../evaluation/context-business-eval-config.js";
 import { parseScopeMapReconcileEnvironment } from "../scope-map/reconcile-config.js";
 import { parseRestLimitEnvironment } from "../rest/config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
@@ -17,6 +18,14 @@ const mcpHttpEnabled = process.env.ABCM_MCP_ENABLED !== "false";
 const mcpEndpointPath = process.env.ABCM_MCP_PATH ?? "/mcp";
 const mcpOperationTimeoutMs = optionalPositiveInteger("ABCM_MCP_OPERATION_TIMEOUT_MS");
 const workspaceStoreRoot = process.env.ABCM_WORKSPACE_STORE_ROOT;
+const fileOperationStateRoot = process.env.ABCM_FILE_OPERATION_STATE_ROOT;
+const fileUploadMaxBytes = optionalPositiveInteger("ABCM_FILE_UPLOAD_MAX_BYTES");
+const fileUploadChunkBytes = optionalPositiveInteger("ABCM_FILE_UPLOAD_CHUNK_BYTES");
+const fileUploadTtlMs = optionalPositiveInteger("ABCM_FILE_UPLOAD_TTL_MS");
+const fileBatchMaxBytes = optionalPositiveInteger("ABCM_FILE_BATCH_MAX_BYTES");
+const obsidianSyncStateRoot = process.env.ABCM_OBSIDIAN_SYNC_STATE_ROOT;
+const obsidianSyncPreviewTtlSeconds = optionalPositiveInteger("ABCM_OBSIDIAN_SYNC_PREVIEW_TTL_SECONDS");
+const obsidianSyncCredentialTtlSeconds = optionalPositiveInteger("ABCM_OBSIDIAN_SYNC_CREDENTIAL_TTL_SECONDS");
 const sqliteDerivedStoreEnabled = process.env.ABCM_DERIVED_STORE_ENABLED === "true";
 const scanLeaseTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_TTL_MS");
 const scanLeaseRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_RENEWAL_INTERVAL_MS");
@@ -26,6 +35,9 @@ const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENT
 const scopeMapReconcile = parseScopeMapReconcileEnvironment(process.env);
 const restLimits = parseRestLimitEnvironment(process.env);
 const contextPrincipal = parseContextPrincipalEnvironment(process.env, "static-bearer");
+const businessEvaluationProfiles = await loadBusinessEvaluationProfiles(process.env.ABCM_BUSINESS_EVALUATION_PROFILES);
+const businessEvaluationWorkerToken = process.env.ABCM_BUSINESS_EVALUATION_WORKER_TOKEN;
+const businessEvaluationTaskStateRoot = process.env.ABCM_BUSINESS_EVALUATION_TASK_STATE_ROOT;
 
 function commaSeparated(value: string | undefined): string[] | undefined {
   if (value === undefined) return undefined;
@@ -70,7 +82,26 @@ const runtime = createAbcmRuntime(
     ...(allowedHostnames === undefined ? {} : { mcpAllowedHostnames: allowedHostnames }),
     ...(allowedOrigins === undefined ? {} : { mcpAllowedOrigins: allowedOrigins }),
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
+    ...(fileOperationStateRoot === undefined ? {} : {
+      fileOperations: {
+        stateRoot: resolve(fileOperationStateRoot),
+        ...(fileUploadMaxBytes === undefined ? {} : { maxUploadBytes: fileUploadMaxBytes }),
+        ...(fileUploadChunkBytes === undefined ? {} : { maxChunkBytes: fileUploadChunkBytes }),
+        ...(fileUploadTtlMs === undefined ? {} : { uploadTtlMs: fileUploadTtlMs }),
+        ...(fileBatchMaxBytes === undefined ? {} : { maxBatchBytes: fileBatchMaxBytes }),
+      },
+    }),
+    ...(obsidianSyncStateRoot === undefined ? {} : {
+      obsidianSync: {
+        stateRoot: resolve(obsidianSyncStateRoot),
+        ...(obsidianSyncPreviewTtlSeconds === undefined ? {} : { previewTtlSeconds: obsidianSyncPreviewTtlSeconds }),
+        ...(obsidianSyncCredentialTtlSeconds === undefined ? {} : { credentialTtlSeconds: obsidianSyncCredentialTtlSeconds }),
+      },
+    }),
     sqliteDerivedStoreEnabled,
+    ...(businessEvaluationProfiles === undefined ? {} : { businessEvaluationProfiles }),
+    ...(businessEvaluationWorkerToken === undefined ? {} : { businessEvaluationWorkerToken }),
+    ...(businessEvaluationTaskStateRoot === undefined ? {} : { businessEvaluationTaskStateRoot: resolve(businessEvaluationTaskStateRoot) }),
     ...(documentationSources === undefined ? {} : { documentationSources }),
     scopeMapReconcile: {
       ...scopeMapReconcile,
@@ -93,6 +124,7 @@ const runtime = createAbcmRuntime(
         }),
   },
 );
+await runtime.ready;
 await runtime.scopeMap.scan(workspaceId);
 
 const server = Bun.serve({ hostname, port, fetch: runtime.httpHandler });

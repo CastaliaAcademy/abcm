@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import type { ContextBuildCacheCatalog, ContextBuildCacheEntry, ContextBuildCacheIdentity } from "../context/context-build-cache.js";
 import type {
   ContextBundleCatalogRecord,
   ContextFingerprint,
@@ -17,11 +18,14 @@ import type {
   TombstoneRecord,
 } from "../documentation/types.js";
 import type { MapRevision } from "../scope-map/types.js";
+import type { ContextOutcomeCatalog, ContextOutcomeReceipt, ContextOutcomeSubmission } from "../evaluation/context-outcome-receipt.js";
+import type { ContextFeedbackCatalog, ContextFeedbackProposal, ContextFeedbackProposalInput } from "../evaluation/context-feedback.js";
+import type { BusinessEvaluationCatalog, BusinessEvaluationReceipt } from "../evaluation/context-business-eval-runner.js";
 import type { WorkspaceRegistry } from "../workspace/registry.js";
 import { SqliteScopeMapStore } from "./sqlite-scope-map-store.js";
 import type { ScanLeaseHandle, ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "./types.js";
 
-export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStateStore, ContextFingerprintCatalog {
+export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStateStore, ContextFingerprintCatalog, ContextOutcomeCatalog, ContextBuildCacheCatalog, ContextFeedbackCatalog, BusinessEvaluationCatalog {
   readonly scanLeaseRenewalIntervalMs: number;
   readonly #registry: WorkspaceRegistry;
   readonly #options: SqliteWorkspaceMapStoreOptions;
@@ -95,6 +99,51 @@ export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStat
   listContextBundles(workspaceId: string): ContextBundleCatalogRecord[] {
     this.#assertHealthy();
     return this.#store(workspaceId).listContextBundles(workspaceId);
+  }
+
+  recordContextOutcome(input: ContextOutcomeSubmission): ContextOutcomeReceipt {
+    this.#assertHealthy();
+    return this.#store(input.workspaceId).recordContextOutcome(input);
+  }
+
+  listContextOutcomes(workspaceId: string, fingerprintId: string): ContextOutcomeReceipt[] {
+    this.#assertHealthy();
+    return this.#store(workspaceId).listContextOutcomes(workspaceId, fingerprintId);
+  }
+
+  lookupContextBuildCache(identity: ContextBuildCacheIdentity): { state: "hit"; entry: ContextBuildCacheEntry } | { state: "miss" | "stale" } {
+    this.#assertHealthy();
+    return this.#store(identity.workspaceId).lookupContextBuildCache(identity);
+  }
+
+  putContextBuildCache(entry: ContextBuildCacheEntry): void {
+    this.#assertHealthy();
+    this.#store(entry.identity.workspaceId).putContextBuildCache(entry);
+  }
+
+  recordContextFeedback(input: ContextFeedbackProposalInput): ContextFeedbackProposal {
+    this.#assertHealthy();
+    return this.#store(input.workspaceId).recordContextFeedback(input);
+  }
+
+  listContextFeedback(workspaceId: string, fingerprintId: string): ContextFeedbackProposal[] {
+    this.#assertHealthy();
+    return this.#store(workspaceId).listContextFeedback(workspaceId, fingerprintId);
+  }
+
+  getBusinessEvaluation(workspaceId: string, runId: string): BusinessEvaluationReceipt | undefined {
+    this.#assertHealthy();
+    return this.#store(workspaceId).getBusinessEvaluation(workspaceId, runId);
+  }
+
+  recordBusinessEvaluation(receipt: BusinessEvaluationReceipt): BusinessEvaluationReceipt {
+    this.#assertHealthy();
+    return this.#store(receipt.workspaceId).recordBusinessEvaluation(receipt);
+  }
+
+  listBusinessEvaluations(workspaceId: string, datasetId: string): BusinessEvaluationReceipt[] {
+    this.#assertHealthy();
+    return this.#store(workspaceId).listBusinessEvaluations(workspaceId, datasetId);
   }
 
   resolveDocumentStorage(workspaceId: string, targetPath: string): DocumentStorageResolution {

@@ -1,0 +1,41 @@
+schemaVersion: abcm.eval.context-efficiency/v1
+id: synthetic-context-efficiency-v1
+language: ru
+priorityOrder:
+  - task_relevance
+  - fallback_flexibility
+  - determinism
+  - workspace_isolation
+  - context_efficiency
+variants:
+  direct:
+    mode: direct-search
+  abcmAutomatic:
+    mode: context-bundle
+  abcmGuided:
+    mode: context-bundle-with-fallback
+gates:
+  taskRelevance:
+    mandatoryRecallVsDirect: gte
+    precisionVsDirect: gte
+    taskSuccessRateMaxDegradation: 0.02
+  fallbackFlexibility:
+    requiredModes: [direct-search, explicit-documents, bounded-resource-read]
+    preservePrimaryFailure: true
+  determinism:
+    identicalResultRate: 1
+  workspaceIsolation:
+    unauthorizedDisclosureMax: 0
+  contextEfficiency:
+    medianTokenReductionMin: 0.25
+    costPerSuccessfulTaskReductionMin: 0.20
+    evaluateOnlySuccessfulTasks: true
+scenarios:
+  - id: synthetic-relevance
+    goldDocumentIds: [gold-a, gold-b, gold-c, gold-d]
+    mandatoryDocumentIds: [gold-a, gold-b, gold-c, gold-d]
+    goldClaimIds: [claim-a, claim-b]
+  - id: synthetic-hidden-sibling
+    goldDocumentIds: [gold-a]
+    mandatoryDocumentIds: [gold-a]
+    hiddenDocumentIds: [hidden-a]

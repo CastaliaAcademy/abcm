@@ -1,0 +1,47 @@
+name: abcm-context-efficiency-benchmark
+
+services:
+  benchmark:
+    image: abcm-mcp-server:benchmark
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      ABCM_API_TOKEN: benchmark-token-123456789
+      ABCM_HOST: 0.0.0.0
+      ABCM_PORT: 8787
+      ABCM_WORKSPACE_ID: benchmark
+      ABCM_WORKSPACE_ROOT: /workspace
+      ABCM_MCP_ENABLED: "true"
+      ABCM_MCP_PATH: /mcp
+      ABCM_MCP_ALLOWED_HOSTNAMES: localhost,127.0.0.1,[::1]
+      ABCM_MCP_ALLOWED_ORIGINS: localhost,127.0.0.1,[::1]
+      ABCM_MCP_OPERATION_TIMEOUT_MS: 300000
+      ABCM_DERIVED_STORE_ENABLED: "true"
+      ABCM_BUSINESS_EVALUATION_PROFILES: /config/server-owned-profile.yaml
+    ports:
+      - "127.0.0.1:8791:8787"
+    volumes:
+      - type: bind
+        source: ../benchmarks/fixtures/context-efficiency-v1/workspace
+        target: /workspace
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../benchmarks/fixtures/context-efficiency-v1/server-owned-profile.yaml
+        target: /config/server-owned-profile.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test: [CMD, bun, -e, "const r=await fetch('http://127.0.0.1:8787/health');if(!r.ok)process.exit(1)"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+      start_period: 2s

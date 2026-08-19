@@ -1,12 +1,39 @@
 export { createAbcmRuntime } from "./app/create-runtime.js";
 export {
+  ARCHITECTURE_POLICY_FILE,
+  BUILTIN_FILE_ARCHITECTURE,
+  ArchitecturePolicyService,
+  architectureComplianceSchema,
+  architecturePolicyDocumentSchema,
+  architecturePolicyInputSchema,
+  architecturePolicyRecordSchema,
+  architecturePolicyResolutionSchema,
+  architecturePolicyTargetSchema,
+} from "./architecture/architecture-policy-service.js";
+export type {
+  ArchitectureCompliance,
+  ArchitecturePolicyInput,
+  ArchitecturePolicyRecord,
+  ArchitecturePolicyResolution,
+  ArchitecturePolicyTarget,
+  ArchitectureViolation,
+} from "./architecture/architecture-policy-service.js";
+export {
   ABCM_AGENT_INSTRUCTIONS,
   ABCM_AGENT_INSTRUCTIONS_CHECKSUM,
   ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE,
   ABCM_AGENT_INSTRUCTIONS_VERSION,
   getAbcmAgentInstructions,
 } from "./agent-instructions/agent-instructions.js";
-export { ContextBuilder } from "./context/context-builder.js";
+export { CONTEXT_SELECTION_POLICY_VERSION, ContextBuilder } from "./context/context-builder.js";
+export {
+  CONTEXT_BUILD_CACHE_POLICY_VERSION,
+  DOCUMENT_PROJECTION_POLICY_VERSION,
+  MemoryContextBuildCacheCatalog,
+  contextBuildCacheMetadata,
+  createContextBuildCacheIdentity,
+} from "./context/context-build-cache.js";
+export type { ContextBuildCacheCatalog, ContextBuildCacheEntry, ContextBuildCacheIdentity } from "./context/context-build-cache.js";
 export { DirectoryContextFingerprintStore } from "./context/directory-context-fingerprint-store.js";
 export { emitAudit, emitMetric, InMemoryAbcmObservability, observeOperation } from "./core/observability.js";
 export type {
@@ -22,16 +49,20 @@ export { buildTaskContextSchema, normalizeBuildTaskContextInput } from "./contex
 export type {
   BuildTaskContextRequest,
   ContextBundleCatalogRecord,
+  ContextBudgetAllocation,
   ContextBudgetProfile,
   ContextBuilderOptions,
+  ContextBuildCacheMetadata,
   ContextBundle,
   ContextExecutionBinding,
+  ExplicitDocumentReference,
   ContextFingerprint,
   ContextFingerprintCatalog,
   ContextFingerprintCatalogRecord,
   ContextFingerprintDocument,
   ContextFingerprintStore,
   ContextOmission,
+  ContextSelectionPreview,
   DocumentProjectionMode,
   MaterializedDocumentProjection,
   SelectedContextDocument,
@@ -40,6 +71,93 @@ export type {
 export type { AbcmRuntimeOptions } from "./app/create-runtime.js";
 export { SqliteScopeMapStore } from "./derived-store/sqlite-scope-map-store.js";
 export { SqliteWorkspaceMapStore } from "./derived-store/sqlite-workspace-map-store.js";
+export {
+  contextEfficiencyManifestSchema,
+  contextEfficiencyPriorityOrder,
+  retrievalRunReceiptSchema,
+} from "./evaluation/context-efficiency-contracts.js";
+export type {
+  ContextEfficiencyFallbackMode,
+  ContextEfficiencyManifest,
+  RetrievalRunReceipt,
+} from "./evaluation/context-efficiency-contracts.js";
+export { evaluateContextEfficiency } from "./evaluation/context-efficiency-evaluator.js";
+export type { ContextEfficiencyReport, ContextEfficiencyVariantResult } from "./evaluation/context-efficiency-evaluator.js";
+export {
+  contextOutcomeDigest,
+  contextOutcomeReceiptSchema,
+  contextOutcomeSubmissionSchema,
+  createContextOutcomeReceipt,
+} from "./evaluation/context-outcome-receipt.js";
+export { ContextOutcomeService } from "./evaluation/context-outcome-service.js";
+export type {
+  ContextOutcomeCatalog,
+  ContextOutcomeReceipt,
+  ContextOutcomeSubmission,
+} from "./evaluation/context-outcome-receipt.js";
+export {
+  contextFeedbackProposalSchema,
+  contextFeedbackSubmissionSchema,
+  createContextFeedbackProposal,
+} from "./evaluation/context-feedback.js";
+export { ContextFeedbackService } from "./evaluation/context-feedback-service.js";
+export type {
+  ContextFeedbackCatalog,
+  ContextFeedbackProposal,
+  ContextFeedbackProposalInput,
+  ContextFeedbackSubmission,
+} from "./evaluation/context-feedback.js";
+export { runDirectSearchBaseline } from "./evaluation/direct-search-baseline.js";
+export type { DirectSearchBaselineRequest, DirectSearchBaselineResult } from "./evaluation/direct-search-baseline.js";
+export {
+  ContextBusinessEvalRunner,
+  InMemoryBusinessEvaluationCatalog,
+  businessEvaluationInputSchema,
+  businessEvaluationListRequestSchema,
+  businessEvaluationReceiptSchema,
+  businessEvaluationRunRequestSchema,
+  businessFixtureCatalogSchema,
+  businessScenarioDatasetSchema,
+  businessVariantObservationSchema,
+  contextBusinessVariants,
+} from "./evaluation/context-business-eval-runner.js";
+export {
+  BusinessEvaluationProfileRegistry,
+  ServerOwnedBusinessEvaluationService,
+  businessEvaluationExecutionProfileSchema,
+  businessEvaluationProfileSummarySchema,
+  serverOwnedBusinessEvaluationRunRequestSchema,
+} from "./evaluation/context-business-eval-profile.js";
+export { loadBusinessEvaluationProfiles } from "./evaluation/context-business-eval-config.js";
+export {
+  TaskSuccessWorkerCoordinator,
+  DirectoryTaskSuccessStateStore,
+  taskSuccessClaimRequestSchema,
+  taskSuccessClaimResultSchema,
+  taskSuccessSessionSchema,
+  taskSuccessStartRequestSchema,
+  taskSuccessSubmitRequestSchema,
+} from "./evaluation/task-success-worker.js";
+export type { TaskSuccessEvaluationBackend, TaskSuccessSession } from "./evaluation/task-success-worker.js";
+export type {
+  BusinessEvaluationExecutionProfile,
+  BusinessEvaluationApi,
+  BusinessEvaluationProfileSummary,
+  ServerOwnedBusinessEvaluationRunRequest,
+  ServerOwnedBusinessEvaluationServiceDependencies,
+} from "./evaluation/context-business-eval-profile.js";
+export type {
+  BusinessEvaluationCatalog,
+  BusinessEvaluationInput,
+  BusinessEvaluationReceipt,
+  BusinessEvaluationRunRequest,
+  BusinessFixtureCatalog,
+  BusinessScenarioDataset,
+  BusinessVariant,
+  BusinessVariantExecutionRequest,
+  BusinessVariantExecutor,
+  BusinessVariantObservation,
+} from "./evaluation/context-business-eval-runner.js";
 export type {
   RuntimeOwnerHandle,
   ScanLeaseHandle,
@@ -55,7 +173,7 @@ export {
   ABCM_SPEC_VERSION,
 } from "./core/server-info.js";
 export { DomainLanguageService } from "./domain-language/domain-language-service.js";
-export { ScopePathResolver } from "./domain-language/scope-path-resolver.js";
+export { DEFAULT_MULTI_SCOPE_CONTEXT_POLICY, ScopePathResolver } from "./domain-language/scope-path-resolver.js";
 export { SkillConnectionResolver } from "./skills/skill-connection-resolver.js";
 export type {
   ConnectedSkillRecord,
@@ -68,6 +186,8 @@ export type {
 export type { DomainLanguageServiceOptions } from "./domain-language/domain-language-service.js";
 export { parseContextPrincipalEnvironment } from "./domain-language/context-principal-config.js";
 export type {
+  AffectedScopeDetail,
+  AffectedScopeOrigin,
   ConceptDefinition,
   ContextAnchor,
   ContextPrincipal,
@@ -78,10 +198,12 @@ export type {
   DomainLanguageBootstrapRequest,
   DomainLanguageSource,
   EffectiveDomainLanguage,
+  MultiScopeContextPolicy,
   NormalizedTaskIntent,
   ResolvedScopePath,
   ResolveTaskPathRequest,
   ResolverPass,
+  ScopePathResolverOptions,
   ScopeResolutionEvidence,
 } from "./domain-language/types.js";
 export { parseDocumentationSources } from "./documentation/config.js";
@@ -141,12 +263,26 @@ export type {
   SkillDescriptor,
 } from "./scope-map/types.js";
 export type { ScopeMapServiceOptions } from "./scope-map/scope-map-service.js";
+export * from "./sync/contracts.js";
+export { ObsidianSyncService } from "./sync/obsidian-sync-service.js";
+export type { ObsidianSyncServiceOptions } from "./sync/obsidian-sync-service.js";
+export { SqliteObsidianDeviceStore } from "./sync/sqlite-device-store.js";
+export type { DeviceAuthenticationScope, ObsidianDevicePrincipal, ObsidianProjectScope, SqliteObsidianDeviceStoreOptions } from "./sync/sqlite-device-store.js";
+export { SqliteSyncJournal, syncJournalMutationSchema } from "./sync/sqlite-sync-journal.js";
+export type { SqliteSyncJournalOptions, SyncJournalChanges, SyncJournalMutation, SyncJournalObject, SyncJournalRecordResult, SyncJournalTombstone } from "./sync/sqlite-sync-journal.js";
+export { WorkspaceBatchService } from "./workspace/batch-service.js";
+export type { WorkspaceBatchServiceOptions } from "./workspace/batch-service.js";
+export * from "./workspace/file-operation-contracts.js";
 export { WorkspaceFileService } from "./workspace/file-service.js";
+export { WorkspaceMutationCoordinator } from "./workspace/mutation-coordinator.js";
 export { discoverManagedWorkspaces, WorkspaceProvisioningService } from "./workspace/provisioning-service.js";
 export type { WorkspaceProvisioningDependencies } from "./workspace/provisioning-service.js";
 export { WorkspaceRegistry } from "./workspace/registry.js";
 export { SafeWorkspacePath } from "./workspace/safe-path.js";
+export { WorkspaceUploadService } from "./workspace/upload-service.js";
+export type { CompletedWorkspaceUpload, WorkspaceUploadServiceOptions } from "./workspace/upload-service.js";
 export type {
+  DeleteDirectoryOptions,
   DeletePreconditions,
   FileEntry,
   MoveOptions,

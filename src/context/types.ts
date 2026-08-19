@@ -1,4 +1,4 @@
-import type { ResolvedScopePath } from "../domain-language/types.js";
+import type { AffectedScopeDetail, ResolvedScopePath } from "../domain-language/types.js";
 import type { ConnectedSkillRecord, SkillConnectionReason } from "../skills/types.js";
 
 export type SelectionReason =
@@ -7,6 +7,8 @@ export type SelectionReason =
   | "role_required"
   | "task_type_required"
   | "explicit_link"
+  | "path_exact"
+  | "path_prefix"
   | "skill_required"
   | "target_scope"
   | "related_scope"
@@ -27,6 +29,13 @@ export interface ContextExecutionBinding {
   assignmentId?: string;
 }
 
+export type ExplicitDocumentReference =
+  | { selector: "document-id"; documentId: string; expectedKind?: string | undefined }
+  | { selector: "uri"; uri: string; expectedKind?: string | undefined }
+  | { selector: "repository-file"; path: string; expectedKind?: string | undefined }
+  | { selector: "repository-directory"; path: string; recursive?: boolean | undefined; expectedKind?: string | undefined }
+  | { selector: "repository-prefix"; prefix: string; expectedKind?: string | undefined };
+
 export interface BuildTaskContextRequest {
   domainLanguageBootstrapId: string;
   roleId: string;
@@ -36,12 +45,14 @@ export interface BuildTaskContextRequest {
   canonicalTerms?: readonly string[];
   keywords?: readonly string[];
   targetHints?: readonly string[];
+  exactScopeIds?: readonly string[];
   explicitLinks?: readonly string[];
   artifacts?: readonly string[];
   repositoryPaths?: readonly string[];
   budgetProfile?: string;
   requestedSkillIds?: readonly string[];
   explicitDocumentLinks?: readonly string[];
+  explicitDocuments?: readonly ExplicitDocumentReference[];
   approvalId?: string;
   execution?: ContextExecutionBinding;
 }
@@ -86,6 +97,15 @@ export interface ContextFingerprintDocument {
   tokenEstimate: number;
 }
 
+export interface ContextBudgetAllocation {
+  bucketId: string;
+  requestedTokens: number;
+  reservedTokens: number;
+  consumedTokens: number;
+  selectedTokens: number;
+  omittedTokens: number;
+}
+
 export interface ContextFingerprint {
   fingerprintId: string;
   workspaceId: string;
@@ -101,6 +121,9 @@ export interface ContextFingerprint {
   taskType: string;
   primaryTargetScope: string;
   affectedScopes: readonly string[];
+  affectedScopeDetails: readonly AffectedScopeDetail[];
+  multiScopePolicyDigest: string;
+  budgetAllocation: readonly ContextBudgetAllocation[];
   connectedSkills: readonly {
     skillId: string;
     skillDigest: string;
@@ -128,6 +151,9 @@ export interface ContextBundle {
   budget: ContextBudgetProfile;
   primaryTargetScope: string;
   affectedScopes: readonly string[];
+  affectedScopeDetails: readonly AffectedScopeDetail[];
+  multiScopePolicyDigest: string;
+  budgetAllocation: readonly ContextBudgetAllocation[];
   resolvedScopePath: ResolvedScopePath;
   skillConnectionReasons: Readonly<Record<string, readonly SkillConnectionReason[]>>;
   connectedSkills: readonly ConnectedSkillRecord[];
@@ -138,6 +164,34 @@ export interface ContextBundle {
   omissions: readonly ContextOmission[];
   tokenEstimate: number;
   contextFingerprintLocation: string;
+  cache: ContextBuildCacheMetadata;
+}
+
+export interface ContextBuildCacheMetadata {
+  state: "hit" | "miss" | "stale";
+  policyVersion: "context-build-cache/v1";
+  projectionPolicyVersion: "document-projection/v1";
+  keyDigest: string;
+  workspaceSnapshotDigest: string;
+  principalAccessDigest: string;
+}
+
+export interface ContextSelectionPreview {
+  previewDigest: string;
+  selectionPolicyVersion: "context-selection/v3";
+  mapRevision: string;
+  mapDigest: string;
+  primaryTargetScope: string;
+  affectedScopes: readonly string[];
+  budgetProfile: string;
+  budget: ContextBudgetProfile;
+  budgetAllocation: readonly ContextBudgetAllocation[];
+  selectedDocuments: readonly ContextFingerprintDocument[];
+  omissions: readonly ContextOmission[];
+  warnings: readonly { code: string; subjectId?: string }[];
+  tokenEstimate: number;
+  fallbackModes: readonly ["direct-search", "explicit-documents", "bounded-resource-read"];
+  cache: ContextBuildCacheMetadata;
 }
 
 export interface ContextFingerprintStore {

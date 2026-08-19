@@ -15,7 +15,9 @@ afterEach(async () => {
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-contract-"));
   const source = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-source-"));
-  roots.push(root, source);
+  const workspaceStore = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-workspaces-"));
+  const fileOperationState = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-file-ops-"));
+  roots.push(root, source, workspaceStore, fileOperationState);
   await writeFile(join(root, "scope.yaml"), "apiVersion: abcm/v1\nkind: workflow\nid: test\nname: Test\n");
   await mkdir(join(root, "domain-language"));
   await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
@@ -30,8 +32,46 @@ async function fixture() {
       contextPrincipal: { principalId: "tool-contract", access },
       scopeMapAccess: access,
       documentationSources: [{ id: "docs", workspaceId: "test", root: source, targetBasePath: "artifacts/mirror" }],
+      workspaceStoreRoot: workspaceStore,
+      fileOperations: { stateRoot: fileOperationState },
+      businessEvaluationProfiles: [{
+        schemaVersion: "abcm.eval.execution-profile/v1",
+        id: "tool-contract-profile",
+        version: "1.0.0",
+        status: "approved",
+        workspaceId: "test",
+        phase: "retrieval",
+        dataset: {
+          schemaVersion: "abcm.eval.business.v1", id: "tool-contract-dataset", title: "Tool contract", status: "approved", language: "ru", ownerScope: "test",
+          sourceBaseline: { path: "baseline.md", sourceCommit: "a".repeat(40), sourceChecksum: `sha256:${"0".repeat(64)}` },
+          metrics: { mandatoryRecall: "known gold" }, proposedGates: {},
+          scenarios: [{ id: "BIZ-TOOL-001", title: "Tool contract", fixture: "tool-fixture", when: "run", then: ["receipt"] }],
+        },
+        fixtures: {
+          schemaVersion: "abcm.eval.fixtures.v1", id: "tool-fixtures", title: "Tool fixtures", status: "approved", language: "ru", ownerScope: "test",
+          reproducibility: { pin: ["snapshot"], rawEvidence: ["receipt"] }, real: [],
+          synthetic: [{ id: "tool-fixture", scopes: 1, files: 1, documents: 1, skills: 0 }], adversarial: [],
+        },
+        repetitions: 1,
+        blindSeedDigest: `sha256:${"1".repeat(64)}`,
+        baselineIdentityDigest: `sha256:${"2".repeat(64)}`,
+        executionEnvironmentDigest: `sha256:${"3".repeat(64)}`,
+        measurementWindowDigest: `sha256:${"4".repeat(64)}`,
+        gatePolicy: {
+          mandatoryRecallMin: 1, precisionMin: 0, relevantTokenRatioMin: 0, taskSuccessRateMaxDegradationVsV0: 1,
+          deterministicBundleRateMin: 1, stableErrorClassificationRateMin: 1, unauthorizedLeakageMax: 0,
+          tokenReductionMin: 0, costPerSuccessfulTaskReductionMin: 0, requiredFallbackModes: ["direct-search"],
+        },
+        scenarios: [{
+          scenarioId: "BIZ-TOOL-001",
+          directSearch: { queryTerms: ["test"], allowedPathPrefixes: ["artifacts"] },
+          context: { projectId: "missing-project", roleId: "agent", taskType: "test", goal: "test" },
+          goldDocumentIds: ["gold"], mandatoryDocumentIds: ["gold"], goldClaims: [], forbiddenMarkers: [],
+        }],
+      }],
     },
   );
+  await runtime.ready;
   const server = runtime.createMcpServer();
   const client = new Client({ name: "tool-contract-client", version: "0.1.0" }, { supportedProtocolVersions: ["2025-11-25"] });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -47,7 +87,7 @@ describe("MCP tool contract", () => {
       const listed = await client.listTools();
       expect(client.getNegotiatedProtocolVersion()).toBe("2025-11-25");
       expect(client.getServerCapabilities()?.experimental?.["abcm.dev/contract"]).toEqual({
-        contractVersion: "0.1.0",
+        contractVersion: "0.4.0",
         specificationVersion: "0.5.0",
         supportedProtocolVersions: ["2025-11-25"],
         operationTimeoutMs: 30000,
@@ -55,15 +95,36 @@ describe("MCP tool contract", () => {
       });
       expect(listed.tools.map(tool => tool.name)).toEqual([
         "agent_instructions.get",
+        "workspace.create",
         "workspace.list_files",
+        "workspace.get_architecture_policy",
+        "workspace.set_architecture_policy",
+        "workspace.delete_architecture_policy",
+        "workspace.list_architecture_policies",
+        "workspace.check_architecture_compliance",
         "workspace.read_file",
         "workspace.write_file",
         "workspace.delete_file",
+        "workspace.upload_start",
+        "workspace.upload_chunk",
+        "workspace.upload_complete",
+        "workspace.upload_abort",
+        "workspace.batch_apply",
         "workspace.move_file",
         "workspace.create_directory",
+        "workspace.move_directory",
+        "workspace.delete_directory",
         "scope_map.scan",
         "context.get_domain_language",
+        "context.preview_task_context",
         "context.build_task_context",
+        "context.record_outcome",
+        "context.list_outcomes",
+        "context.propose_feedback",
+        "context.list_feedback",
+        "context.list_business_evaluation_profiles",
+        "context.run_business_evaluation",
+        "context.list_business_evaluations",
         "documentation_source.preview",
         "documentation_source.apply",
         "documentation_source.sync",
@@ -71,16 +132,39 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.2.0",
+        version: "1.16.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
       }));
+      expect((instructions.structuredContent as { content: string }).content).toContain("targetHints.scopeIds");
+      expect((instructions.structuredContent as { content: string }).content).toContain("Недоступный explicit scope");
       for (const tool of listed.tools) {
         expect(tool.inputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));
         expect(tool.outputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));
         expect(tool.annotations?.openWorldHint).toBe(false);
       }
+      const contextTool = listed.tools.find(tool => tool.name === "context.build_task_context") as unknown as {
+        inputSchema: { properties: { targetHints: { anyOf: Array<{ properties?: { scopeIds?: { minItems?: number; maxItems?: number; items?: unknown } } }> } } };
+        outputSchema: { required?: string[]; properties: Record<string, unknown> };
+      };
+      const structuredHints = contextTool.inputSchema.properties.targetHints.anyOf.find(option => option.properties?.scopeIds !== undefined);
+      expect(structuredHints?.properties?.scopeIds).toEqual(expect.objectContaining({
+        minItems: 1,
+        maxItems: 8,
+        items: expect.objectContaining({ anyOf: expect.any(Array) }),
+      }));
+      expect(contextTool.outputSchema.required).toEqual(expect.arrayContaining([
+        "multiScopePolicyDigest",
+        "affectedScopeDetails",
+        "budgetAllocation",
+        "cache",
+      ]));
+      expect(contextTool.outputSchema.properties).toEqual(expect.objectContaining({
+        multiScopePolicyDigest: expect.any(Object),
+        affectedScopeDetails: expect.any(Object),
+        budgetAllocation: expect.any(Object),
+      }));
     } finally {
       await client.close();
       await server.close();
@@ -112,10 +196,22 @@ describe("MCP tool contract", () => {
         ["workspace.read_file", { workspaceId: "missing", path: "a.md" }, "WORKSPACE_NOT_FOUND"],
         ["workspace.write_file", { workspaceId: "missing", path: "a.md", content: "a" }, "WORKSPACE_NOT_FOUND"],
         ["workspace.delete_file", { workspaceId: "missing", path: "a.md" }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.upload_start", { workspaceId: "missing", size: 0, checksum: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.upload_chunk", { workspaceId: "missing", uploadId: `upl_${"0".repeat(32)}`, index: 0, content: "", checksum: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.upload_complete", { workspaceId: "missing", uploadId: `upl_${"0".repeat(32)}` }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.upload_abort", { workspaceId: "missing", uploadId: `upl_${"0".repeat(32)}` }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.batch_apply", { workspaceId: "missing", idempotencyKey: "missing-workspace", expectedMapRevision: `sha256:${"0".repeat(64)}`, operations: [{ operation: "delete", path: "a.md", ifMatch: `sha256:${"0".repeat(64)}` }] }, "WORKSPACE_NOT_FOUND"],
         ["workspace.move_file", { workspaceId: "missing", from: "a.md", to: "b.md" }, "WORKSPACE_NOT_FOUND"],
         ["workspace.create_directory", { workspaceId: "missing", path: "a" }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.move_directory", { workspaceId: "missing", from: "a", to: "b" }, "WORKSPACE_NOT_FOUND"],
+        ["workspace.delete_directory", { workspaceId: "missing", path: "a", recursive: true }, "WORKSPACE_NOT_FOUND"],
         ["scope_map.scan", { workspaceId: "missing" }, "WORKSPACE_NOT_FOUND"],
         ["context.get_domain_language", { anchor: { workspaceId: "missing", projectId: "missing" } }, "MAP_NOT_BUILT"],
+        [
+          "context.preview_task_context",
+          { domainLanguageBootstrapId: "missing", roleId: "role", taskType: "test", goal: "test" },
+          "DOMAIN_LANGUAGE_BOOTSTRAP_REQUIRED",
+        ],
         [
           "context.build_task_context",
           { domainLanguageBootstrapId: "missing", roleId: "role", taskType: "test", goal: "test" },

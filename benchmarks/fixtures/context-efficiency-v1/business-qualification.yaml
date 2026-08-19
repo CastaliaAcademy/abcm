@@ -1,0 +1,43 @@
+schemaVersion: abcm.benchmark.context-business/v1
+id: docker-known-data-business-16-v1
+title: Docker known-data V0-V5 matrix
+language: ru
+phase: retrieval
+repetitions: 2
+blindSeed: docker-business-blind-seed-v1
+fixtureId: docker-known-data
+sourceBaseline:
+  path: abcm/artifacts/evals/capability/castalia-context-efficiency-baseline-2026-08-18.md
+  sourceCommit: 1733dacd5d23471b0aca19984edc5006d05d88d1
+  sourceChecksum: sha256:e149a9265a21e1a81735cdc54ab88ea8cc4108215ff6e720baff1a992b7d3488
+scenarioIds:
+  - BIZ-SYN-001
+  - BIZ-SYN-002
+  - BIZ-SYN-003
+  - BIZ-SYN-004
+  - BIZ-SYN-005
+  - BIZ-SYN-006
+  - BIZ-SYN-007
+  - BIZ-SYN-008
+  - BIZ-SYN-009
+  - BIZ-SYN-010
+  - BIZ-SYN-011
+  - BIZ-SYN-012
+  - BIZ-SYN-013
+  - BIZ-SYN-014
+  - BIZ-SYN-015
+  - BIZ-SYN-016
+gatePolicy:
+  mandatoryRecallMin: 1
+  precisionMin: 0.8
+  relevantTokenRatioMin: 0.7
+  taskSuccessRateMaxDegradationVsV0: 0.02
+  deterministicBundleRateMin: 1
+  stableErrorClassificationRateMin: 1
+  unauthorizedLeakageMax: 0
+  tokenReductionMin: 0.25
+  costPerSuccessfulTaskReductionMin: 0.2
+  requiredFallbackModes:
+    - direct-search
+    - explicit-documents
+    - bounded-resource-read

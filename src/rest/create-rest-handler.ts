@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 
 import { getAbcmAgentInstructions } from "../agent-instructions/agent-instructions.js";
+import { architecturePolicyInputSchema, type ArchitecturePolicyService } from "../architecture/architecture-policy-service.js";
 
 import { AbcmError } from "../core/errors.js";
 import { createOperationDeadline, throwIfAborted, type OperationDeadline } from "../core/operation.js";
@@ -9,30 +10,69 @@ import type { ContextBuilder } from "../context/context-builder.js";
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
+import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
+import type { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
+import type { BusinessEvaluationApi } from "../evaluation/context-business-eval-profile.js";
+import {
+  taskSuccessClaimRequestSchema,
+  taskSuccessStartRequestSchema,
+  taskSuccessSubmitRequestSchema,
+  type TaskSuccessWorkerCoordinator,
+} from "../evaluation/task-success-worker.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
+import type { WorkspaceBatchService } from "../workspace/batch-service.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
+import type { WorkspaceUploadService } from "../workspace/upload-service.js";
+import type { ObsidianSyncService } from "../sync/obsidian-sync-service.js";
+import {
+  syncApplyBatchSchema,
+  syncConflictResolutionSchema,
+  syncPairingCreateSchema,
+  syncPairingRedeemSchema,
+  syncPreviewRequestSchema,
+} from "../sync/contracts.js";
 import { createAbcmOpenApiDocument } from "./openapi.js";
 import {
   restCreateDirectoryInputSchema,
   restDocumentationPreviewInputSchema,
   restDocumentationCutoverInputSchema,
+  restMoveDirectoryInputSchema,
   restMoveFileInputSchema,
+  restWorkspaceBatchApplyInputSchema,
+  restWorkspaceUploadStartInputSchema,
   workspaceRegistrationSchema,
 } from "./schemas.js";
-import { contextBuildInputSchema, domainLanguageInputSchema } from "../mcp/tool-schemas.js";
+import {
+  contextBuildInputSchema,
+  contextFeedbackListInputSchema,
+  contextFeedbackSubmissionSchema,
+  contextOutcomeListInputSchema,
+  contextOutcomeSubmissionSchema,
+  businessEvaluationListRequestSchema,
+  businessEvaluationRunRequestSchema,
+  domainLanguageInputSchema,
+} from "../mcp/tool-schemas.js";
 import { resolveRestLimitOptions, type AbcmRestLimitOptions } from "./config.js";
 
 export interface AbcmRestDependencies {
   files: WorkspaceFileService;
+  uploads?: WorkspaceUploadService;
+  batches?: WorkspaceBatchService;
   scopeMap: ScopeMapService;
+  architecturePolicies?: ArchitecturePolicyService;
   scopeMapAccess?: ScopeMapAccess;
   domainLanguage?: DomainLanguageService;
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
+  contextOutcomes?: ContextOutcomeService;
+  contextFeedback?: ContextFeedbackService;
+  contextBusinessEvaluations?: BusinessEvaluationApi;
+  taskSuccessEvaluations?: TaskSuccessWorkerCoordinator;
   workspaces?: WorkspaceRegistrationService;
   documentation?: DirectoryDocumentationSyncService;
+  obsidianSync?: ObsidianSyncService;
 }
 
 export interface WorkspaceRegistrationService {
@@ -138,6 +178,7 @@ function problem(error: unknown): Response {
       {
         "content-type": "application/problem+json",
         ...(typeof retryAfter === "number" ? { "retry-after": String(retryAfter) } : {}),
+        ...(error.code === "AUTHENTICATION_REQUIRED" ? { "www-authenticate": "Bearer", "cache-control": "no-store" } : {}),
       },
     );
   }
@@ -202,6 +243,21 @@ export function createAbcmRestHandler(
         });
       }
 
+      if (request.method === "POST" && url.pathname === "/v1/obsidian/pairings") {
+        if (dependencies.obsidianSync === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        return json(dependencies.obsidianSync.createPairing(await readJson(request, syncPairingCreateSchema, maxRequestBodyBytes, signal)), 201);
+      }
+      if (request.method === "POST" && url.pathname === "/v1/obsidian/pairings/redeem") {
+        if (dependencies.obsidianSync === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        return json(dependencies.obsidianSync.redeemPairing(await readJson(request, syncPairingRedeemSchema, maxRequestBodyBytes, signal)));
+      }
+      const obsidianDevice = /^\/v1\/obsidian\/devices\/([^/]+)$/.exec(url.pathname);
+      if (request.method === "DELETE" && obsidianDevice !== null) {
+        if (dependencies.obsidianSync === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        dependencies.obsidianSync.revokeDevice(decodeURIComponent(obsidianDevice[1] ?? ""));
+        return new Response(null, { status: 204 });
+      }
+
       if (request.method === "POST" && url.pathname === "/v1/workspaces") {
         if (dependencies.workspaces === undefined) {
           throw new AbcmError("WORKSPACE_REGISTRATION_DISABLED", "Managed workspace registration is not configured.");
@@ -237,6 +293,91 @@ export function createAbcmRestHandler(
         return json(await dependencies.contextBuilder.build(normalizeBuildTaskContextInput(body), dependencies.contextPrincipal, signal));
       }
 
+      if (request.method === "POST" && url.pathname === "/v1/context/preview-task-context") {
+        if (dependencies.contextBuilder === undefined || dependencies.contextPrincipal === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Context preview access is not configured.");
+        }
+        const body = await readJson(request, contextBuildInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.contextBuilder.preview(normalizeBuildTaskContextInput(body), dependencies.contextPrincipal, signal));
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/outcomes") {
+        if (dependencies.contextOutcomes === undefined) throw new AbcmError("ACCESS_DENIED", "Context outcome access is not configured.");
+        return json(dependencies.contextOutcomes.record(await readJson(request, contextOutcomeSubmissionSchema, maxRequestBodyBytes, signal)), 201);
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/context/outcomes") {
+        if (dependencies.contextOutcomes === undefined) throw new AbcmError("ACCESS_DENIED", "Context outcome access is not configured.");
+        const query = contextOutcomeListInputSchema.parse({
+          workspaceId: url.searchParams.get("workspaceId"),
+          fingerprintId: url.searchParams.get("fingerprintId"),
+        });
+        return json({ outcomes: dependencies.contextOutcomes.list(query.workspaceId, query.fingerprintId) });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/feedback") {
+        if (dependencies.contextFeedback === undefined) throw new AbcmError("ACCESS_DENIED", "Context feedback access is not configured.");
+        return json(dependencies.contextFeedback.propose(await readJson(request, contextFeedbackSubmissionSchema, maxRequestBodyBytes, signal)), 201);
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/context/feedback") {
+        if (dependencies.contextFeedback === undefined) throw new AbcmError("ACCESS_DENIED", "Context feedback access is not configured.");
+        const query = contextFeedbackListInputSchema.parse({
+          workspaceId: url.searchParams.get("workspaceId"),
+          fingerprintId: url.searchParams.get("fingerprintId"),
+        });
+        return json({ proposals: dependencies.contextFeedback.list(query.workspaceId, query.fingerprintId) });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/business-evaluations") {
+        if (dependencies.contextBusinessEvaluations === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Context business evaluation access is not configured.");
+        }
+        const body = await readJson(request, businessEvaluationRunRequestSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.contextBusinessEvaluations.run(body, signal), 201);
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/context/business-evaluation-profiles") {
+        if (dependencies.contextBusinessEvaluations === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Context business evaluation access is not configured.");
+        }
+        return json({ profiles: dependencies.contextBusinessEvaluations.listProfiles() });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/task-success-evaluations") {
+        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success evaluation is not configured.");
+        return json(await dependencies.taskSuccessEvaluations.start(await readJson(request, taskSuccessStartRequestSchema, maxRequestBodyBytes, signal), signal), 202);
+      }
+
+      const taskSuccessSession = /^\/v1\/context\/task-success-evaluations\/(task-session-[a-f0-9]{24})$/.exec(url.pathname);
+      if (request.method === "GET" && taskSuccessSession !== null) {
+        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success evaluation is not configured.");
+        const session = dependencies.taskSuccessEvaluations.get(taskSuccessSession[1]!);
+        if (session === undefined) throw new AbcmError("FILE_NOT_FOUND", "Task-success evaluation session was not found.");
+        return json(session);
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/task-success-worker/jobs/claim") {
+        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success worker is not configured.");
+        return json(await dependencies.taskSuccessEvaluations.claim(await readJson(request, taskSuccessClaimRequestSchema, maxRequestBodyBytes, signal)));
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/task-success-worker/jobs/submit") {
+        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success worker is not configured.");
+        return json(await dependencies.taskSuccessEvaluations.submit(await readJson(request, taskSuccessSubmitRequestSchema, maxRequestBodyBytes, signal), signal));
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/context/business-evaluations") {
+        if (dependencies.contextBusinessEvaluations === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Context business evaluation access is not configured.");
+        }
+        const query = businessEvaluationListRequestSchema.parse({
+          workspaceId: url.searchParams.get("workspaceId"),
+          datasetId: url.searchParams.get("datasetId"),
+        });
+        return json({ evaluations: dependencies.contextBusinessEvaluations.list(query.workspaceId, query.datasetId) });
+      }
+
       const documentationApply = /^\/v1\/documentation-imports\/([^/]+)\/apply$/.exec(url.pathname);
       if (request.method === "POST" && documentationApply !== null) {
         if (dependencies.documentation === undefined) {
@@ -269,7 +410,127 @@ export function createAbcmRestHandler(
       const match = /^\/v1\/workspaces\/([^/]+)(\/.*)$/.exec(url.pathname);
       if (!match) return problem(new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found."));
       const workspaceId = decodeURIComponent(match[1] ?? "");
-      const endpoint = match[2];
+      const endpoint = match[2]!;
+
+      const projectArchitecturePolicy = /^\/projects\/([^/]+)\/architecture-policy$/.exec(endpoint);
+      const projectArchitectureCompliance = /^\/projects\/([^/]+)\/architecture-compliance$/.exec(endpoint);
+      const architectureTarget = projectArchitecturePolicy === null
+        ? { workspaceId }
+        : { workspaceId, projectId: decodeURIComponent(projectArchitecturePolicy[1] ?? "") };
+      if (dependencies.architecturePolicies !== undefined && (endpoint === "/architecture-policy" || projectArchitecturePolicy !== null)) {
+        if (request.method === "GET") return json(await dependencies.architecturePolicies.resolve(architectureTarget, signal));
+        if (request.method === "PUT") {
+          const existing = await dependencies.architecturePolicies.get(architectureTarget, signal);
+          const ifMatch = parseEtag(request.headers.get("if-match"));
+          const ifNoneMatch = parseEtag(request.headers.get("if-none-match"));
+          if (ifNoneMatch !== undefined && ifNoneMatch !== "*") throw new AbcmError("REQUEST_INVALID", "If-None-Match only supports '*'.");
+          const record = await dependencies.architecturePolicies.set(
+            architectureTarget,
+            await readJson(request, architecturePolicyInputSchema, maxRequestBodyBytes, signal),
+            {
+              ...(ifMatch === undefined || ifMatch === "*" ? {} : { ifMatch }),
+              ...(ifNoneMatch === "*" ? { ifNoneMatch: "*" as const } : {}),
+            },
+            signal,
+          );
+          return json(record, existing === null ? 201 : 200, { etag: `"${record.checksum}"` });
+        }
+        if (request.method === "DELETE") {
+          const ifMatch = parseEtag(request.headers.get("if-match"));
+          await dependencies.architecturePolicies.delete(architectureTarget, ifMatch === undefined || ifMatch === "*" ? {} : { ifMatch }, signal);
+          return new Response(null, { status: 204 });
+        }
+      }
+      if (dependencies.architecturePolicies !== undefined && request.method === "GET" && endpoint === "/architecture-policies") {
+        return json({ policies: await dependencies.architecturePolicies.list(workspaceId, signal) });
+      }
+      if (dependencies.architecturePolicies !== undefined && request.method === "GET" && endpoint === "/architecture-compliance") {
+        return json(await dependencies.architecturePolicies.check({ workspaceId }, signal));
+      }
+      if (dependencies.architecturePolicies !== undefined && request.method === "GET" && projectArchitectureCompliance !== null) {
+        return json(await dependencies.architecturePolicies.check({
+          workspaceId,
+          projectId: decodeURIComponent(projectArchitectureCompliance[1] ?? ""),
+        }, signal));
+      }
+
+      if (request.method === "POST" && endpoint === "/uploads") {
+        if (dependencies.uploads === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        const body = await readJson(request, restWorkspaceUploadStartInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.uploads.start({ workspaceId, ...body }, signal), 201);
+      }
+
+      const uploadChunk = /^\/uploads\/(upl_[a-f0-9]{32})\/chunks\/([0-9]+)$/.exec(endpoint);
+      if (request.method === "PUT" && uploadChunk !== null) {
+        if (dependencies.uploads === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        const index = Number(uploadChunk[2]);
+        if (!Number.isSafeInteger(index)) throw new AbcmError("REQUEST_INVALID", "Upload chunk index is invalid.");
+        const checksum = request.headers.get("x-content-sha256")?.trim();
+        if (checksum === undefined || !/^sha256:[a-f0-9]{64}$/.test(checksum)) {
+          throw new AbcmError("REQUEST_INVALID", "X-Content-Sha256 must contain the decoded chunk checksum.");
+        }
+        const content = await readBoundedBytes(request, maxRequestBodyBytes, signal);
+        return json(await dependencies.uploads.append({
+          workspaceId,
+          uploadId: uploadChunk[1]!,
+          index,
+          content: "",
+          encoding: "base64",
+          checksum,
+        }, content, signal));
+      }
+
+      const uploadComplete = /^\/uploads\/(upl_[a-f0-9]{32})\/complete$/.exec(endpoint);
+      if (request.method === "POST" && uploadComplete !== null) {
+        if (dependencies.uploads === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        return json(await dependencies.uploads.complete(workspaceId, uploadComplete[1]!, signal));
+      }
+
+      const uploadAbort = /^\/uploads\/(upl_[a-f0-9]{32})$/.exec(endpoint);
+      if (request.method === "DELETE" && uploadAbort !== null) {
+        if (dependencies.uploads === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        await dependencies.uploads.abort(workspaceId, uploadAbort[1]!, signal);
+        return new Response(null, { status: 204 });
+      }
+
+      if (request.method === "POST" && endpoint === "/files/batch:apply") {
+        if (dependencies.batches === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        const body = await readJson(request, restWorkspaceBatchApplyInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.batches.apply({ workspaceId, ...body }, signal));
+      }
+
+      const projectSync = /^\/projects\/([^/]+)\/sync(\/.*)$/.exec(endpoint);
+      if (projectSync !== null) {
+        if (dependencies.obsidianSync === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+        const projectId = decodeURIComponent(projectSync[1] ?? "");
+        const syncEndpoint = projectSync[2] ?? "";
+        if (request.method === "POST" && syncEndpoint === "/preview") {
+          return json(await dependencies.obsidianSync.preview(request, workspaceId, projectId, await readJson(request, syncPreviewRequestSchema, maxRequestBodyBytes, signal), signal));
+        }
+        if (request.method === "POST" && syncEndpoint === "/apply") {
+          return json(await dependencies.obsidianSync.apply(request, workspaceId, projectId, await readJson(request, syncApplyBatchSchema, maxRequestBodyBytes, signal), signal));
+        }
+        if (request.method === "GET" && syncEndpoint === "/content") {
+          const result = await dependencies.obsidianSync.readContent(request, workspaceId, projectId, requiredPath(url), signal);
+          return new Response(responseBody(result.content), { headers: { "content-type": result.contentType, etag: `"` + result.entry.checksum + `"`, "x-abcm-path": result.entry.path, "x-abcm-object-id": result.objectId } });
+        }
+        if (request.method === "GET" && syncEndpoint === "/changes") {
+          const cursor = url.searchParams.get("cursor");
+          if (cursor === null) throw new AbcmError("REQUEST_INVALID", "Synchronization cursor is required.");
+          const limitText = url.searchParams.get("limit") ?? "100";
+          if (!/^(?:[1-9][0-9]{0,2}|1000)$/.test(limitText)) throw new AbcmError("REQUEST_INVALID", "Synchronization change limit must be between 1 and 1000.");
+          return json(dependencies.obsidianSync.changes(request, workspaceId, projectId, cursor, Number(limitText)));
+        }
+        const conflict = /^\/conflicts\/([^/]+)$/.exec(syncEndpoint);
+        if (request.method === "GET" && conflict !== null) {
+          return json(dependencies.obsidianSync.getConflict(request, workspaceId, projectId, decodeURIComponent(conflict[1] ?? "")));
+        }
+        const resolution = /^\/conflicts\/([^/]+)\/resolve$/.exec(syncEndpoint);
+        if (request.method === "POST" && resolution !== null) {
+          return json(await dependencies.obsidianSync.resolveConflict(request, workspaceId, projectId, decodeURIComponent(resolution[1] ?? ""), await readJson(request, syncConflictResolutionSchema, maxRequestBodyBytes, signal), signal));
+        }
+        throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");
+      }
 
       if (endpoint === "/documentation-sources/preview" && request.method === "POST") {
         if (dependencies.documentation === undefined) {
@@ -332,6 +593,17 @@ export function createAbcmRestHandler(
       if (endpoint === "/directories" && request.method === "POST") {
         const body = await readJson(request, restCreateDirectoryInputSchema, maxRequestBodyBytes, signal);
         return json(await dependencies.files.createDirectory(workspaceId, body.path, signal), 201);
+      }
+      if (endpoint === "/directories" && request.method === "DELETE") {
+        if (url.searchParams.get("recursive") !== "true") {
+          throw new AbcmError("REQUEST_INVALID", "Recursive directory deletion requires recursive=true.");
+        }
+        await dependencies.files.deleteDirectory(workspaceId, requiredPath(url), { recursive: true }, signal);
+        return new Response(null, { status: 204 });
+      }
+      if (endpoint === "/directories/move" && request.method === "POST") {
+        const body = await readJson(request, restMoveDirectoryInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.files.moveDirectory(workspaceId, body.from, body.to, signal));
       }
       if (endpoint === "/scope-map/scan" && request.method === "POST") {
         return json(dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(workspaceId, signal)));

@@ -1,10 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { Database } from "bun:sqlite";
 
 import { AbcmError } from "../core/errors.js";
+import type {
+  ContextBuildCacheCatalog,
+  ContextBuildCacheEntry,
+  ContextBuildCacheIdentity,
+} from "../context/context-build-cache.js";
 import type {
   ContextBundleCatalogRecord,
   ContextFingerprint,
@@ -20,10 +25,30 @@ import type {
   SyncRunRecord,
   TombstoneRecord,
 } from "../documentation/types.js";
+import {
+  contextFeedbackProposalSchema,
+  createContextFeedbackProposal,
+  type ContextFeedbackCatalog,
+  type ContextFeedbackProposal,
+  type ContextFeedbackProposalInput,
+} from "../evaluation/context-feedback.js";
+import {
+  contextOutcomeSubmissionSchema,
+  contextOutcomeReceiptSchema,
+  createContextOutcomeReceipt,
+  type ContextOutcomeCatalog,
+  type ContextOutcomeReceipt,
+  type ContextOutcomeSubmission,
+} from "../evaluation/context-outcome-receipt.js";
+import {
+  businessEvaluationReceiptSchema,
+  type BusinessEvaluationCatalog,
+  type BusinessEvaluationReceipt,
+} from "../evaluation/context-business-eval-runner.js";
 import type { MapRevision } from "../scope-map/types.js";
 import type { RuntimeOwnerHandle, ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./types.js";
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 11;
 
 interface LeaseRow {
   owner_id: string;
@@ -41,7 +66,7 @@ interface RuntimeOwnerRow {
   fencing_token: number;
 }
 
-export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCatalog {
+export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCatalog, ContextOutcomeCatalog, ContextBuildCacheCatalog, ContextFeedbackCatalog, BusinessEvaluationCatalog {
   readonly scanLeaseRenewalIntervalMs: number;
   readonly #database: Database;
   readonly #ownerId: string;
@@ -180,6 +205,221 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
       return rows.map(row => JSON.parse(row.bundle_json) as ContextBundleCatalogRecord);
     } catch {
       throw new AbcmError("DERIVED_STORE_CORRUPT", "Context bundle catalog payload is invalid.");
+    }
+  }
+
+  recordContextOutcome(input: ContextOutcomeSubmission): ContextOutcomeReceipt {
+    const parsed = contextOutcomeSubmissionSchema.parse(input);
+    return this.#database.transaction(() => {
+      this.#assertRuntimeOwner(this.#clock());
+      const fingerprint = this.getContextFingerprint(parsed.workspaceId, parsed.fingerprintId);
+      if (fingerprint === undefined) {
+        throw new AbcmError("CONTEXT_FINGERPRINT_NOT_FOUND", "Context fingerprint is unavailable in this workspace.");
+      }
+      const candidate = createContextOutcomeReceipt(parsed, fingerprint.bundleDigest, new Date(this.#clock()).toISOString());
+      const existing = this.#database
+        .query<{ outcome_digest: string; outcome_json: string }, [string, string, string]>(
+          "SELECT outcome_digest, outcome_json FROM context_outcomes WHERE workspace_id = ? AND fingerprint_id = ? AND repeat_id = ?",
+        )
+        .get(parsed.workspaceId, parsed.fingerprintId, parsed.repeatId);
+      if (existing !== null) {
+        if (existing.outcome_digest !== candidate.outcomeDigest) {
+          throw new AbcmError("CONTEXT_OUTCOME_CONFLICT", "Outcome repeat identity is already bound to a different immutable verdict.");
+        }
+        try {
+          return contextOutcomeReceiptSchema.parse(JSON.parse(existing.outcome_json));
+        } catch {
+          throw new AbcmError("DERIVED_STORE_CORRUPT", "Context outcome receipt payload is invalid.");
+        }
+      }
+      this.#database.run(
+        `INSERT INTO context_outcomes
+          (workspace_id, fingerprint_id, repeat_id, outcome_id, outcome_digest, outcome_json)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [parsed.workspaceId, parsed.fingerprintId, parsed.repeatId, candidate.outcomeId, candidate.outcomeDigest, JSON.stringify(candidate)],
+      );
+      return candidate;
+    }).immediate();
+  }
+
+  listContextOutcomes(workspaceId: string, fingerprintId: string): ContextOutcomeReceipt[] {
+    this.#assertRuntimeOwner(this.#clock());
+    const rows = this.#database
+      .query<{ outcome_json: string }, [string, string]>(
+        "SELECT outcome_json FROM context_outcomes WHERE workspace_id = ? AND fingerprint_id = ? ORDER BY repeat_id, outcome_id",
+      )
+      .all(workspaceId, fingerprintId);
+    try {
+      return rows.map(row => contextOutcomeReceiptSchema.parse(JSON.parse(row.outcome_json)));
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Context outcome receipt payload is invalid.");
+    }
+  }
+
+  lookupContextBuildCache(identity: ContextBuildCacheIdentity): { state: "hit"; entry: ContextBuildCacheEntry } | { state: "miss" | "stale" } {
+    this.#assertRuntimeOwner(this.#clock());
+    const row = this.#database
+      .query<{ entry_json: string }, [string, string]>(
+        "SELECT entry_json FROM context_build_cache WHERE workspace_id = ? AND key_digest = ?",
+      )
+      .get(identity.workspaceId, identity.keyDigest);
+    if (row !== null) {
+      try {
+        const entry = JSON.parse(row.entry_json) as ContextBuildCacheEntry;
+        if (entry.identity.keyDigest !== identity.keyDigest || entry.identity.workspaceId !== identity.workspaceId) throw new Error("identity mismatch");
+        return { state: "hit", entry };
+      } catch {
+        throw new AbcmError("DERIVED_STORE_CORRUPT", "Context build cache payload is invalid.");
+      }
+    }
+    const stale = this.#database
+      .query<{ present: number }, [string, string]>(
+        "SELECT 1 AS present FROM context_build_cache WHERE workspace_id = ? AND family_digest = ? LIMIT 1",
+      )
+      .get(identity.workspaceId, identity.familyDigest);
+    return { state: stale === null ? "miss" : "stale" };
+  }
+
+  putContextBuildCache(entry: ContextBuildCacheEntry): void {
+    const payload = JSON.stringify(entry);
+    const entryDigest = `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+    this.#database.transaction(() => {
+      this.#assertRuntimeOwner(this.#clock());
+      const existing = this.#database
+        .query<{ entry_digest: string }, [string, string]>(
+          "SELECT entry_digest FROM context_build_cache WHERE workspace_id = ? AND key_digest = ?",
+        )
+        .get(entry.identity.workspaceId, entry.identity.keyDigest);
+      if (existing !== null) {
+        if (existing.entry_digest !== entryDigest) throw new AbcmError("CONTEXT_CACHE_CONFLICT", "Context cache identity produced a different immutable result.");
+        return;
+      }
+      this.#database.run(
+        `INSERT INTO context_build_cache
+          (workspace_id, key_digest, family_digest, principal_id, principal_access_digest, map_revision, workspace_snapshot_digest, policy_version, projection_policy_version, entry_digest, entry_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          entry.identity.workspaceId,
+          entry.identity.keyDigest,
+          entry.identity.familyDigest,
+          entry.identity.principalId,
+          entry.identity.principalAccessDigest,
+          entry.identity.mapRevision,
+          entry.identity.workspaceSnapshotDigest,
+          entry.identity.cachePolicyVersion,
+          entry.identity.projectionPolicyVersion,
+          entryDigest,
+          payload,
+        ],
+      );
+    }).immediate();
+  }
+
+  recordContextFeedback(input: ContextFeedbackProposalInput): ContextFeedbackProposal {
+    return this.#database.transaction(() => {
+      this.#assertRuntimeOwner(this.#clock());
+      const fingerprint = this.getContextFingerprint(input.workspaceId, input.fingerprintId);
+      if (
+        fingerprint === undefined ||
+        fingerprint.principalId !== input.principalId ||
+        fingerprint.bundleDigest !== input.bundleDigest ||
+        fingerprint.fingerprint.mapRevision !== input.mapRevision
+      ) {
+        throw new AbcmError("CONTEXT_FINGERPRINT_NOT_FOUND", "Context fingerprint is unavailable in this workspace.");
+      }
+      const candidate = createContextFeedbackProposal(input, new Date(this.#clock()).toISOString());
+      const existing = this.#database
+        .query<{ proposal_digest: string; proposal_json: string }, [string, string, string]>(
+          "SELECT proposal_digest, proposal_json FROM context_feedback_proposals WHERE workspace_id = ? AND fingerprint_id = ? AND feedback_id = ?",
+        )
+        .get(input.workspaceId, input.fingerprintId, input.feedbackId);
+      if (existing !== null) {
+        if (existing.proposal_digest !== candidate.proposalDigest) {
+          throw new AbcmError("CONTEXT_FEEDBACK_CONFLICT", "Feedback identity is already bound to a different immutable proposal.");
+        }
+        try {
+          return contextFeedbackProposalSchema.parse(JSON.parse(existing.proposal_json));
+        } catch {
+          throw new AbcmError("DERIVED_STORE_CORRUPT", "Context feedback proposal payload is invalid.");
+        }
+      }
+      this.#database.run(
+        `INSERT INTO context_feedback_proposals
+          (workspace_id, fingerprint_id, feedback_id, proposal_id, proposal_digest, proposal_json)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [input.workspaceId, input.fingerprintId, input.feedbackId, candidate.proposalId, candidate.proposalDigest, JSON.stringify(candidate)],
+      );
+      return candidate;
+    }).immediate();
+  }
+
+  listContextFeedback(workspaceId: string, fingerprintId: string): ContextFeedbackProposal[] {
+    this.#assertRuntimeOwner(this.#clock());
+    const rows = this.#database
+      .query<{ proposal_json: string }, [string, string]>(
+        "SELECT proposal_json FROM context_feedback_proposals WHERE workspace_id = ? AND fingerprint_id = ? ORDER BY feedback_id, proposal_id",
+      )
+      .all(workspaceId, fingerprintId);
+    try {
+      return rows.map(row => contextFeedbackProposalSchema.parse(JSON.parse(row.proposal_json)));
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Context feedback proposal payload is invalid.");
+    }
+  }
+
+  getBusinessEvaluation(workspaceId: string, runId: string): BusinessEvaluationReceipt | undefined {
+    this.#assertRuntimeOwner(this.#clock());
+    const row = this.#database
+      .query<{ receipt_json: string }, [string, string]>("SELECT receipt_json FROM business_evaluation_receipts WHERE workspace_id = ? AND run_id = ?")
+      .get(workspaceId, runId);
+    if (row === null) return undefined;
+    try {
+      return businessEvaluationReceiptSchema.parse(JSON.parse(row.receipt_json));
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Business evaluation receipt payload is invalid.");
+    }
+  }
+
+  recordBusinessEvaluation(receipt: BusinessEvaluationReceipt): BusinessEvaluationReceipt {
+    const parsed = businessEvaluationReceiptSchema.parse(receipt);
+    return this.#database.transaction(() => {
+      this.#assertRuntimeOwner(this.#clock());
+      const existing = this.#database
+        .query<{ aggregate_digest: string; receipt_json: string }, [string]>(
+          "SELECT aggregate_digest, receipt_json FROM business_evaluation_receipts WHERE run_id = ?",
+        )
+        .get(parsed.runId);
+      if (existing !== null) {
+        if (existing.aggregate_digest !== parsed.aggregateDigest) {
+          throw new AbcmError("BUSINESS_EVALUATION_CONFLICT", "Business evaluation run identity is already bound to a different immutable receipt.");
+        }
+        try {
+          return businessEvaluationReceiptSchema.parse(JSON.parse(existing.receipt_json));
+        } catch {
+          throw new AbcmError("DERIVED_STORE_CORRUPT", "Business evaluation receipt payload is invalid.");
+        }
+      }
+      this.#database.run(
+        `INSERT INTO business_evaluation_receipts
+          (workspace_id, dataset_id, run_id, aggregate_digest, receipt_json)
+         VALUES (?, ?, ?, ?, ?)`,
+        [parsed.workspaceId, parsed.datasetId, parsed.runId, parsed.aggregateDigest, JSON.stringify(parsed)],
+      );
+      return parsed;
+    }).immediate();
+  }
+
+  listBusinessEvaluations(workspaceId: string, datasetId: string): BusinessEvaluationReceipt[] {
+    this.#assertRuntimeOwner(this.#clock());
+    const rows = this.#database
+      .query<{ receipt_json: string }, [string, string]>(
+        "SELECT receipt_json FROM business_evaluation_receipts WHERE workspace_id = ? AND dataset_id = ? ORDER BY run_id",
+      )
+      .all(workspaceId, datasetId);
+    try {
+      return rows.map(row => businessEvaluationReceiptSchema.parse(JSON.parse(row.receipt_json)));
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Business evaluation receipt payload is invalid.");
     }
   }
 
@@ -1054,6 +1294,59 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
           .query<{ name: string }, []>("SELECT name FROM pragma_table_info('map_documents') WHERE name = 'worker'")
           .get();
         if (workerColumn === null) this.#database.run("ALTER TABLE map_documents ADD COLUMN worker TEXT");
+      }
+      if (currentVersion < 9) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS context_outcomes (
+          workspace_id TEXT NOT NULL,
+          fingerprint_id TEXT NOT NULL,
+          repeat_id TEXT NOT NULL,
+          outcome_id TEXT NOT NULL,
+          outcome_digest TEXT NOT NULL,
+          outcome_json TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, outcome_id),
+          UNIQUE (workspace_id, fingerprint_id, repeat_id),
+          FOREIGN KEY (workspace_id, fingerprint_id) REFERENCES context_fingerprints(workspace_id, fingerprint_id) ON DELETE CASCADE
+        )`);
+      }
+      if (currentVersion < 10) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS context_build_cache (
+          workspace_id TEXT NOT NULL,
+          key_digest TEXT NOT NULL,
+          family_digest TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          principal_access_digest TEXT NOT NULL,
+          map_revision TEXT NOT NULL,
+          workspace_snapshot_digest TEXT NOT NULL,
+          policy_version TEXT NOT NULL,
+          projection_policy_version TEXT NOT NULL,
+          entry_digest TEXT NOT NULL,
+          entry_json TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, key_digest)
+        )`);
+        this.#database.run("CREATE INDEX IF NOT EXISTS context_build_cache_family_idx ON context_build_cache(workspace_id, family_digest)");
+        this.#database.run(`CREATE TABLE IF NOT EXISTS context_feedback_proposals (
+          workspace_id TEXT NOT NULL,
+          fingerprint_id TEXT NOT NULL,
+          feedback_id TEXT NOT NULL,
+          proposal_id TEXT NOT NULL,
+          proposal_digest TEXT NOT NULL,
+          proposal_json TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, proposal_id),
+          UNIQUE (workspace_id, fingerprint_id, feedback_id),
+          FOREIGN KEY (workspace_id, fingerprint_id) REFERENCES context_fingerprints(workspace_id, fingerprint_id) ON DELETE CASCADE
+        )`);
+      }
+      if (currentVersion < 11) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS business_evaluation_receipts (
+          workspace_id TEXT NOT NULL,
+          dataset_id TEXT NOT NULL,
+          run_id TEXT PRIMARY KEY,
+          aggregate_digest TEXT NOT NULL,
+          receipt_json TEXT NOT NULL
+        )`);
+        this.#database.run(
+          "CREATE INDEX IF NOT EXISTS business_evaluation_dataset_idx ON business_evaluation_receipts(workspace_id, dataset_id, run_id)",
+        );
       }
       this.#database.run(
         `INSERT INTO schema_metadata (key, value) VALUES ('schema_version', ?)

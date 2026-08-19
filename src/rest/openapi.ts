@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
 import { REST_SHARED_SCHEMAS } from "./schemas.js";
+import { OBSIDIAN_SYNC_OPENAPI_PATHS } from "../sync/openapi.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -23,6 +24,7 @@ const parameter = (name: string, location: "path" | "query" | "header", required
   schema: value,
 });
 const workspaceId = parameter("workspaceId", "path", true, { type: "string", minLength: 1 });
+const projectId = parameter("projectId", "path", true, { type: "string", minLength: 1 });
 const filePath = parameter("path", "query", true, { type: "string", minLength: 1 });
 const problemResponses = {
   "400": { $ref: "#/components/responses/Problem" },
@@ -30,6 +32,7 @@ const problemResponses = {
   "403": { $ref: "#/components/responses/Problem" },
   "404": { $ref: "#/components/responses/Problem" },
   "409": { $ref: "#/components/responses/Problem" },
+  "410": { $ref: "#/components/responses/Problem" },
   "412": { $ref: "#/components/responses/Problem" },
   "413": { $ref: "#/components/responses/Problem" },
   "415": { $ref: "#/components/responses/Problem" },
@@ -52,6 +55,7 @@ export function createAbcmOpenApiDocument(): JsonObject {
     servers: [{ url: "/", description: "Current ABCM server" }],
     security: [{ bearerAuth: [] }],
     paths: {
+      ...OBSIDIAN_SYNC_OPENAPI_PATHS,
       "/health": {
         get: {
           operationId: "health",
@@ -82,6 +86,63 @@ export function createAbcmOpenApiDocument(): JsonObject {
           responses: { "201": response("Workspace created", reference("WorkspaceRegistrationResult")), ...problemResponses },
         },
       },
+      "/v1/workspaces/{workspaceId}/architecture-policy": {
+        get: {
+          operationId: "getWorkspaceArchitecturePolicy",
+          parameters: [workspaceId],
+          responses: { "200": response("Configured and effective workspace architecture policy", reference("ArchitecturePolicyResolution")), ...problemResponses },
+        },
+        put: {
+          operationId: "setWorkspaceArchitecturePolicy",
+          parameters: [workspaceId, parameter("If-Match", "header", false, { type: "string" }), parameter("If-None-Match", "header", false, { type: "string", enum: ["*"] })],
+          requestBody: { required: true, content: { "application/json": { schema: reference("ArchitecturePolicyInput") } } },
+          responses: { "200": response("Workspace architecture policy replaced", reference("ArchitecturePolicyRecord")), "201": response("Workspace architecture policy created", reference("ArchitecturePolicyRecord")), ...problemResponses },
+        },
+        delete: {
+          operationId: "deleteWorkspaceArchitecturePolicy",
+          parameters: [workspaceId, parameter("If-Match", "header", false, { type: "string" })],
+          responses: { "204": response("Workspace architecture policy deleted"), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/architecture-policies": {
+        get: {
+          operationId: "listWorkspaceArchitecturePolicies",
+          parameters: [workspaceId],
+          responses: { "200": response("Workspace and project architecture policies", reference("ArchitecturePolicyListResult")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/architecture-compliance": {
+        get: {
+          operationId: "checkWorkspaceArchitectureCompliance",
+          parameters: [workspaceId],
+          responses: { "200": response("Workspace architecture compliance", reference("ArchitectureCompliance")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/projects/{projectId}/architecture-policy": {
+        get: {
+          operationId: "getProjectArchitecturePolicy",
+          parameters: [workspaceId, projectId],
+          responses: { "200": response("Configured and inherited project architecture policy", reference("ArchitecturePolicyResolution")), ...problemResponses },
+        },
+        put: {
+          operationId: "setProjectArchitecturePolicy",
+          parameters: [workspaceId, projectId, parameter("If-Match", "header", false, { type: "string" }), parameter("If-None-Match", "header", false, { type: "string", enum: ["*"] })],
+          requestBody: { required: true, content: { "application/json": { schema: reference("ArchitecturePolicyInput") } } },
+          responses: { "200": response("Project architecture policy replaced", reference("ArchitecturePolicyRecord")), "201": response("Project architecture policy created", reference("ArchitecturePolicyRecord")), ...problemResponses },
+        },
+        delete: {
+          operationId: "deleteProjectArchitecturePolicy",
+          parameters: [workspaceId, projectId, parameter("If-Match", "header", false, { type: "string" })],
+          responses: { "204": response("Project architecture policy deleted; workspace inheritance resumes", undefined), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/projects/{projectId}/architecture-compliance": {
+        get: {
+          operationId: "checkProjectArchitectureCompliance",
+          parameters: [workspaceId, projectId],
+          responses: { "200": response("Project architecture compliance", reference("ArchitectureCompliance")), ...problemResponses },
+        },
+      },
       "/v1/workspaces/{workspaceId}/files": {
         get: {
           operationId: "listFiles",
@@ -107,6 +168,54 @@ export function createAbcmOpenApiDocument(): JsonObject {
           responses: { "200": response("File entry", reference("FileEntry")), ...problemResponses },
         },
       },
+      "/v1/workspaces/{workspaceId}/uploads": {
+        post: {
+          operationId: "startWorkspaceUpload",
+          description: "Start a durable upload whose completed bytes can be referenced by workspace batch operations.",
+          parameters: [workspaceId],
+          requestBody: { required: true, content: { "application/json": { schema: reference("WorkspaceUploadStartRequest") } } },
+          responses: { "201": response("Upload session started", reference("WorkspaceUploadStartResult")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/uploads/{uploadId}/chunks/{index}": {
+        put: {
+          operationId: "appendWorkspaceUploadChunk",
+          description: "Append the next raw byte chunk. Repeating the same index and checksum is idempotent.",
+          parameters: [
+            workspaceId,
+            parameter("uploadId", "path", true, { type: "string", pattern: "^upl_[a-f0-9]{32}$" }),
+            parameter("index", "path", true, { type: "integer", minimum: 0 }),
+            parameter("X-Content-Sha256", "header", true, { type: "string", pattern: "^sha256:[a-f0-9]{64}$" }),
+          ],
+          requestBody: { required: true, content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } } },
+          responses: { "200": response("Upload chunk accepted", reference("WorkspaceUploadChunkResult")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/uploads/{uploadId}/complete": {
+        post: {
+          operationId: "completeWorkspaceUpload",
+          description: "Validate the declared size and checksum, then make the upload immutable.",
+          parameters: [workspaceId, parameter("uploadId", "path", true, { type: "string", pattern: "^upl_[a-f0-9]{32}$" })],
+          responses: { "200": response("Upload completed", reference("WorkspaceUploadCompleteResult")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/uploads/{uploadId}": {
+        delete: {
+          operationId: "abortWorkspaceUpload",
+          description: "Delete an upload session and its staged bytes.",
+          parameters: [workspaceId, parameter("uploadId", "path", true, { type: "string", pattern: "^upl_[a-f0-9]{32}$" })],
+          responses: { "204": response("Upload aborted"), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/files/batch:apply": {
+        post: {
+          operationId: "applyWorkspaceFileBatch",
+          description: "Validate and atomically apply mixed create, update, delete, and move operations. Create and update operations reference completed uploads.",
+          parameters: [workspaceId],
+          requestBody: { required: true, content: { "application/json": { schema: reference("WorkspaceBatchApplyRequest") } } },
+          responses: { "200": response("Batch validated or applied", reference("WorkspaceBatchApplyResult")), ...problemResponses },
+        },
+      },
       "/v1/workspaces/{workspaceId}/files/move": {
         post: {
           operationId: "moveFile",
@@ -121,6 +230,19 @@ export function createAbcmOpenApiDocument(): JsonObject {
           parameters: [workspaceId],
           requestBody: { required: true, content: { "application/json": { schema: reference("CreateDirectoryRequest") } } },
           responses: { "201": response("Directory entry", reference("FileEntry")), ...problemResponses },
+        },
+        delete: {
+          operationId: "deleteDirectory",
+          parameters: [workspaceId, parameter("path", "query", true, { type: "string", minLength: 1 }), parameter("recursive", "query", true, { type: "boolean", enum: [true] })],
+          responses: { "204": { description: "Directory recursively deleted" }, ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/directories/move": {
+        post: {
+          operationId: "moveDirectory",
+          parameters: [workspaceId],
+          requestBody: { required: true, content: { "application/json": { schema: reference("MoveDirectoryRequest") } } },
+          responses: { "200": response("Moved directory entry", reference("FileEntry")), ...problemResponses },
         },
       },
       "/v1/workspaces/{workspaceId}/scope-map/scan": {
@@ -149,6 +271,100 @@ export function createAbcmOpenApiDocument(): JsonObject {
           operationId: "buildTaskContext",
           requestBody: { required: true, content: { "application/json": { schema: reference("BuildTaskContextRequest") } } },
           responses: { "200": response("Bounded task context", reference("BuildTaskContextResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/preview-task-context": {
+        post: {
+          operationId: "previewTaskContext",
+          description: "Body-free, non-persisting explanation of deterministic context selection and available fallback modes.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("BuildTaskContextRequest") } } },
+          responses: { "200": response("Explainable task context preview", reference("PreviewTaskContextResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/outcomes": {
+        post: {
+          operationId: "recordContextOutcome",
+          description: "Record an immutable body-free outcome, usage, and cost receipt for one principal-owned ContextFingerprint repeat.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("ContextOutcomeSubmission") } } },
+          responses: { "201": response("Immutable context outcome receipt", reference("ContextOutcomeReceipt")), ...problemResponses },
+        },
+        get: {
+          operationId: "listContextOutcomes",
+          parameters: [
+            parameter("workspaceId", "query", true, { type: "string", minLength: 1 }),
+            parameter("fingerprintId", "query", true, { type: "string", pattern: "^fingerprint-[a-f0-9]{24}$" }),
+          ],
+          responses: { "200": response("Immutable context outcome receipts", reference("ContextOutcomeListResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/feedback": {
+        post: {
+          operationId: "proposeContextFeedback",
+          description: "Create an immutable body-free proposal; active ranking and datasets are not changed by this operation.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("ContextFeedbackSubmission") } } },
+          responses: { "201": response("Immutable context feedback proposal", reference("ContextFeedbackProposal")), ...problemResponses },
+        },
+        get: {
+          operationId: "listContextFeedback",
+          parameters: [
+            parameter("workspaceId", "query", true, { type: "string", minLength: 1 }),
+            parameter("fingerprintId", "query", true, { type: "string", pattern: "^fingerprint-[a-f0-9]{24}$" }),
+          ],
+          responses: { "200": response("Immutable context feedback proposals", reference("ContextFeedbackListResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/business-evaluations": {
+        post: {
+          operationId: "runContextBusinessEvaluation",
+          description: "Run one registered server-owned V0-V5 profile and persist one immutable body-free receipt.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("BusinessEvaluationRunRequest") } } },
+          responses: { "201": response("Immutable business evaluation receipt", reference("BusinessEvaluationReceipt")), ...problemResponses },
+        },
+        get: {
+          operationId: "listContextBusinessEvaluations",
+          parameters: [
+            parameter("workspaceId", "query", true, { type: "string", minLength: 1 }),
+            parameter("datasetId", "query", true, { type: "string", minLength: 1 }),
+          ],
+          responses: { "200": response("Immutable business evaluation receipts", reference("BusinessEvaluationListResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/business-evaluation-profiles": {
+        get: {
+          operationId: "listContextBusinessEvaluationProfiles",
+          description: "List versioned server-owned business-evaluation profiles. Client-supplied manifests and host paths are not accepted.",
+          responses: { "200": response("Available business evaluation profiles", reference("BusinessEvaluationProfileListResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/task-success-evaluations": {
+        post: {
+          operationId: "startTaskSuccessEvaluation",
+          description: "Prepare transient blind jobs from a server-owned profile; model calls remain outside ABCM.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("TaskSuccessStartRequest") } } },
+          responses: { "202": response("Task-success session", reference("TaskSuccessSession")), ...problemResponses },
+        },
+      },
+      "/v1/context/task-success-evaluations/{sessionId}": {
+        get: {
+          operationId: "getTaskSuccessEvaluation",
+          parameters: [parameter("sessionId", "path", true, { type: "string", pattern: "^task-session-[a-f0-9]{24}$" })],
+          responses: { "200": response("Body-free task-success progress", reference("TaskSuccessSession")), ...problemResponses },
+        },
+      },
+      "/v1/context/task-success-worker/jobs/claim": {
+        post: {
+          operationId: "claimTaskSuccessJob",
+          description: "Worker-token endpoint. Returns one blind prompt and ABCM-prepared context without variant or gold labels.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("TaskSuccessClaimRequest") } } },
+          responses: { "200": response("Claimed blind job or null", reference("TaskSuccessClaimResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/task-success-worker/jobs/submit": {
+        post: {
+          operationId: "submitTaskSuccessJob",
+          description: "Worker-token endpoint. Accepts body-free result digests, verdicts, and measurements; model output is rejected.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("TaskSuccessSubmitRequest") } } },
+          responses: { "200": response("Updated body-free task-success progress", reference("TaskSuccessSession")), ...problemResponses },
         },
       },
       "/v1/workspaces/{workspaceId}/documentation-sources/preview": {

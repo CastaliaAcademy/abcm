@@ -1,0 +1,31 @@
+import {
+  syncApplyBatchSchema,
+  syncApplyResultSchema,
+  syncChangeEventSchema,
+  syncChangesResultSchema,
+  syncConflictResolutionSchema,
+  syncConflictSchema,
+  syncDeviceGrantSchema,
+  syncOperationReceiptSchema,
+  syncPairingCreateResultSchema,
+  syncPairingCreateSchema,
+  syncPairingRedeemSchema,
+  syncPreviewRequestSchema,
+  syncPreviewResultSchema,
+} from "./contracts.js";
+
+export const OBSIDIAN_SYNC_REST_SCHEMAS = {
+  SyncPairingCreate: syncPairingCreateSchema,
+  SyncPairingCreateResult: syncPairingCreateResultSchema,
+  SyncPairingRedeem: syncPairingRedeemSchema,
+  SyncDeviceGrant: syncDeviceGrantSchema,
+  SyncPreviewRequest: syncPreviewRequestSchema,
+  SyncPreviewResult: syncPreviewResultSchema,
+  SyncChangeEvent: syncChangeEventSchema,
+  SyncChangesResult: syncChangesResultSchema,
+  SyncApplyBatch: syncApplyBatchSchema,
+  SyncOperationReceipt: syncOperationReceiptSchema,
+  SyncApplyResult: syncApplyResultSchema,
+  SyncConflict: syncConflictSchema,
+  SyncConflictResolution: syncConflictResolutionSchema,
+} as const;

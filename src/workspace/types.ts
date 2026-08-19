@@ -40,6 +40,10 @@ export interface MoveOptions extends DeletePreconditions {
   overwrite?: boolean;
 }
 
+export interface DeleteDirectoryOptions {
+  recursive: boolean;
+}
+
 export type MutationReconciler = (workspaceId: string, changedPaths: readonly string[]) => Promise<void>;
 export type FileMutationOperation = "write" | "delete" | "move";
 export type MutationAuthorizer = (

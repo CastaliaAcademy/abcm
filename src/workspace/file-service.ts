@@ -1,15 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, open, readdir, rename, stat, unlink } from "node:fs/promises";
+import { mkdir, open, readdir, rename, rm, stat, unlink } from "node:fs/promises";
 import { basename, dirname, posix } from "node:path";
 
 import { AbcmError } from "../core/errors.js";
 import { observeOperation, type AbcmObservability } from "../core/observability.js";
 import { throwIfAborted } from "../core/operation.js";
 import { WorkspaceRegistry } from "./registry.js";
+import { WorkspaceMutationCoordinator } from "./mutation-coordinator.js";
 import { SafeWorkspacePath } from "./safe-path.js";
 import type {
   DeletePreconditions,
+  DeleteDirectoryOptions,
   FileEntry,
   FileMutationOperation,
   MoveOptions,
@@ -24,6 +26,7 @@ interface WorkspaceFileServiceOptions {
   onMutation?: MutationReconciler;
   authorizeMutation?: MutationAuthorizer;
   observability?: AbcmObservability;
+  mutationCoordinator?: WorkspaceMutationCoordinator;
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -49,13 +52,14 @@ export class WorkspaceFileService {
   readonly #onMutation: MutationReconciler | undefined;
   readonly #authorizeMutation: MutationAuthorizer | undefined;
   readonly #observability: AbcmObservability | undefined;
-  #mutationTail: Promise<void> = Promise.resolve();
+  readonly #mutationCoordinator: WorkspaceMutationCoordinator;
 
   constructor(registry: WorkspaceRegistry, options: WorkspaceFileServiceOptions = {}) {
     this.#registry = registry;
     this.#onMutation = options.onMutation;
     this.#authorizeMutation = options.authorizeMutation;
     this.#observability = options.observability;
+    this.#mutationCoordinator = options.mutationCoordinator ?? new WorkspaceMutationCoordinator();
   }
 
   async list(workspaceId: string, path = "", recursive = false, signal?: AbortSignal): Promise<FileEntry[]> {
@@ -174,7 +178,7 @@ export class WorkspaceFileService {
         maxWriteBytes: workspace.maxWriteBytes,
       });
     }
-    return this.#mutate(async () => {
+    return this.#mutate(workspaceId, async () => {
       throwIfAborted(signal);
       if (authorize) await this.#authorize(workspaceId, [path], "write");
       throwIfAborted(signal);
@@ -241,7 +245,7 @@ export class WorkspaceFileService {
   ): Promise<void> {
     throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
-    await this.#mutate(async () => {
+    await this.#mutate(workspaceId, async () => {
       throwIfAborted(signal);
       if (authorize) await this.#authorize(workspaceId, [path], "delete");
       throwIfAborted(signal);
@@ -286,7 +290,7 @@ export class WorkspaceFileService {
   ): Promise<FileEntry & { checksum: string }> {
     throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
-    return this.#mutate(async () => {
+    return this.#mutate(workspaceId, async () => {
       throwIfAborted(signal);
       if (authorize) await this.#authorize(workspaceId, [from, to], "move");
       throwIfAborted(signal);
@@ -320,10 +324,96 @@ export class WorkspaceFileService {
     });
   }
 
+  async deleteDirectory(
+    workspaceId: string,
+    path: string,
+    options: DeleteDirectoryOptions,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!options.recursive) {
+      throw new AbcmError("REQUEST_INVALID", "Recursive directory deletion requires recursive=true.");
+    }
+    await observeOperation(this.#observability, {
+      operation: "directory.delete",
+      workspaceId,
+      successMetrics: () => [{ name: "abcm_file_mutation_total", value: 1, unit: "count", operation: "directory.delete", outcome: "success" }],
+    }, async () => {
+      throwIfAborted(signal);
+      const workspace = this.#registry.get(workspaceId);
+      await this.#mutate(workspaceId, async () => {
+        const safePath = await this.#safePath(workspace);
+        const resolved = await safePath.resolve(path);
+        const metadata = await stat(resolved.absolutePath);
+        if (!metadata.isDirectory()) throw new AbcmError("FILE_TYPE_UNSUPPORTED", "Directory deletion requires a directory.");
+        const files = await this.#directoryFiles(workspace, safePath, resolved.absolutePath, resolved.relativePath, signal);
+        await this.#authorize(workspaceId, files.length === 0 ? [resolved.relativePath] : files, "delete");
+        throwIfAborted(signal);
+        await rm(resolved.absolutePath, { recursive: true, force: false });
+        await this.#notify(workspaceId, files.length === 0 ? [resolved.relativePath] : files);
+      });
+    });
+  }
+
+  async moveDirectory(
+    workspaceId: string,
+    from: string,
+    to: string,
+    signal?: AbortSignal,
+  ): Promise<FileEntry> {
+    return observeOperation(this.#observability, {
+      operation: "directory.move",
+      workspaceId,
+      successMetrics: () => [{ name: "abcm_file_mutation_total", value: 1, unit: "count", operation: "directory.move", outcome: "success" }],
+    }, async () => {
+      throwIfAborted(signal);
+      const workspace = this.#registry.get(workspaceId);
+      return this.#mutate(workspaceId, async () => {
+        const safePath = await this.#safePath(workspace);
+        const source = await safePath.resolve(from);
+        let target = await safePath.resolve(to, { allowMissing: true });
+        const sourceMetadata = await stat(source.absolutePath);
+        if (!sourceMetadata.isDirectory()) throw new AbcmError("FILE_TYPE_UNSUPPORTED", "Directory move requires a directory.");
+        const sourceKey = source.relativePath.toLowerCase();
+        const targetKey = target.relativePath.toLowerCase();
+        if (targetKey === sourceKey || targetKey.startsWith(`${sourceKey}/`)) {
+          throw new AbcmError("FILE_PATH_INVALID", "Directory cannot be moved onto itself or into its descendant.");
+        }
+        if (await this.#exists(target.absolutePath)) {
+          throw new AbcmError("FILE_ALREADY_EXISTS", "Directory move target already exists.", { path: target.relativePath });
+        }
+        const sourceFiles = await this.#directoryFiles(workspace, safePath, source.absolutePath, source.relativePath, signal);
+        const movedFiles = sourceFiles.map(path => posix.join(target.relativePath, path.slice(source.relativePath.length + 1)));
+        const authorizationPaths = sourceFiles.length === 0
+          ? [source.relativePath, target.relativePath]
+          : sourceFiles.flatMap((path, index) => [path, movedFiles[index]!]);
+        await this.#authorize(workspaceId, authorizationPaths, "move");
+        await mkdir(dirname(target.absolutePath), { recursive: true });
+        target = await safePath.resolve(to, { allowMissing: true });
+        throwIfAborted(signal);
+        await rename(source.absolutePath, target.absolutePath);
+        if (sourceFiles.length === 0) {
+          await this.#notify(workspaceId, [source.relativePath, target.relativePath]);
+        } else {
+          for (let index = 0; index < sourceFiles.length; index += 1) {
+            await this.#notify(workspaceId, [sourceFiles[index]!, movedFiles[index]!]);
+          }
+        }
+        const targetMetadata = await stat(target.absolutePath);
+        return {
+          path: target.relativePath,
+          name: basename(target.relativePath),
+          kind: "directory" as const,
+          size: 0,
+          modifiedAt: targetMetadata.mtime.toISOString(),
+        };
+      });
+    });
+  }
+
   async createDirectory(workspaceId: string, path: string, signal?: AbortSignal): Promise<FileEntry> {
     throwIfAborted(signal);
     const workspace = this.#registry.get(workspaceId);
-    return this.#mutate(async () => {
+    return this.#mutate(workspaceId, async () => {
       throwIfAborted(signal);
       const safePath = await this.#safePath(workspace);
       let resolved = await safePath.resolve(path, { allowMissing: true });
@@ -343,6 +433,40 @@ export class WorkspaceFileService {
         modifiedAt: metadata.mtime.toISOString(),
       };
     });
+  }
+
+  async #directoryFiles(
+    workspace: ResolvedWorkspace,
+    safePath: SafeWorkspacePath,
+    absoluteDirectory: string,
+    relativeDirectory: string,
+    signal?: AbortSignal,
+  ): Promise<string[]> {
+    const files: string[] = [];
+    const visit = async (absolute: string, relative: string): Promise<void> => {
+      throwIfAborted(signal);
+      const children = await readdir(absolute, { withFileTypes: true });
+      children.sort((left, right) => left.name.localeCompare(right.name));
+      for (const child of children) {
+        throwIfAborted(signal);
+        if (this.#isDeniedName(workspace, child.name)) {
+          throw new AbcmError("FILE_PATH_FORBIDDEN", "Directory mutation contains a reserved path.", { path: posix.join(relative, child.name) });
+        }
+        if (child.isSymbolicLink()) {
+          throw new AbcmError("FILE_TYPE_UNSUPPORTED", "Directory mutation does not support symbolic links.", { path: posix.join(relative, child.name) });
+        }
+        const childPath = posix.join(relative, child.name);
+        const resolved = await safePath.resolve(childPath);
+        if (child.isDirectory()) await visit(resolved.absolutePath, childPath);
+        else if (child.isFile()) files.push(childPath);
+        else throw new AbcmError("FILE_TYPE_UNSUPPORTED", "Directory mutation supports only regular files and directories.", { path: childPath });
+        if (files.length > workspace.maxListEntries) {
+          throw new AbcmError("FILE_TOO_LARGE", "Directory mutation exceeds the configured entry limit.", { maxListEntries: workspace.maxListEntries });
+        }
+      }
+    };
+    await visit(absoluteDirectory, relativeDirectory);
+    return files;
   }
 
   async #safePath(workspace: ResolvedWorkspace): Promise<SafeWorkspacePath> {
@@ -398,12 +522,7 @@ export class WorkspaceFileService {
     if (this.#authorizeMutation) await this.#authorizeMutation(workspaceId, paths, operation);
   }
 
-  #mutate<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.#mutationTail.then(operation, operation);
-    this.#mutationTail = result.then(
-      () => undefined,
-      () => undefined,
-    );
-    return result;
+  #mutate<T>(workspaceId: string, operation: () => Promise<T>): Promise<T> {
+    return this.#mutationCoordinator.run(workspaceId, operation);
   }
 }

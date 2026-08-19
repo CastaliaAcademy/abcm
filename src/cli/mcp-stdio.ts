@@ -6,12 +6,18 @@ import { createAbcmRuntime } from "../app/create-runtime.js";
 import { installGracefulShutdown } from "./graceful-shutdown.js";
 import { parseDocumentationSources } from "../documentation/config.js";
 import { parseContextPrincipalEnvironment } from "../domain-language/context-principal-config.js";
+import { loadBusinessEvaluationProfiles } from "../evaluation/context-business-eval-config.js";
 import { parseScopeMapReconcileEnvironment } from "../scope-map/reconcile-config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
 
 const workspaceId = process.env.ABCM_WORKSPACE_ID ?? "default";
 const workspaceRoot = resolve(process.env.ABCM_WORKSPACE_ROOT ?? process.cwd());
 const workspaceStoreRoot = process.env.ABCM_WORKSPACE_STORE_ROOT;
+const fileOperationStateRoot = process.env.ABCM_FILE_OPERATION_STATE_ROOT;
+const fileUploadMaxBytes = optionalPositiveInteger("ABCM_FILE_UPLOAD_MAX_BYTES");
+const fileUploadChunkBytes = optionalPositiveInteger("ABCM_FILE_UPLOAD_CHUNK_BYTES");
+const fileUploadTtlMs = optionalPositiveInteger("ABCM_FILE_UPLOAD_TTL_MS");
+const fileBatchMaxBytes = optionalPositiveInteger("ABCM_FILE_BATCH_MAX_BYTES");
 const sqliteDerivedStoreEnabled = process.env.ABCM_DERIVED_STORE_ENABLED === "true";
 const scanLeaseTtlMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_TTL_MS");
 const scanLeaseRenewalIntervalMs = optionalPositiveInteger("ABCM_DERIVED_STORE_SCAN_LEASE_RENEWAL_INTERVAL_MS");
@@ -21,6 +27,7 @@ const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENT
 const scopeMapReconcile = parseScopeMapReconcileEnvironment(process.env);
 const contextPrincipal = parseContextPrincipalEnvironment(process.env, "stdio-client");
 const mcpOperationTimeoutMs = optionalPositiveInteger("ABCM_MCP_OPERATION_TIMEOUT_MS");
+const businessEvaluationProfiles = await loadBusinessEvaluationProfiles(process.env.ABCM_BUSINESS_EVALUATION_PROFILES);
 
 function optionalPositiveInteger(name: string): number | undefined {
   const value = process.env[name];
@@ -43,7 +50,17 @@ const runtime = createAbcmRuntime(
     scopeMapAccess: contextPrincipal.access,
     ...(mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs }),
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
+    ...(fileOperationStateRoot === undefined ? {} : {
+      fileOperations: {
+        stateRoot: resolve(fileOperationStateRoot),
+        ...(fileUploadMaxBytes === undefined ? {} : { maxUploadBytes: fileUploadMaxBytes }),
+        ...(fileUploadChunkBytes === undefined ? {} : { maxChunkBytes: fileUploadChunkBytes }),
+        ...(fileUploadTtlMs === undefined ? {} : { uploadTtlMs: fileUploadTtlMs }),
+        ...(fileBatchMaxBytes === undefined ? {} : { maxBatchBytes: fileBatchMaxBytes }),
+      },
+    }),
     sqliteDerivedStoreEnabled,
+    ...(businessEvaluationProfiles === undefined ? {} : { businessEvaluationProfiles }),
     ...(documentationSources === undefined ? {} : { documentationSources }),
     scopeMapReconcile: {
       ...scopeMapReconcile,
@@ -66,6 +83,7 @@ const runtime = createAbcmRuntime(
         }),
   },
 );
+await runtime.ready;
 await runtime.scopeMap.scan(workspaceId);
 
 const stdio = serveStdio(runtime.createMcpServer, {

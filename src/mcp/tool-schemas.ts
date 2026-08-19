@@ -1,18 +1,90 @@
 import { z } from "zod/v4";
 
+import { ABCM_AGENT_INSTRUCTIONS_VERSION } from "../agent-instructions/agent-instructions.js";
+import {
+  architectureComplianceSchema,
+  architecturePolicyInputSchema,
+  architecturePolicyRecordSchema,
+  architecturePolicyResolutionSchema,
+  architecturePolicyTargetSchema,
+} from "../architecture/architecture-policy-service.js";
 import { buildTaskContextSchema } from "../context/schema.js";
+import { projectLanguageTagSchema } from "../core/project-language.js";
+import { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
+export { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
+import { contextFeedbackProposalSchema, contextFeedbackSubmissionSchema } from "../evaluation/context-feedback.js";
+export { contextFeedbackProposalSchema, contextFeedbackSubmissionSchema } from "../evaluation/context-feedback.js";
+import {
+  businessEvaluationListRequestSchema,
+  businessEvaluationReceiptSchema,
+} from "../evaluation/context-business-eval-runner.js";
+export {
+  businessEvaluationListRequestSchema,
+  businessEvaluationReceiptSchema,
+} from "../evaluation/context-business-eval-runner.js";
+import {
+  businessEvaluationProfileSummarySchema,
+  serverOwnedBusinessEvaluationRunRequestSchema,
+} from "../evaluation/context-business-eval-profile.js";
+import { taskSuccessSessionSchema, taskSuccessStartRequestSchema } from "../evaluation/task-success-worker.js";
+export const businessEvaluationRunRequestSchema = serverOwnedBusinessEvaluationRunRequestSchema;
+import {
+  workspaceBatchApplyInputSchema,
+  workspaceBatchApplyOutputSchema,
+  workspaceUploadAbortInputSchema,
+  workspaceUploadAbortOutputSchema,
+  workspaceUploadChunkInputSchema,
+  workspaceUploadChunkOutputSchema,
+  workspaceUploadCompleteInputSchema,
+  workspaceUploadCompleteOutputSchema,
+  workspaceUploadStartInputSchema,
+  workspaceUploadStartOutputSchema,
+} from "../workspace/file-operation-contracts.js";
 
 export const agentInstructionsInputSchema = z.object({}).strict();
 export const agentInstructionsOutputSchema = z.object({
-  version: z.literal("1.2.0"),
+  version: z.literal(ABCM_AGENT_INSTRUCTIONS_VERSION),
   contentType: z.literal("text/markdown; charset=utf-8"),
   checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   content: z.string().min(1),
 }).strict();
+export const businessEvaluationListOutputSchema = z.object({
+  evaluations: z.array(businessEvaluationReceiptSchema),
+}).strict();
+export const businessEvaluationProfileListInputSchema = z.object({}).strict();
+export const businessEvaluationProfileListOutputSchema = z.object({
+  profiles: z.array(businessEvaluationProfileSummarySchema),
+}).strict();
+export const taskSuccessEvaluationStartInputSchema = taskSuccessStartRequestSchema;
+export const taskSuccessEvaluationGetInputSchema = z.object({ sessionId: z.string().regex(/^task-session-[a-f0-9]{24}$/) }).strict();
+export const taskSuccessEvaluationSessionOutputSchema = taskSuccessSessionSchema;
 
 const workspaceId = z.string().min(1);
 const path = z.string();
 const checksum = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+
+export const workspaceCreateInputSchema = z.object({
+  id: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/),
+  name: z.string().min(1).max(160).optional(),
+  language: projectLanguageTagSchema,
+}).strict();
+export const workspaceCreateOutputSchema = z.object({ id: z.string() }).strict();
+
+export const workspaceGetArchitecturePolicyInputSchema = architecturePolicyTargetSchema;
+export const workspaceGetArchitecturePolicyOutputSchema = architecturePolicyResolutionSchema;
+export const workspaceSetArchitecturePolicyInputSchema = architecturePolicyTargetSchema.extend({
+  enforcement: architecturePolicyInputSchema.shape.enforcement,
+  architecture: architecturePolicyInputSchema.shape.architecture,
+  ifMatch: checksum.optional(),
+  ifNoneMatch: z.literal("*").optional(),
+}).strict();
+export const workspaceSetArchitecturePolicyOutputSchema = architecturePolicyRecordSchema;
+export const workspaceDeleteArchitecturePolicyInputSchema = architecturePolicyTargetSchema.extend({ ifMatch: checksum.optional() }).strict();
+export const workspaceDeleteArchitecturePolicyOutputSchema = z.object({ deleted: z.literal(true) }).strict();
+export const workspaceListArchitecturePoliciesInputSchema = z.object({ workspaceId }).strict();
+export const workspaceListArchitecturePoliciesOutputSchema = z.object({ policies: z.array(architecturePolicyRecordSchema) }).strict();
+export const workspaceCheckArchitectureComplianceInputSchema = architecturePolicyTargetSchema;
+export const workspaceCheckArchitectureComplianceOutputSchema = architectureComplianceSchema;
 
 export const fileEntrySchema = z.object({
   path: z.string(),
@@ -62,6 +134,20 @@ export const workspaceMoveFileOutputSchema = workspaceWriteFileOutputSchema;
 
 export const workspaceCreateDirectoryInputSchema = z.object({ workspaceId, path: path.min(1) }).strict();
 export const workspaceCreateDirectoryOutputSchema = z.object({ entry: fileEntrySchema }).strict();
+
+export const workspaceDeleteDirectoryInputSchema = z.object({
+  workspaceId,
+  path: path.min(1),
+  recursive: z.literal(true),
+}).strict();
+export const workspaceDeleteDirectoryOutputSchema = z.object({ deleted: z.literal(true) }).strict();
+
+export const workspaceMoveDirectoryInputSchema = z.object({
+  workspaceId,
+  from: path.min(1),
+  to: path.min(1),
+}).strict();
+export const workspaceMoveDirectoryOutputSchema = workspaceCreateDirectoryOutputSchema;
 
 const scopeNodeSchema = z.object({
   scopeId: z.string(),
@@ -129,7 +215,31 @@ export const domainLanguageOutputSchema = z.object({
   expiresAt: z.string(),
 }).strict();
 
+const affectedScopeDetailSchema = z.object({
+  scopeId: z.string(),
+  origin: z.enum(["primary", "explicit", "relation"]),
+  depth: z.number().int().nonnegative(),
+  viaScopeId: z.string().optional(),
+  relationType: z.string().optional(),
+}).strict();
+const contextBudgetAllocationSchema = z.object({
+  bucketId: z.string(),
+  requestedTokens: z.number().int().nonnegative(),
+  reservedTokens: z.number().int().nonnegative(),
+  consumedTokens: z.number().int().nonnegative(),
+  selectedTokens: z.number().int().nonnegative(),
+  omittedTokens: z.number().int().nonnegative(),
+}).strict();
+
 export const contextBuildInputSchema = buildTaskContextSchema;
+const contextBuildCacheMetadataSchema = z.object({
+  state: z.enum(["hit", "miss", "stale"]),
+  policyVersion: z.literal("context-build-cache/v1"),
+  projectionPolicyVersion: z.literal("document-projection/v1"),
+  keyDigest: checksum,
+  workspaceSnapshotDigest: checksum,
+  principalAccessDigest: checksum,
+}).strict();
 export const contextBuildOutputSchema = z.object({
   contextBundleId: z.string(),
   bundleDigest: checksum,
@@ -143,6 +253,9 @@ export const contextBuildOutputSchema = z.object({
   budget: z.object({ softLimitTokens: z.number().int().nonnegative(), hardLimitTokens: z.number().int().positive() }).strict(),
   primaryTargetScope: z.string(),
   affectedScopes: z.array(z.string()),
+  affectedScopeDetails: z.array(affectedScopeDetailSchema),
+  multiScopePolicyDigest: checksum,
+  budgetAllocation: z.array(contextBudgetAllocationSchema),
   resolvedScopePath: z.record(z.string(), z.unknown()),
   skillConnectionReasons: z.record(z.string(), z.array(z.string())),
   connectedSkills: z.array(z.unknown()),
@@ -153,7 +266,49 @@ export const contextBuildOutputSchema = z.object({
   omissions: z.array(z.unknown()),
   tokenEstimate: z.number().int().nonnegative(),
   contextFingerprintLocation: z.string(),
+  cache: contextBuildCacheMetadataSchema,
 }).strict();
+
+const contextPreviewDocumentSchema = z.object({
+  documentId: z.string(),
+  scopeId: z.string(),
+  relativePath: z.string(),
+  checksum,
+  mandatory: z.boolean(),
+  effectivePriority: z.number().int().nonnegative(),
+  selectionReasons: z.array(z.string()),
+  projection: z.object({
+    mode: z.enum(["full", "section", "summary", "metadata", "reference"]),
+    authoritative: z.boolean(),
+    sourceDocumentId: z.string(),
+    sourceChecksum: checksum,
+  }).strict(),
+  tokenEstimate: z.number().int().nonnegative(),
+}).strict();
+export const contextPreviewOutputSchema = z.object({
+  previewDigest: checksum,
+  selectionPolicyVersion: z.literal("context-selection/v3"),
+  mapRevision: checksum,
+  mapDigest: checksum,
+  primaryTargetScope: z.string(),
+  affectedScopes: z.array(z.string()),
+  budgetProfile: z.string(),
+  budget: z.object({ softLimitTokens: z.number().int().nonnegative(), hardLimitTokens: z.number().int().positive() }).strict(),
+  budgetAllocation: z.array(contextBudgetAllocationSchema),
+  selectedDocuments: z.array(contextPreviewDocumentSchema),
+  omissions: z.array(z.unknown()),
+  warnings: z.array(z.object({ code: z.string(), subjectId: z.string().optional() }).strict()),
+  tokenEstimate: z.number().int().nonnegative(),
+  fallbackModes: z.tuple([z.literal("direct-search"), z.literal("explicit-documents"), z.literal("bounded-resource-read")]),
+  cache: contextBuildCacheMetadataSchema,
+}).strict();
+export const contextOutcomeListInputSchema = z.object({
+  workspaceId,
+  fingerprintId: z.string().regex(/^fingerprint-[a-f0-9]{24}$/),
+}).strict();
+export const contextOutcomeListOutputSchema = z.object({ outcomes: z.array(contextOutcomeReceiptSchema) }).strict();
+export const contextFeedbackListInputSchema = contextOutcomeListInputSchema;
+export const contextFeedbackListOutputSchema = z.object({ proposals: z.array(contextFeedbackProposalSchema) }).strict();
 
 const documentationOperationSchema = z.object({
   operation: z.enum(["create", "update", "move", "delete", "unchanged", "conflict"]),
@@ -211,15 +366,30 @@ export const documentationCutoverOutputSchema = z.object({
 
 export const ABCM_MCP_TOOL_SCHEMAS = {
   "agent_instructions.get": { input: agentInstructionsInputSchema, output: agentInstructionsOutputSchema },
+  "workspace.create": { input: workspaceCreateInputSchema, output: workspaceCreateOutputSchema },
   "workspace.list_files": { input: workspaceListFilesInputSchema, output: workspaceListFilesOutputSchema },
   "workspace.read_file": { input: workspaceReadFileInputSchema, output: workspaceReadFileOutputSchema },
   "workspace.write_file": { input: workspaceWriteFileInputSchema, output: workspaceWriteFileOutputSchema },
   "workspace.delete_file": { input: workspaceDeleteFileInputSchema, output: workspaceDeleteFileOutputSchema },
+  "workspace.upload_start": { input: workspaceUploadStartInputSchema, output: workspaceUploadStartOutputSchema },
+  "workspace.upload_chunk": { input: workspaceUploadChunkInputSchema, output: workspaceUploadChunkOutputSchema },
+  "workspace.upload_complete": { input: workspaceUploadCompleteInputSchema, output: workspaceUploadCompleteOutputSchema },
+  "workspace.upload_abort": { input: workspaceUploadAbortInputSchema, output: workspaceUploadAbortOutputSchema },
+  "workspace.batch_apply": { input: workspaceBatchApplyInputSchema, output: workspaceBatchApplyOutputSchema },
   "workspace.move_file": { input: workspaceMoveFileInputSchema, output: workspaceMoveFileOutputSchema },
   "workspace.create_directory": { input: workspaceCreateDirectoryInputSchema, output: workspaceCreateDirectoryOutputSchema },
+  "workspace.move_directory": { input: workspaceMoveDirectoryInputSchema, output: workspaceMoveDirectoryOutputSchema },
+  "workspace.delete_directory": { input: workspaceDeleteDirectoryInputSchema, output: workspaceDeleteDirectoryOutputSchema },
   "scope_map.scan": { input: scopeMapScanInputSchema, output: scopeMapScanOutputSchema },
   "context.get_domain_language": { input: domainLanguageInputSchema, output: domainLanguageOutputSchema },
   "context.build_task_context": { input: contextBuildInputSchema, output: contextBuildOutputSchema },
+  "context.preview_task_context": { input: contextBuildInputSchema, output: contextPreviewOutputSchema },
+  "context.record_outcome": { input: contextOutcomeSubmissionSchema, output: contextOutcomeReceiptSchema },
+  "context.list_outcomes": { input: contextOutcomeListInputSchema, output: contextOutcomeListOutputSchema },
+  "context.propose_feedback": { input: contextFeedbackSubmissionSchema, output: contextFeedbackProposalSchema },
+  "context.list_feedback": { input: contextFeedbackListInputSchema, output: contextFeedbackListOutputSchema },
+  "context.run_business_evaluation": { input: businessEvaluationRunRequestSchema, output: businessEvaluationReceiptSchema },
+  "context.list_business_evaluations": { input: businessEvaluationListRequestSchema, output: businessEvaluationListOutputSchema },
   "documentation_source.preview": { input: documentationPreviewInputSchema, output: documentationPreviewOutputSchema },
   "documentation_source.apply": { input: documentationApplyInputSchema, output: documentationSyncOutputSchema },
   "documentation_source.sync": { input: documentationSyncInputSchema, output: documentationSyncOutputSchema },

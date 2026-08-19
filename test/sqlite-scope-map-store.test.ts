@@ -51,12 +51,12 @@ function revision(id: string): MapRevision {
 describe("SqliteScopeMapStore", () => {
   test("creates a versioned rollback-journal database and reopens idempotently", () => {
     const first = new SqliteScopeMapStore(databasePath, { ownerId: "owner-a", clock: () => now });
-    expect(first.schemaVersion()).toBe(8);
+    expect(first.schemaVersion()).toBe(11);
     expect(first.journalMode().toLowerCase()).toBe("delete");
     first.close();
 
     const second = new SqliteScopeMapStore(databasePath, { ownerId: "owner-b", clock: () => now });
-    expect(second.schemaVersion()).toBe(8);
+    expect(second.schemaVersion()).toBe(11);
     second.close();
 
     const database = new Database(databasePath, { readonly: true });
@@ -86,12 +86,16 @@ describe("SqliteScopeMapStore", () => {
         "documentation_cutovers",
         "context_bundles",
         "context_fingerprints",
+        "context_outcomes",
+        "context_build_cache",
+        "context_feedback_proposals",
+        "business_evaluation_receipts",
       ]),
     );
     database.close();
   });
 
-  test("upgrades schema v1 to v8 transactionally", () => {
+  test("upgrades schema v1 to v11 transactionally", () => {
     const initial = new SqliteScopeMapStore(databasePath);
     const lease = initial.beginScan("workspace");
     initial.publish(lease, revision("sha256:before-upgrade"));
@@ -102,7 +106,7 @@ describe("SqliteScopeMapStore", () => {
     legacy.close();
 
     const upgraded = new SqliteScopeMapStore(databasePath);
-    expect(upgraded.schemaVersion()).toBe(8);
+    expect(upgraded.schemaVersion()).toBe(11);
     expect(upgraded.getActive("workspace")).toEqual(revision("sha256:before-upgrade"));
     upgraded.close();
     const check = new Database(databasePath, { readonly: true });
@@ -112,7 +116,7 @@ describe("SqliteScopeMapStore", () => {
     check.close();
   });
 
-  test("upgrades schema v2 to v8 without replacing the active revision", () => {
+  test("upgrades schema v2 to v11 without replacing the active revision", () => {
     const initial = new SqliteScopeMapStore(databasePath);
     const lease = initial.beginScan("workspace");
     initial.publish(lease, revision("sha256:before-v3"));
@@ -125,12 +129,12 @@ describe("SqliteScopeMapStore", () => {
     legacy.close();
 
     const upgraded = new SqliteScopeMapStore(databasePath);
-    expect(upgraded.schemaVersion()).toBe(8);
+    expect(upgraded.schemaVersion()).toBe(11);
     expect(upgraded.getActive("workspace")).toEqual(revision("sha256:before-v3"));
     upgraded.close();
   });
 
-  test("upgrades schema v3 to v8 without replacing the active revision", () => {
+  test("upgrades schema v3 to v11 without replacing the active revision", () => {
     const initial = new SqliteScopeMapStore(databasePath);
     const lease = initial.beginScan("workspace");
     initial.publish(lease, revision("sha256:before-v4"));
@@ -145,12 +149,12 @@ describe("SqliteScopeMapStore", () => {
     legacy.close();
 
     const upgraded = new SqliteScopeMapStore(databasePath);
-    expect(upgraded.schemaVersion()).toBe(8);
+    expect(upgraded.schemaVersion()).toBe(11);
     expect(upgraded.getActive("workspace")).toEqual(revision("sha256:before-v4"));
     upgraded.close();
   });
 
-  test("upgrades schema v4 to v8 and normalizes graph metadata without replacing the active revision", () => {
+  test("upgrades schema v4 to v11 and normalizes graph metadata without replacing the active revision", () => {
     const initial = new SqliteScopeMapStore(databasePath);
     const mapped = revision("sha256:before-v5");
     mapped.relations = [
@@ -171,7 +175,7 @@ describe("SqliteScopeMapStore", () => {
     legacy.close();
 
     const upgraded = new SqliteScopeMapStore(databasePath);
-    expect(upgraded.schemaVersion()).toBe(8);
+    expect(upgraded.schemaVersion()).toBe(11);
     expect(upgraded.getActive("workspace")).toEqual(mapped);
     upgraded.close();
     const normalized = new Database(databasePath, { readonly: true });
@@ -191,7 +195,7 @@ describe("SqliteScopeMapStore", () => {
     normalized.close();
   });
 
-  test("upgrades schema v5 to v8 with durable sync, cutover journals, and context catalog", () => {
+  test("upgrades schema v5 to v11 with durable sync, cutover journals, and context catalog", () => {
     const initial = new SqliteScopeMapStore(databasePath);
     initial.close();
     const legacy = new Database(databasePath);
@@ -203,7 +207,7 @@ describe("SqliteScopeMapStore", () => {
     legacy.close();
 
     const upgraded = new SqliteScopeMapStore(databasePath);
-    expect(upgraded.schemaVersion()).toBe(8);
+    expect(upgraded.schemaVersion()).toBe(11);
     upgraded.close();
     const check = new Database(databasePath, { readonly: true });
     expect(check.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE name = 'pending_documentation_syncs'").get()?.name).toBe(
@@ -215,7 +219,7 @@ describe("SqliteScopeMapStore", () => {
     check.close();
   });
 
-  test("upgrades schema v6 to v8 without replacing the active revision", () => {
+  test("upgrades schema v6 to v11 without replacing the active revision", () => {
     const initial = new SqliteScopeMapStore(databasePath);
     const lease = initial.beginScan("workspace");
     initial.publish(lease, revision("sha256:before-v7"));
@@ -227,12 +231,12 @@ describe("SqliteScopeMapStore", () => {
     legacy.close();
 
     const upgraded = new SqliteScopeMapStore(databasePath);
-    expect(upgraded.schemaVersion()).toBe(8);
+    expect(upgraded.schemaVersion()).toBe(11);
     expect(upgraded.getActive("workspace")).toEqual(revision("sha256:before-v7"));
     upgraded.close();
   });
 
-  test("upgrades schema v7 to v8 with optional worker metadata and keeps the active revision", () => {
+  test("upgrades schema v7 to v11 with optional worker metadata and keeps the active revision", () => {
     const initial = new SqliteScopeMapStore(databasePath);
     const mapped = revision("sha256:before-v8");
     mapped.documents = [{
@@ -259,11 +263,63 @@ describe("SqliteScopeMapStore", () => {
     legacy.close();
 
     const upgraded = new SqliteScopeMapStore(databasePath);
-    expect(upgraded.schemaVersion()).toBe(8);
+    expect(upgraded.schemaVersion()).toBe(11);
     expect(upgraded.getActive("workspace")).toEqual(mapped);
     upgraded.close();
     const check = new Database(databasePath, { readonly: true });
     expect(check.query<{ name: string }, []>("SELECT name FROM pragma_table_info('map_documents') WHERE name = 'worker'").get()?.name).toBe("worker");
+    check.close();
+  });
+
+  test("upgrades schema v8 to v11 with immutable context outcomes", () => {
+    const initial = new SqliteScopeMapStore(databasePath);
+    initial.close();
+    const legacy = new Database(databasePath);
+    legacy.run("DROP TABLE context_outcomes");
+    legacy.run("UPDATE schema_metadata SET value = '8' WHERE key = 'schema_version'");
+    legacy.close();
+
+    const upgraded = new SqliteScopeMapStore(databasePath);
+    expect(upgraded.schemaVersion()).toBe(11);
+    upgraded.close();
+    const check = new Database(databasePath, { readonly: true });
+    expect(check.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE name = 'context_outcomes'").get()?.name).toBe("context_outcomes");
+    check.close();
+  });
+
+  test("upgrades schema v9 to v11 with versioned context cache and feedback proposals", () => {
+    const initial = new SqliteScopeMapStore(databasePath);
+    initial.close();
+    const legacy = new Database(databasePath);
+    legacy.run("DROP TABLE context_feedback_proposals");
+    legacy.run("DROP TABLE context_build_cache");
+    legacy.run("UPDATE schema_metadata SET value = '9' WHERE key = 'schema_version'");
+    legacy.close();
+
+    const upgraded = new SqliteScopeMapStore(databasePath);
+    expect(upgraded.schemaVersion()).toBe(11);
+    upgraded.close();
+    const check = new Database(databasePath, { readonly: true });
+    expect(check.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE name = 'context_build_cache'").get()?.name).toBe("context_build_cache");
+    expect(check.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE name = 'context_feedback_proposals'").get()?.name).toBe("context_feedback_proposals");
+    check.close();
+  });
+
+  test("upgrades schema v10 to v11 with immutable business evaluation receipts", () => {
+    const initial = new SqliteScopeMapStore(databasePath);
+    initial.close();
+    const legacy = new Database(databasePath);
+    legacy.run("DROP TABLE business_evaluation_receipts");
+    legacy.run("UPDATE schema_metadata SET value = '10' WHERE key = 'schema_version'");
+    legacy.close();
+
+    const upgraded = new SqliteScopeMapStore(databasePath);
+    expect(upgraded.schemaVersion()).toBe(11);
+    upgraded.close();
+    const check = new Database(databasePath, { readonly: true });
+    expect(check.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE name = 'business_evaluation_receipts'").get()?.name).toBe(
+      "business_evaluation_receipts",
+    );
     check.close();
   });
 

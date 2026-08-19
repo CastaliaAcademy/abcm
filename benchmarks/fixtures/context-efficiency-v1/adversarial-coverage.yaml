@@ -1,0 +1,88 @@
+schemaVersion: abcm.benchmark.adversarial-coverage/v1
+datasetId: context-retrieval-business-scenarios-v1
+fixtureCatalogId: context-retrieval-business-fixtures-v1
+scope: local-synthetic-and-adversarial
+excludedExternalScenarioIds:
+  - BIZ-CTX-001
+  - BIZ-CTX-002
+  - BIZ-CTX-008
+  - BIZ-CTX-013
+  - BIZ-CTX-014
+cases:
+  - scenarioId: BIZ-CTX-003
+    fixtureId: oversized-required-document
+    evidence:
+      - file: test/context-document-projection.test.ts
+        testCase: summary и metadata оцениваются по проекции, сохраняя checksum исходника
+      - file: test/context-builder.test.ts
+        testCase: reserves mandatory content before optional budget and reports boundaries
+  - scenarioId: BIZ-CTX-004
+    fixtureId: multi-explicit-links
+    evidence:
+      - file: test/context-explicit-document-links.test.ts
+        testCase: document id, URI и repository file используют один MapRevision index
+  - scenarioId: BIZ-CTX-005
+    fixtureId: repository-path-exact
+    evidence:
+      - file: test/context-explicit-document-links.test.ts
+        testCase: document id, URI и repository file используют один MapRevision index
+      - file: test/context-relevance-ranking.test.ts
+        testCase: обязательные и exact-scope документы не вытесняются ancestor template/index шумом
+  - scenarioId: BIZ-CTX-006
+    fixtureId: canonical-language-variants
+    evidence:
+      - file: test/scope-path-resolver.test.ts
+        testCase: normalizes aliases after the first target and performs one bounded re-resolution
+      - file: test/scope-path-resolver.test.ts
+        testCase: fails closed for unknown language, ambiguous targets and inaccessible candidates
+  - scenarioId: BIZ-CTX-007
+    fixtureId: template-and-index-noise
+    evidence:
+      - file: test/context-relevance-ranking.test.ts
+        testCase: обязательные и exact-scope документы не вытесняются ancestor template/index шумом
+  - scenarioId: BIZ-CTX-009
+    fixtureId: synthetic-medium
+    evidence:
+      - file: test/context-evaluation-cache.test.ts
+        testCase: отличает cold, warm и stale, не смешивая principal, access, MapRevision и policy
+      - file: test/context-efficiency-benchmark-contract.test.ts
+        testCase: фиксирует manifest для 16-scenario V0-V5 business receipt и приоритетные gates
+  - scenarioId: BIZ-CTX-010
+    fixtureId: stale-bootstrap
+    evidence:
+      - file: test/domain-language-bootstrap.test.ts
+        testCase: expires bootstraps and invalidates them when the active map revision changes
+      - file: test/context-builder.test.ts
+        testCase: rejects unresolved explicit documents and stale materialized bytes
+  - scenarioId: BIZ-CTX-011
+    fixtureId: cross-scope-access
+    evidence:
+      - file: test/multi-scope-context.test.ts
+        testCase: does not disclose inaccessible explicit or relation-derived scopes
+      - file: test/context-explicit-document-links.test.ts
+        testCase: REST и MCP различают missing, access и kind, а malformed отклоняют общей схемой
+  - scenarioId: BIZ-CTX-012
+    fixtureId: budget-contention
+    evidence:
+      - file: test/multi-scope-context.test.ts
+        testCase: connects context from both projects and allocates optional budget round-robin reproducibly
+      - file: test/context-builder.test.ts
+        testCase: reserves mandatory content before optional budget and reports boundaries
+  - scenarioId: BIZ-CTX-015
+    fixtureId: failure-taxonomy
+    evidence:
+      - file: test/context-explicit-document-links.test.ts
+        testCase: REST и MCP различают missing, access и kind, а malformed отклоняют общей схемой
+      - file: test/context-builder.test.ts
+        testCase: rejects unresolved explicit documents and stale materialized bytes
+  - scenarioId: BIZ-CTX-016
+    fixtureId: omission-explainability
+    evidence:
+      - file: test/context-builder.test.ts
+        testCase: reserves mandatory content before optional budget and reports boundaries
+      - file: test/context-relevance-ranking.test.ts
+        testCase: обязательные и exact-scope документы не вытесняются ancestor template/index шумом
+      - file: test/context-explicit-document-links.test.ts
+        testCase: document id, URI и repository file используют один MapRevision index
+      - file: test/context-document-projection.test.ts
+        testCase: summary и metadata оцениваются по проекции, сохраняя checksum исходника

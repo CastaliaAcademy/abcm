@@ -78,6 +78,7 @@ export interface ResolveTaskPathRequest {
   canonicalTerms?: readonly string[];
   keywords?: readonly string[];
   targetHints?: readonly string[];
+  exactScopeIds?: readonly string[];
   explicitLinks?: readonly string[];
   artifacts?: readonly string[];
   repositoryPaths?: readonly string[];
@@ -90,6 +91,7 @@ export interface NormalizedTaskIntent {
   canonicalTerms: readonly string[];
   keywords: readonly string[];
   targetHints: readonly string[];
+  exactScopeIds: readonly string[];
   explicitLinks: readonly string[];
   artifacts: readonly string[];
   repositoryPaths: readonly string[];
@@ -108,13 +110,46 @@ export interface ResolverPass {
   evidence: readonly ScopeResolutionEvidence[];
 }
 
+export interface ScopeResolutionWarning {
+  code: "DOMAIN_ALIAS_DEPRECATED";
+  term: string;
+  canonicalTerm: string;
+}
+
+export type AffectedScopeOrigin = "primary" | "explicit" | "relation";
+
+export interface AffectedScopeDetail {
+  scopeId: string;
+  origin: AffectedScopeOrigin;
+  depth: number;
+  viaScopeId?: string;
+  relationType?: string;
+}
+
+export interface MultiScopeContextPolicy {
+  version: string;
+  maxExplicitScopes: number;
+  maxAffectedScopes: number;
+  maxRelationDepth: number;
+  relationDirection: "outgoing";
+  allowedRelationTypes: readonly string[];
+  optionalBudgetAllocation: "deterministic-round-robin";
+}
+
+export interface ScopePathResolverOptions {
+  multiScopePolicy?: MultiScopeContextPolicy;
+}
+
 export interface ResolvedScopePath {
   mapRevision: string;
   bootstrapId: string;
   primaryTargetScopeId: string;
   scopeIds: readonly string[];
   affectedScopeIds: readonly string[];
+  affectedScopeDetails: readonly AffectedScopeDetail[];
+  multiScopePolicyDigest: string;
   normalizedIntent: NormalizedTaskIntent;
+  warnings: readonly ScopeResolutionWarning[];
   effectiveDomainLanguage: EffectiveDomainLanguage;
   domainLanguageSources: readonly DomainLanguageSource[];
   resolverTrace: {

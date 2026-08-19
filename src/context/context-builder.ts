@@ -10,8 +10,16 @@ import type { DocumentRecord, MapRevision, ScopeNode } from "../scope-map/types.
 import type { SkillConnectionResolver } from "../skills/skill-connection-resolver.js";
 import type { SkillContextRequirement } from "../skills/types.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
+import {
+  contextBuildCacheMetadata,
+  createContextBuildCacheIdentity,
+  MemoryContextBuildCacheCatalog,
+  type ContextBuildCacheCatalog,
+  type ContextBuildCacheBundle,
+} from "./context-build-cache.js";
 import type {
   BuildTaskContextRequest,
+  ContextBudgetAllocation,
   ContextBudgetProfile,
   ContextBuilderOptions,
   ContextBundle,
@@ -19,15 +27,18 @@ import type {
   ContextFingerprintDocument,
   ContextFingerprintStore,
   ContextOmission,
+  ContextSelectionPreview,
   DocumentProjectionMode,
   MaterializedDocumentProjection,
   SelectedContextDocument,
   SelectionReason,
 } from "./types.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
+import type { ArchitecturePolicyService } from "../architecture/architecture-policy-service.js";
 
 const PRIORITY: readonly SelectionReason[] = [
   "required_applicable", "operator_controlled_applicable", "role_required", "task_type_required", "explicit_link",
+  "path_exact", "path_prefix",
   "skill_required", "target_scope", "related_scope", "domain_or_entity_match", "semantic_or_keyword_match", "optional_background",
 ];
 const DEFAULT_BUDGETS: Readonly<Record<string, ContextBudgetProfile>> = {
@@ -35,6 +46,8 @@ const DEFAULT_BUDGETS: Readonly<Record<string, ContextBudgetProfile>> = {
   compact: { softLimitTokens: 2_000, hardLimitTokens: 4_000 },
   expanded: { softLimitTokens: 24_000, hardLimitTokens: 32_000 },
 };
+const PASSIVE_ANCESTOR_KINDS = new Set(["index", "template"]);
+export const CONTEXT_SELECTION_POLICY_VERSION = "context-selection/v3" as const;
 
 interface Candidate {
   document: DocumentRecord;
@@ -49,8 +62,10 @@ export interface ContextBuilderDependencies {
   scopePathResolver: ScopePathResolver;
   skillConnectionResolver: SkillConnectionResolver;
   fingerprintStore: ContextFingerprintStore;
+  cache?: ContextBuildCacheCatalog;
   options?: ContextBuilderOptions;
   observability?: AbcmObservability;
+  architecturePolicies?: Pick<ArchitecturePolicyService, "assertProjectCompliant">;
 }
 
 function stable(value: unknown): string {
@@ -107,6 +122,14 @@ function projection(document: DocumentRecord, body: string, roleId: string): Mat
   return { ...base, authoritative: false };
 }
 
+function cachedProjection(document: ContextBuildCacheBundle["selectedDocuments"][number], body: string): MaterializedDocumentProjection {
+  const base = document.projection;
+  if (base.mode === "full") return { ...base, content: body };
+  if (base.mode === "section") return { ...base, content: section(body) };
+  if (base.mode === "summary") return { ...base, content: summary(body) };
+  return base;
+}
+
 function documentId(link: string): string | undefined {
   return /^abcm:\/\/(?:artifact|document|plan|architecture)\/([^/?#]+)$/.exec(link)?.[1];
 }
@@ -117,15 +140,25 @@ function hasDocumentAccess(principal: ContextPrincipal, node: ScopeNode): boolea
   return node.aliases.some(alias => principal.access.scopeGrants?.[alias]?.includes("document.read") === true);
 }
 
+function hasScopeMetadataAccess(principal: ContextPrincipal, node: ScopeNode): boolean {
+  return (["scope.discover", "scope.read_metadata"] as const).every(permission => {
+    if (principal.access.workspacePermissions.includes(permission)) return true;
+    if (principal.access.scopeGrants?.[node.scopeId]?.includes(permission) === true) return true;
+    return node.aliases.some(alias => principal.access.scopeGrants?.[alias]?.includes(permission) === true);
+  });
+}
+
 export class ContextBuilder {
   readonly #dependencies: ContextBuilderDependencies;
   readonly #budgets: Readonly<Record<string, ContextBudgetProfile>>;
   readonly #defaultBudget: string;
+  readonly #cache: ContextBuildCacheCatalog;
 
   constructor(dependencies: ContextBuilderDependencies) {
     this.#dependencies = dependencies;
     this.#budgets = { ...DEFAULT_BUDGETS, ...(dependencies.options?.budgetProfiles ?? {}) };
     this.#defaultBudget = dependencies.options?.defaultBudgetProfile ?? "default";
+    this.#cache = dependencies.cache ?? new MemoryContextBuildCacheCatalog();
     for (const [name, budget] of Object.entries(this.#budgets)) {
       if (!Number.isSafeInteger(budget.softLimitTokens) || !Number.isSafeInteger(budget.hardLimitTokens) || budget.softLimitTokens < 0 || budget.hardLimitTokens <= 0 || budget.softLimitTokens > budget.hardLimitTokens) {
         throw new Error(`Context budget profile '${name}' is invalid.`);
@@ -149,7 +182,44 @@ export class ContextBuilder {
     }, () => this.#build(request, principal, signal));
   }
 
-  async #build(request: BuildTaskContextRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ContextBundle> {
+  async preview(request: BuildTaskContextRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ContextSelectionPreview> {
+    const bundle = await this.#build(request, principal, signal, false);
+    const selectedDocuments: ContextFingerprintDocument[] = bundle.selectedDocuments.map(item => ({
+      documentId: item.documentId,
+      scopeId: item.scopeId,
+      relativePath: item.relativePath,
+      checksum: item.checksum,
+      mandatory: item.mandatory,
+      effectivePriority: item.effectivePriority,
+      selectionReasons: item.selectionReasons,
+      projection: {
+        mode: item.projection.mode,
+        authoritative: item.projection.authoritative,
+        sourceDocumentId: item.projection.sourceDocumentId,
+        sourceChecksum: item.projection.sourceChecksum,
+      },
+      tokenEstimate: item.tokenEstimate,
+    }));
+    return deepFreeze({
+      previewDigest: digest({ selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION, bundleDigest: bundle.bundleDigest }),
+      selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION,
+      mapRevision: bundle.mapRevision,
+      mapDigest: bundle.mapDigest,
+      primaryTargetScope: bundle.primaryTargetScope,
+      affectedScopes: bundle.affectedScopes,
+      budgetProfile: bundle.budgetProfile,
+      budget: bundle.budget,
+      budgetAllocation: bundle.budgetAllocation,
+      selectedDocuments,
+      omissions: bundle.omissions,
+      warnings: bundle.warnings,
+      tokenEstimate: bundle.tokenEstimate,
+      fallbackModes: ["direct-search", "explicit-documents", "bounded-resource-read"],
+      cache: bundle.cache,
+    });
+  }
+
+  async #build(request: BuildTaskContextRequest, principal: ContextPrincipal, signal?: AbortSignal, persistFingerprint = true): Promise<ContextBundle> {
     throwIfAborted(signal);
     if (!principal.access.workspacePermissions.includes("context.build") && !Object.values(principal.access.scopeGrants ?? {}).some(grants => grants.includes("context.build"))) {
       throw new AbcmError("ACCESS_DENIED", "Context build permission is required.");
@@ -160,9 +230,41 @@ export class ContextBuilder {
     }
     const revision = this.#dependencies.scopeMap.getActiveRevision(bootstrap.anchor.workspaceId);
     if (revision.revision !== bootstrap.mapRevision) throw new AbcmError("DOMAIN_LANGUAGE_BOOTSTRAP_STALE", "Context build MapRevision changed after bootstrap creation.");
+    await this.#dependencies.architecturePolicies?.assertProjectCompliant(
+      bootstrap.anchor.workspaceId,
+      bootstrap.anchor.projectId,
+      signal,
+    );
     const budgetName = request.budgetProfile ?? this.#defaultBudget;
     const budget = this.#budgets[budgetName];
     if (budget === undefined) throw new AbcmError("CONTEXT_CONFIGURATION_INVALID", `Unknown context budget profile '${budgetName}'.`);
+    const cacheIdentity = createContextBuildCacheIdentity({
+      request,
+      principal,
+      revision,
+      workspaceId: bootstrap.anchor.workspaceId,
+      projectId: bootstrap.anchor.projectId,
+      budgetProfile: budgetName,
+      domainLanguageBootstrapDigest: bootstrap.bootstrapDigest,
+      selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION,
+    });
+    const cacheLookup = this.#cache.lookupContextBuildCache(cacheIdentity);
+    if (cacheLookup.state === "hit") {
+      throwIfAborted(signal);
+      const cachedBundle = await this.#materializeCachedBundle(cacheLookup.entry.bundle, cacheIdentity.workspaceId, signal);
+      const contextFingerprintLocation = persistFingerprint
+        ? await this.#dependencies.fingerprintStore.write(
+            cacheLookup.entry.fingerprint.workspaceId,
+            request.execution,
+            cacheLookup.entry.fingerprint,
+          )
+        : "";
+      return deepFreeze({
+        ...cachedBundle,
+        contextFingerprintLocation,
+        cache: contextBuildCacheMetadata(cacheIdentity, "hit"),
+      });
+    }
     const path = await this.#dependencies.scopePathResolver.resolve({
       domainLanguageBootstrapId: request.domainLanguageBootstrapId,
       goal: request.goal,
@@ -170,6 +272,7 @@ export class ContextBuilder {
       ...(request.canonicalTerms === undefined ? {} : { canonicalTerms: request.canonicalTerms }),
       ...(request.keywords === undefined ? {} : { keywords: request.keywords }),
       ...(request.targetHints === undefined ? {} : { targetHints: request.targetHints }),
+      ...(request.exactScopeIds === undefined ? {} : { exactScopeIds: request.exactScopeIds }),
       ...(request.explicitLinks === undefined ? {} : { explicitLinks: request.explicitLinks }),
       ...(request.artifacts === undefined ? {} : { artifacts: request.artifacts }),
       ...(request.repositoryPaths === undefined ? {} : { repositoryPaths: request.repositoryPaths }),
@@ -195,6 +298,7 @@ export class ContextBuilder {
       path.normalizedIntent.canonicalDomains,
       path.normalizedIntent.canonicalTerms,
       skills.contextRequirements,
+      principal,
     );
     const materialized: SelectedContextDocument[] = [];
     const omissions: ContextOmission[] = [...lifecycleOmissions];
@@ -244,17 +348,65 @@ export class ContextBuilder {
         documentIds: materialized.filter(item => item.mandatory).map(item => item.documentId),
       });
     }
+    const bucketByDocument = new Map(materialized.map(item => [item.documentId, this.#budgetBucket(revision, item.scopeId, path.affectedScopeIds)]));
     const selected: SelectedContextDocument[] = [];
     let tokenEstimate = skillTokens;
-    for (const item of materialized) {
-      if (!item.mandatory && tokenEstimate + item.tokenEstimate > budget.softLimitTokens) {
-        omissions.push({ documentId: item.documentId, reason: "budget_exceeded", selectionReasons: item.selectionReasons });
-        continue;
+    if (request.exactScopeIds === undefined) {
+      for (const item of materialized) {
+        if (!item.mandatory && tokenEstimate + item.tokenEstimate > budget.softLimitTokens) {
+          omissions.push({ documentId: item.documentId, reason: "budget_exceeded", selectionReasons: item.selectionReasons });
+          continue;
+        }
+        selected.push(item); tokenEstimate += item.tokenEstimate;
       }
-      selected.push(item); tokenEstimate += item.tokenEstimate;
+    } else {
+      const mandatory = materialized.filter(item => item.mandatory);
+      selected.push(...mandatory);
+      tokenEstimate += mandatory.reduce((sum, item) => sum + item.tokenEstimate, 0);
+      const optional = materialized.filter(item => !item.mandatory);
+      const bucketOrder = [...path.affectedScopeIds];
+      if (optional.some(item => bucketByDocument.get(item.documentId) === "shared")) bucketOrder.push("shared");
+      const queues = new Map(bucketOrder.map(bucketId => [
+        bucketId,
+        optional.filter(item => bucketByDocument.get(item.documentId) === bucketId),
+      ]));
+      let remaining = optional.length;
+      while (remaining > 0) {
+        for (const bucketId of bucketOrder) {
+          const item = queues.get(bucketId)?.shift();
+          if (item === undefined) continue;
+          remaining -= 1;
+          if (tokenEstimate + item.tokenEstimate > budget.softLimitTokens) {
+            omissions.push({ documentId: item.documentId, reason: "budget_exceeded", selectionReasons: item.selectionReasons });
+          } else {
+            selected.push(item);
+            tokenEstimate += item.tokenEstimate;
+          }
+        }
+      }
     }
     const orderedOmissions = omissions.sort((left, right) => left.documentId.localeCompare(right.documentId) || left.reason.localeCompare(right.reason));
+    const selectedIds = new Set(selected.map(item => item.documentId));
+    const budgetOmittedIds = new Set(orderedOmissions.filter(item => item.reason === "budget_exceeded").map(item => item.documentId));
+    const allocationOrder = [...path.affectedScopeIds];
+    if (skillTokens > 0 || materialized.some(item => bucketByDocument.get(item.documentId) === "shared")) allocationOrder.push("shared");
+    const budgetAllocation: ContextBudgetAllocation[] = allocationOrder.map(bucketId => {
+      const documents = materialized.filter(item => bucketByDocument.get(item.documentId) === bucketId);
+      const sharedSkillTokens = bucketId === "shared" ? skillTokens : 0;
+      const requestedTokens = sharedSkillTokens + documents.reduce((sum, item) => sum + item.tokenEstimate, 0);
+      const reservedTokens = sharedSkillTokens + documents.filter(item => item.mandatory).reduce((sum, item) => sum + item.tokenEstimate, 0);
+      const consumedTokens = sharedSkillTokens + documents.filter(item => selectedIds.has(item.documentId)).reduce((sum, item) => sum + item.tokenEstimate, 0);
+      return {
+        bucketId,
+        requestedTokens,
+        reservedTokens,
+        consumedTokens,
+        selectedTokens: consumedTokens,
+        omittedTokens: documents.filter(item => budgetOmittedIds.has(item.documentId)).reduce((sum, item) => sum + item.tokenEstimate, 0),
+      };
+    });
     const digestInput = {
+      selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION,
       mapRevision: revision.revision,
       mapDigest: revision.digest,
       domainLanguageBootstrapDigest: bootstrap.bootstrapDigest,
@@ -264,6 +416,9 @@ export class ContextBuilder {
       budgetProfile: budgetName,
       budget,
       resolvedScopePath: path,
+      affectedScopeDetails: path.affectedScopeDetails,
+      multiScopePolicyDigest: path.multiScopePolicyDigest,
+      budgetAllocation,
       connectedSkills: skills.connectedSkills,
       selectedDocuments: selected,
       omissions: orderedOmissions,
@@ -288,11 +443,14 @@ export class ContextBuilder {
       domainLanguageBootstrapId: bootstrap.bootstrapId,
       domainLanguageBootstrapDigest: bootstrap.bootstrapDigest,
       domainLanguageSources: path.domainLanguageSources,
-      configurationDigests: [digest({ budgetProfile: budgetName, budget })],
+      configurationDigests: [digest({ selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION, budgetProfile: budgetName, budget }), path.multiScopePolicyDigest],
       roleId: request.roleId,
       taskType: request.taskType,
       primaryTargetScope: path.primaryTargetScopeId,
       affectedScopes: path.affectedScopeIds,
+      affectedScopeDetails: path.affectedScopeDetails,
+      multiScopePolicyDigest: path.multiScopePolicyDigest,
+      budgetAllocation,
       connectedSkills: skills.connectedSkills.map(skill => ({
         skillId: skill.skillId, skillDigest: skill.skillDigest, strategy: skill.strategy,
         connectionReasons: skill.connectionReasons, ...(skill.approvalId === undefined ? {} : { approvalId: skill.approvalId }),
@@ -303,9 +461,7 @@ export class ContextBuilder {
       tokenEstimate,
       selectedDocuments: fingerprintDocuments,
     };
-    throwIfAborted(signal);
-    const contextFingerprintLocation = await this.#dependencies.fingerprintStore.write(bootstrap.anchor.workspaceId, request.execution, fingerprint);
-    return deepFreeze({
+    const bundle = {
       contextBundleId,
       bundleDigest,
       mapRevision: revision.revision,
@@ -318,17 +474,68 @@ export class ContextBuilder {
       budget,
       primaryTargetScope: path.primaryTargetScopeId,
       affectedScopes: path.affectedScopeIds,
+      affectedScopeDetails: path.affectedScopeDetails,
+      multiScopePolicyDigest: path.multiScopePolicyDigest,
+      budgetAllocation,
       resolvedScopePath: path,
       skillConnectionReasons: Object.fromEntries(skills.connectedSkills.map(skill => [skill.skillId, skill.connectionReasons])),
       connectedSkills: skills.connectedSkills,
       selectedDocuments: selected,
       selectionReasons: Object.fromEntries(selected.map(item => [item.documentId, item.selectionReasons])),
-      warnings: skills.diagnostics.map(item => ({ code: item.code, subjectId: item.skillId })),
+      warnings: [
+        ...path.warnings.map(item => ({ code: item.code, subjectId: item.term })),
+        ...skills.diagnostics.map(item => ({ code: item.code, subjectId: item.skillId })),
+      ],
       conflicts: [],
       omissions: orderedOmissions,
       tokenEstimate,
+    } satisfies Omit<ContextBundle, "cache" | "contextFingerprintLocation">;
+    if (bundle.connectedSkills.length === 0) {
+      this.#cache.putContextBuildCache({
+        identity: cacheIdentity,
+        bundle: {
+          ...bundle,
+          connectedSkills: [],
+          selectedDocuments: bundle.selectedDocuments.map(document => ({
+            ...document,
+            projection: {
+              mode: document.projection.mode,
+              authoritative: document.projection.authoritative,
+              sourceDocumentId: document.projection.sourceDocumentId,
+              sourceChecksum: document.projection.sourceChecksum,
+            },
+          })),
+        },
+        fingerprint,
+      });
+    }
+    throwIfAborted(signal);
+    const contextFingerprintLocation = persistFingerprint
+      ? await this.#dependencies.fingerprintStore.write(bootstrap.anchor.workspaceId, request.execution, fingerprint)
+      : "";
+    return deepFreeze({
+      ...bundle,
       contextFingerprintLocation,
+      cache: contextBuildCacheMetadata(cacheIdentity, cacheLookup.state),
     });
+  }
+
+  async #materializeCachedBundle(bundle: ContextBuildCacheBundle, workspaceId: string, signal?: AbortSignal): Promise<Omit<ContextBundle, "cache" | "contextFingerprintLocation">> {
+    const selectedDocuments: SelectedContextDocument[] = [];
+    for (const document of bundle.selectedDocuments) {
+      throwIfAborted(signal);
+      const source = await this.#dependencies.files.read(workspaceId, document.relativePath, signal);
+      if (source.entry.checksum !== document.checksum) {
+        throw new AbcmError("DOMAIN_LANGUAGE_BOOTSTRAP_STALE", `Document '${document.documentId}' changed after cache publication.`);
+      }
+      const projection = cachedProjection(document, new TextDecoder().decode(source.content));
+      const tokenEstimate = projection.content === undefined ? 0 : tokens(projection.content);
+      if (tokenEstimate !== document.tokenEstimate) {
+        throw new AbcmError("DERIVED_STORE_CORRUPT", `Cached token estimate differs for '${document.documentId}'.`);
+      }
+      selectedDocuments.push({ ...document, projection });
+    }
+    return { ...bundle, selectedDocuments, connectedSkills: [] };
   }
 
   #collect(
@@ -340,30 +547,80 @@ export class ContextBuilder {
     canonicalDomains: readonly string[],
     canonicalTerms: readonly string[],
     requirements: readonly SkillContextRequirement[],
+    principal: ContextPrincipal,
   ) {
     const candidates = new Map<string, Candidate>();
     const omissions: ContextOmission[] = [];
     const pathScopes = new Set(pathScopeIds);
     const affected = new Set(affectedScopeIds);
+    const multiScopeBoundary = request.exactScopeIds === undefined ? undefined : this.#ancestorUnion(revision, affectedScopeIds, principal);
     const explicitLinks = [...(request.explicitDocumentLinks ?? []), ...(request.explicitLinks ?? []).filter(link => !link.startsWith("abcm://skill/") && documentId(link) !== undefined)];
     const explicitIds = new Set<string>();
+    const explicitReasons = new Map<string, Set<SelectionReason>>();
+    const addExplicit = (id: string, reason: SelectionReason) => {
+      explicitIds.add(id);
+      const reasons = explicitReasons.get(id) ?? new Set<SelectionReason>();
+      reasons.add(reason);
+      explicitReasons.set(id, reasons);
+    };
     for (const link of explicitLinks) {
       const id = documentId(link);
       if (id === undefined || !revision.documents.some(document => document.documentId === id)) {
         throw new AbcmError("CONTEXT_CONFIGURATION_INVALID", `Required document link '${link}' did not resolve.`, { link });
       }
-      explicitIds.add(id);
+      addExplicit(id, "explicit_link");
+    }
+    const nodeById = new Map(revision.nodes.map(node => [node.scopeId, node]));
+    for (const reference of request.explicitDocuments ?? []) {
+      let matches: DocumentRecord[];
+      if (reference.selector === "document-id") {
+        matches = revision.documents.filter(document => document.documentId === reference.documentId);
+      } else if (reference.selector === "uri") {
+        const id = documentId(reference.uri);
+        matches = id === undefined ? [] : revision.documents.filter(document => document.documentId === id);
+      } else if (reference.selector === "repository-file") {
+        matches = revision.documents.filter(document => document.relativePath === reference.path);
+      } else if (reference.selector === "repository-directory") {
+        const prefix = `${reference.path}/`;
+        matches = revision.documents.filter(document => {
+          if (!document.relativePath.startsWith(prefix)) return false;
+          return reference.recursive === true || !document.relativePath.slice(prefix.length).includes("/");
+        });
+      } else {
+        matches = revision.documents.filter(document => document.relativePath.startsWith(reference.prefix));
+      }
+      if (matches.length === 0) throw new AbcmError("CONTEXT_DOCUMENT_NOT_FOUND", "Required context document selector did not resolve.");
+      if (reference.expectedKind !== undefined) {
+        const matchingKind = matches.filter(document => document.kind === reference.expectedKind);
+        if (matchingKind.length === 0) {
+          throw new AbcmError("CONTEXT_DOCUMENT_KIND_MISMATCH", "Required context document kind does not match the selector.");
+        }
+        matches = matchingKind;
+      }
+      for (const document of matches) {
+        const node = nodeById.get(document.scopeId);
+        if (node === undefined || !hasDocumentAccess(principal, node)) {
+          throw new AbcmError("CONTEXT_DOCUMENT_ACCESS_DENIED", "Required context document selector is not accessible.");
+        }
+        addExplicit(
+          document.documentId,
+          reference.selector === "repository-file"
+            ? "path_exact"
+            : reference.selector === "repository-directory" || reference.selector === "repository-prefix"
+              ? "path_prefix"
+              : "explicit_link",
+        );
+      }
     }
     for (const requirement of requirements.filter(item => item.kind === "explicit_link")) {
       const id = documentId(requirement.value);
       if (id === undefined || !revision.documents.some(document => document.documentId === id)) {
         throw new AbcmError("CONTEXT_CONFIGURATION_INVALID", `Skill-required document link '${requirement.value}' did not resolve.`, { link: requirement.value, skillId: requirement.sourceSkillId });
       }
-      explicitIds.add(id);
+      addExplicit(id, "explicit_link");
     }
     const requiredKinds = new Set(requirements.filter(item => item.kind === "document_kind").map(item => item.value));
     const requiredTags = new Set(requirements.filter(item => item.kind === "tag").map(item => item.value));
-    const nodeById = new Map(revision.nodes.map(node => [node.scopeId, node]));
     const inProject = (scopeId: string): boolean => {
       let node = nodeById.get(scopeId);
       while (node !== undefined) {
@@ -372,19 +629,20 @@ export class ContextBuilder {
       }
       return false;
     };
+    const inApplicableBoundary = (scopeId: string): boolean => multiScopeBoundary?.has(scopeId) ?? inProject(scopeId);
     const keywordSet = new Set((request.keywords ?? []).map(value => value.toLocaleLowerCase("en-US")));
     const canonicalSet = new Set([...canonicalDomains, ...canonicalTerms]);
     for (const document of revision.documents) {
       const reasons = new Set<SelectionReason>();
       const explicitlyLinked = explicitIds.has(document.documentId);
-      const applicableBoundary = pathScopes.has(document.scopeId) || affected.has(document.scopeId) || inProject(document.scopeId);
+      const applicableBoundary = pathScopes.has(document.scopeId) || affected.has(document.scopeId) || inApplicableBoundary(document.scopeId);
       if (!applicableBoundary && !explicitlyLinked) continue;
       if (document.requiredSelectors.includes("always")) reasons.add("required_applicable");
       if (document.contextPolicy === "operator" || document.contextPolicy === "operator-controlled") reasons.add("operator_controlled_applicable");
       if (document.requiredSelectors.includes(request.roleId)) reasons.add("role_required");
       if (document.requiredSelectors.includes(request.taskType)) reasons.add("task_type_required");
       if (document.taskSelectors.includes(request.taskType)) reasons.add("task_type_required");
-      if (explicitlyLinked) reasons.add("explicit_link");
+      if (explicitlyLinked) for (const reason of explicitReasons.get(document.documentId) ?? ["explicit_link" as const]) reasons.add(reason);
       if (requiredKinds.has(document.kind) || (document.tags ?? []).some(tag => requiredTags.has(tag))) reasons.add("skill_required");
       const mandatory = [...reasons].some(reason => PRIORITY.indexOf(reason) <= PRIORITY.indexOf("skill_required"));
       if (document.lifecycle === "deleted" || document.lifecycle === "archived" || document.lifecycle === "superseded") {
@@ -395,12 +653,16 @@ export class ContextBuilder {
         if (document.contextPolicy === "explicit-only") continue;
         if (document.roleSelectors.length > 0 && !document.roleSelectors.includes(request.roleId)) continue;
         if (document.taskSelectors.length > 0 && !document.taskSelectors.includes(request.taskType)) continue;
-        if (pathScopes.has(document.scopeId)) reasons.add("target_scope");
+        if (pathScopes.has(document.scopeId)) {
+          if (affected.has(document.scopeId)) reasons.add("target_scope");
+          else if (PASSIVE_ANCESTOR_KINDS.has(document.kind)) continue;
+          else reasons.add("optional_background");
+        }
         else if (affected.has(document.scopeId)) reasons.add("related_scope");
-        else if (inProject(document.scopeId) && document.domain !== undefined && canonicalSet.has(document.domain)) reasons.add("domain_or_entity_match");
+        else if (inApplicableBoundary(document.scopeId) && document.domain !== undefined && canonicalSet.has(document.domain)) reasons.add("domain_or_entity_match");
         else {
           const metadataTokens = new Set(`${document.documentId} ${document.kind} ${document.title} ${(document.tags ?? []).join(" ")}`.toLocaleLowerCase("en-US").split(/[^a-z0-9.-]+/).filter(Boolean));
-          if (inProject(document.scopeId) && [...keywordSet].some(keyword => metadataTokens.has(keyword))) reasons.add("semantic_or_keyword_match");
+          if (inApplicableBoundary(document.scopeId) && [...keywordSet].some(keyword => metadataTokens.has(keyword))) reasons.add("semantic_or_keyword_match");
           else continue;
         }
       }
@@ -415,5 +677,34 @@ export class ContextBuilder {
 
   #reasons(candidate: Candidate): SelectionReason[] {
     return [...candidate.reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right));
+  }
+
+  #ancestorUnion(revision: MapRevision, scopeIds: readonly string[], principal: ContextPrincipal): Set<string> {
+    const byId = new Map(revision.nodes.map(node => [node.scopeId, node]));
+    const result = new Set<string>();
+    for (const scopeId of scopeIds) {
+      let current = byId.get(scopeId);
+      while (current !== undefined) {
+        if (hasScopeMetadataAccess(principal, current)) result.add(current.scopeId);
+        current = current.parentScopeId === undefined ? undefined : byId.get(current.parentScopeId);
+      }
+    }
+    return result;
+  }
+
+  #budgetBucket(revision: MapRevision, documentScopeId: string, affectedScopeIds: readonly string[]): string {
+    const matches = affectedScopeIds.filter(scopeId => this.#isAncestor(revision, documentScopeId, scopeId));
+    if (matches.length === 1) return matches[0]!;
+    return "shared";
+  }
+
+  #isAncestor(revision: MapRevision, ancestorId: string, targetId: string): boolean {
+    const byId = new Map(revision.nodes.map(node => [node.scopeId, node]));
+    let current = byId.get(targetId);
+    while (current !== undefined) {
+      if (current.scopeId === ancestorId) return true;
+      current = current.parentScopeId === undefined ? undefined : byId.get(current.parentScopeId);
+    }
+    return false;
   }
 }
