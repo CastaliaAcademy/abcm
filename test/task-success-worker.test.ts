@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { BusinessVariantObservation } from "../src/evaluation/context-business-eval-runner.js";
 import { TaskSuccessWorkerCoordinator, taskSuccessSubmitRequestSchema } from "../src/evaluation/task-success-worker.js";
 
 const sha = (value: string) => `sha256:${value.padEnd(64, "0")}` as const;
@@ -31,7 +32,7 @@ describe("external task-success worker", () => {
     } as any;
     const backend = {
       prepareTaskSuccess: async () => prepared,
-      finalizeTaskSuccess: async (_profileId, observations) => {
+      finalizeTaskSuccess: async (_profileId: string, observations: ReadonlyMap<string, BusinessVariantObservation>) => {
         finalized = observations;
         return { runId: "business-run-1234567890abcdef12345678", aggregateDigest: sha("7") } as any;
       },
