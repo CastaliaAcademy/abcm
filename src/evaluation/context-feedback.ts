@@ -22,7 +22,7 @@ export const contextFeedbackProposalSchema = contextFeedbackSubmissionSchema.ext
   principalId: safeId,
   bundleDigest: digest,
   mapRevision: digest,
-  basePolicyVersion: z.literal("context-selection/v2"),
+  basePolicyVersion: z.enum(["context-selection/v2", "context-selection/v3"]),
   status: z.literal("proposed"),
   createdAt: z.string().datetime(),
 }).strict();

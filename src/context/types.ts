@@ -7,6 +7,8 @@ export type SelectionReason =
   | "role_required"
   | "task_type_required"
   | "explicit_link"
+  | "path_exact"
+  | "path_prefix"
   | "skill_required"
   | "target_scope"
   | "related_scope"
@@ -27,6 +29,13 @@ export interface ContextExecutionBinding {
   assignmentId?: string;
 }
 
+export type ExplicitDocumentReference =
+  | { selector: "document-id"; documentId: string; expectedKind?: string | undefined }
+  | { selector: "uri"; uri: string; expectedKind?: string | undefined }
+  | { selector: "repository-file"; path: string; expectedKind?: string | undefined }
+  | { selector: "repository-directory"; path: string; recursive?: boolean | undefined; expectedKind?: string | undefined }
+  | { selector: "repository-prefix"; prefix: string; expectedKind?: string | undefined };
+
 export interface BuildTaskContextRequest {
   domainLanguageBootstrapId: string;
   roleId: string;
@@ -43,6 +52,7 @@ export interface BuildTaskContextRequest {
   budgetProfile?: string;
   requestedSkillIds?: readonly string[];
   explicitDocumentLinks?: readonly string[];
+  explicitDocuments?: readonly ExplicitDocumentReference[];
   approvalId?: string;
   execution?: ContextExecutionBinding;
 }
@@ -89,6 +99,9 @@ export interface ContextFingerprintDocument {
 
 export interface ContextBudgetAllocation {
   bucketId: string;
+  requestedTokens: number;
+  reservedTokens: number;
+  consumedTokens: number;
   selectedTokens: number;
   omittedTokens: number;
 }
@@ -165,13 +178,14 @@ export interface ContextBuildCacheMetadata {
 
 export interface ContextSelectionPreview {
   previewDigest: string;
-  selectionPolicyVersion: "context-selection/v2";
+  selectionPolicyVersion: "context-selection/v3";
   mapRevision: string;
   mapDigest: string;
   primaryTargetScope: string;
   affectedScopes: readonly string[];
   budgetProfile: string;
   budget: ContextBudgetProfile;
+  budgetAllocation: readonly ContextBudgetAllocation[];
   selectedDocuments: readonly ContextFingerprintDocument[];
   omissions: readonly ContextOmission[];
   tokenEstimate: number;

@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.10.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.11.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.10.0
+Версия: 1.11.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -195,6 +195,19 @@ REST использует то же тело в POST /v1/context/build-task-cont
 
 Fallback при недостаточном автоматическом контексте выполняется явно и ограниченно: direct-search внутри разрешённых path prefixes, explicit documents через типизированный abcm:// URI либо bounded resource/file read. Первичный промах resolver должен оставаться видимым в отчёте; запрещено выдавать восстановленный результат за успешный автоматический выбор.
 
+Для точного выбора документов используйте explicitDocuments. Поддерживаются selector \`document-id\`, \`uri\`, \`repository-file\`, \`repository-directory\` и \`repository-prefix\`; для проверки типа можно добавить expectedKind. Directory selector по умолчанию не рекурсивен, recursive=true должен быть явным. Все варианты разрешаются по одному active MapRevision index и становятся mandatory context.
+
+Пример:
+
+    explicitDocuments: [
+      { selector: "document-id", documentId: "ADR-SEARCH", expectedKind: "adr" },
+      { selector: "repository-directory", path: "project/search/artifacts/contracts", recursive: true }
+    ]
+
+Ошибки различаются: malformed input — REQUEST_INVALID на границе схемы; отсутствующий selector — CONTEXT_DOCUMENT_NOT_FOUND; недоступный — CONTEXT_DOCUMENT_ACCESS_DENIED без раскрытия тела; несовпавший expectedKind — CONTEXT_DOCUMENT_KIND_MISMATCH; изменение после MapRevision — DOMAIN_LANGUAGE_BOOTSTRAP_STALE; обязательный контекст вне hard limit — REQUIRED_CONTEXT_EXCEEDS_LIMIT.
+
+Контрпримеры: передавать \`../secret.md\`; использовать fuzzy repositoryPaths вместо explicitDocuments и ожидать mandatory semantics; скрывать CONTEXT_DOCUMENT_NOT_FOUND неограниченным сканированием workspace.
+
 Контрпример: скрыто просканировать весь workspace после неполного preview, смешать найденные файлы с bundle и заявить, что resolver выбрал их автоматически.
 
 Проверяйте ответ:
@@ -203,7 +216,7 @@ Fallback при недостаточном автоматическом конт
 - affectedScopes — primary, остальные explicit scopes и ограниченный outgoing relation closure в стабильном порядке;
 - affectedScopeDetails — disclosure-safe причина, depth и relation evidence каждого включённого scope;
 - multiScopePolicyDigest — версия точных bounds и relation allowlist;
-- budgetAllocation — фактически выбранные и пропущенные optional tokens по scope buckets;
+- budgetAllocation — requested, reserved mandatory, consumed/selected и omitted optional tokens по scope buckets; для каждого bucket consumed не может быть меньше reserved;
 - bundleDigest и ContextFingerprint — воспроизводимая идентичность всего результата.
 - cache — hit, miss или stale, точный key digest, snapshot/access digests и версии cache/projection policy; stale означает, что старое совпадение не было использовано и результат построен заново.
 

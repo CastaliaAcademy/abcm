@@ -87,7 +87,7 @@ describe("ContextBuilder", () => {
     const { root, builder, bootstrap } = await fixture();
     const preview = await builder.preview(request(bootstrap.bootstrapId), principal);
 
-    expect(preview.selectionPolicyVersion).toBe("context-selection/v2");
+    expect(preview.selectionPolicyVersion).toBe("context-selection/v3");
     expect(preview.selectedDocuments.map(item => item.documentId)).toEqual(["security-baseline", "search-implementation", "ADR-SEARCH", "project-overview"]);
     expect(preview.fallbackModes).toEqual(["direct-search", "explicit-documents", "bounded-resource-read"]);
     expect(JSON.stringify(preview)).not.toContain("Never expose SECRET-SOURCE");
@@ -141,6 +141,13 @@ describe("ContextBuilder", () => {
     const result = await builder.build({ ...request(bootstrap.bootstrapId), budgetProfile: "tiny" }, principal);
     expect(result.selectedDocuments.map(item => item.documentId)).toEqual(expect.arrayContaining(["security-baseline", "search-implementation", "ADR-SEARCH"]));
     expect(result.omissions).toContainEqual(expect.objectContaining({ documentId: "project-overview", reason: "budget_exceeded" }));
+    expect(result.budgetAllocation.every(bucket =>
+      bucket.requestedTokens === bucket.consumedTokens + bucket.omittedTokens &&
+      bucket.reservedTokens <= bucket.consumedTokens &&
+      bucket.selectedTokens === bucket.consumedTokens
+    )).toBe(true);
+    const preview = await builder.preview({ ...request(bootstrap.bootstrapId), budgetProfile: "tiny" }, principal);
+    expect(preview.budgetAllocation).toEqual(result.budgetAllocation);
 
     const overflow = await fixture({ budgetProfiles: { impossible: { softLimitTokens: 1, hardLimitTokens: 1 } } });
     await expect(overflow.builder.build({ ...request(overflow.bootstrap.bootstrapId), budgetProfile: "impossible" }, principal)).rejects.toMatchObject({ code: "REQUIRED_CONTEXT_EXCEEDS_LIMIT" });

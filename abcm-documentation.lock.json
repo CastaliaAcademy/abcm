@@ -3,8 +3,8 @@
   "workspaceId": "castalia-public",
   "projectPath": "abcm",
   "layoutPath": "config/documentation-layout.json",
-  "layoutDigest": "sha256:f6c62f3a2944656352b142ca44b007a797a6d4dd95ba3af688e06a6dc3272382",
-  "aggregateDigest": "sha256:17de69b75601d5c25252e697147effaffe255811d6d6792c1e557812751a8bf9",
+  "layoutDigest": "sha256:35914f8432b126284132c64654111de1dc197ea78bb1b1db661a2342750c77b9",
+  "aggregateDigest": "sha256:5d387eab9338335abe92fa8ffc2fc331fe52efa44002181a53a22faf47e652be",
   "fileCount": 233,
-  "scopeMapDigest": "sha256:853cb658fe5bce95b165d44fe2e4ccf986465402f8e8c65da307ca92aa58a7a7"
+  "scopeMapDigest": "sha256:ada1cebfd4720c1e8680d15adb9221971ed5c277adc75858948c8ba1e63b2223"
 }

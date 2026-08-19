@@ -37,6 +37,7 @@ import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 
 const PRIORITY: readonly SelectionReason[] = [
   "required_applicable", "operator_controlled_applicable", "role_required", "task_type_required", "explicit_link",
+  "path_exact", "path_prefix",
   "skill_required", "target_scope", "related_scope", "domain_or_entity_match", "semantic_or_keyword_match", "optional_background",
 ];
 const DEFAULT_BUDGETS: Readonly<Record<string, ContextBudgetProfile>> = {
@@ -45,7 +46,7 @@ const DEFAULT_BUDGETS: Readonly<Record<string, ContextBudgetProfile>> = {
   expanded: { softLimitTokens: 24_000, hardLimitTokens: 32_000 },
 };
 const PASSIVE_ANCESTOR_KINDS = new Set(["index", "template"]);
-export const CONTEXT_SELECTION_POLICY_VERSION = "context-selection/v2" as const;
+export const CONTEXT_SELECTION_POLICY_VERSION = "context-selection/v3" as const;
 
 interface Candidate {
   document: DocumentRecord;
@@ -206,6 +207,7 @@ export class ContextBuilder {
       affectedScopes: bundle.affectedScopes,
       budgetProfile: bundle.budgetProfile,
       budget: bundle.budget,
+      budgetAllocation: bundle.budgetAllocation,
       selectedDocuments,
       omissions: bundle.omissions,
       tokenEstimate: bundle.tokenEstimate,
@@ -379,12 +381,22 @@ export class ContextBuilder {
     const selectedIds = new Set(selected.map(item => item.documentId));
     const budgetOmittedIds = new Set(orderedOmissions.filter(item => item.reason === "budget_exceeded").map(item => item.documentId));
     const allocationOrder = [...path.affectedScopeIds];
-    if (materialized.some(item => bucketByDocument.get(item.documentId) === "shared")) allocationOrder.push("shared");
-    const budgetAllocation: ContextBudgetAllocation[] = allocationOrder.map(bucketId => ({
-      bucketId,
-      selectedTokens: materialized.filter(item => bucketByDocument.get(item.documentId) === bucketId && selectedIds.has(item.documentId)).reduce((sum, item) => sum + item.tokenEstimate, 0),
-      omittedTokens: materialized.filter(item => bucketByDocument.get(item.documentId) === bucketId && budgetOmittedIds.has(item.documentId)).reduce((sum, item) => sum + item.tokenEstimate, 0),
-    }));
+    if (skillTokens > 0 || materialized.some(item => bucketByDocument.get(item.documentId) === "shared")) allocationOrder.push("shared");
+    const budgetAllocation: ContextBudgetAllocation[] = allocationOrder.map(bucketId => {
+      const documents = materialized.filter(item => bucketByDocument.get(item.documentId) === bucketId);
+      const sharedSkillTokens = bucketId === "shared" ? skillTokens : 0;
+      const requestedTokens = sharedSkillTokens + documents.reduce((sum, item) => sum + item.tokenEstimate, 0);
+      const reservedTokens = sharedSkillTokens + documents.filter(item => item.mandatory).reduce((sum, item) => sum + item.tokenEstimate, 0);
+      const consumedTokens = sharedSkillTokens + documents.filter(item => selectedIds.has(item.documentId)).reduce((sum, item) => sum + item.tokenEstimate, 0);
+      return {
+        bucketId,
+        requestedTokens,
+        reservedTokens,
+        consumedTokens,
+        selectedTokens: consumedTokens,
+        omittedTokens: documents.filter(item => budgetOmittedIds.has(item.documentId)).reduce((sum, item) => sum + item.tokenEstimate, 0),
+      };
+    });
     const digestInput = {
       selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION,
       mapRevision: revision.revision,
@@ -533,23 +545,71 @@ export class ContextBuilder {
     const multiScopeBoundary = request.exactScopeIds === undefined ? undefined : this.#ancestorUnion(revision, affectedScopeIds, principal);
     const explicitLinks = [...(request.explicitDocumentLinks ?? []), ...(request.explicitLinks ?? []).filter(link => !link.startsWith("abcm://skill/") && documentId(link) !== undefined)];
     const explicitIds = new Set<string>();
+    const explicitReasons = new Map<string, Set<SelectionReason>>();
+    const addExplicit = (id: string, reason: SelectionReason) => {
+      explicitIds.add(id);
+      const reasons = explicitReasons.get(id) ?? new Set<SelectionReason>();
+      reasons.add(reason);
+      explicitReasons.set(id, reasons);
+    };
     for (const link of explicitLinks) {
       const id = documentId(link);
       if (id === undefined || !revision.documents.some(document => document.documentId === id)) {
         throw new AbcmError("CONTEXT_CONFIGURATION_INVALID", `Required document link '${link}' did not resolve.`, { link });
       }
-      explicitIds.add(id);
+      addExplicit(id, "explicit_link");
+    }
+    const nodeById = new Map(revision.nodes.map(node => [node.scopeId, node]));
+    for (const reference of request.explicitDocuments ?? []) {
+      let matches: DocumentRecord[];
+      if (reference.selector === "document-id") {
+        matches = revision.documents.filter(document => document.documentId === reference.documentId);
+      } else if (reference.selector === "uri") {
+        const id = documentId(reference.uri);
+        matches = id === undefined ? [] : revision.documents.filter(document => document.documentId === id);
+      } else if (reference.selector === "repository-file") {
+        matches = revision.documents.filter(document => document.relativePath === reference.path);
+      } else if (reference.selector === "repository-directory") {
+        const prefix = `${reference.path}/`;
+        matches = revision.documents.filter(document => {
+          if (!document.relativePath.startsWith(prefix)) return false;
+          return reference.recursive === true || !document.relativePath.slice(prefix.length).includes("/");
+        });
+      } else {
+        matches = revision.documents.filter(document => document.relativePath.startsWith(reference.prefix));
+      }
+      if (matches.length === 0) throw new AbcmError("CONTEXT_DOCUMENT_NOT_FOUND", "Required context document selector did not resolve.");
+      if (reference.expectedKind !== undefined) {
+        const matchingKind = matches.filter(document => document.kind === reference.expectedKind);
+        if (matchingKind.length === 0) {
+          throw new AbcmError("CONTEXT_DOCUMENT_KIND_MISMATCH", "Required context document kind does not match the selector.");
+        }
+        matches = matchingKind;
+      }
+      for (const document of matches) {
+        const node = nodeById.get(document.scopeId);
+        if (node === undefined || !hasDocumentAccess(principal, node)) {
+          throw new AbcmError("CONTEXT_DOCUMENT_ACCESS_DENIED", "Required context document selector is not accessible.");
+        }
+        addExplicit(
+          document.documentId,
+          reference.selector === "repository-file"
+            ? "path_exact"
+            : reference.selector === "repository-directory" || reference.selector === "repository-prefix"
+              ? "path_prefix"
+              : "explicit_link",
+        );
+      }
     }
     for (const requirement of requirements.filter(item => item.kind === "explicit_link")) {
       const id = documentId(requirement.value);
       if (id === undefined || !revision.documents.some(document => document.documentId === id)) {
         throw new AbcmError("CONTEXT_CONFIGURATION_INVALID", `Skill-required document link '${requirement.value}' did not resolve.`, { link: requirement.value, skillId: requirement.sourceSkillId });
       }
-      explicitIds.add(id);
+      addExplicit(id, "explicit_link");
     }
     const requiredKinds = new Set(requirements.filter(item => item.kind === "document_kind").map(item => item.value));
     const requiredTags = new Set(requirements.filter(item => item.kind === "tag").map(item => item.value));
-    const nodeById = new Map(revision.nodes.map(node => [node.scopeId, node]));
     const inProject = (scopeId: string): boolean => {
       let node = nodeById.get(scopeId);
       while (node !== undefined) {
@@ -571,7 +631,7 @@ export class ContextBuilder {
       if (document.requiredSelectors.includes(request.roleId)) reasons.add("role_required");
       if (document.requiredSelectors.includes(request.taskType)) reasons.add("task_type_required");
       if (document.taskSelectors.includes(request.taskType)) reasons.add("task_type_required");
-      if (explicitlyLinked) reasons.add("explicit_link");
+      if (explicitlyLinked) for (const reason of explicitReasons.get(document.documentId) ?? ["explicit_link" as const]) reasons.add(reason);
       if (requiredKinds.has(document.kind) || (document.tags ?? []).some(tag => requiredTags.has(tag))) reasons.add("skill_required");
       const mandatory = [...reasons].some(reason => PRIORITY.indexOf(reason) <= PRIORITY.indexOf("skill_required"));
       if (document.lifecycle === "deleted" || document.lifecycle === "archived" || document.lifecycle === "superseded") {

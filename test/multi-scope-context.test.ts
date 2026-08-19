@@ -253,8 +253,22 @@ describe("multi-scope context contract", () => {
     expect(first.selectedDocuments.map(document => document.documentId)).toEqual(["catalog-a", "ledger-a", "catalog-b"]);
     expect(first.omissions).toContainEqual(expect.objectContaining({ documentId: "ledger-b", reason: "budget_exceeded" }));
     expect(first.budgetAllocation).toEqual(expect.arrayContaining([
-      { bucketId: "catalog", selectedTokens: tokenEstimate(catalogA) + tokenEstimate(catalogB), omittedTokens: 0 },
-      { bucketId: "ledger", selectedTokens: tokenEstimate(ledgerA), omittedTokens: tokenEstimate(ledgerB) },
+      {
+        bucketId: "catalog",
+        requestedTokens: tokenEstimate(catalogA) + tokenEstimate(catalogB),
+        reservedTokens: 0,
+        consumedTokens: tokenEstimate(catalogA) + tokenEstimate(catalogB),
+        selectedTokens: tokenEstimate(catalogA) + tokenEstimate(catalogB),
+        omittedTokens: 0,
+      },
+      {
+        bucketId: "ledger",
+        requestedTokens: tokenEstimate(ledgerA) + tokenEstimate(ledgerB),
+        reservedTokens: 0,
+        consumedTokens: tokenEstimate(ledgerA),
+        selectedTokens: tokenEstimate(ledgerA),
+        omittedTokens: tokenEstimate(ledgerB),
+      },
     ]));
     expect(second.bundleDigest).toBe(first.bundleDigest);
     expect(second.budgetAllocation).toEqual(first.budgetAllocation);

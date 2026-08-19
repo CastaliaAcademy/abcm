@@ -177,6 +177,9 @@ const affectedScopeDetailSchema = z.object({
 }).strict();
 const contextBudgetAllocationSchema = z.object({
   bucketId: z.string(),
+  requestedTokens: z.number().int().nonnegative(),
+  reservedTokens: z.number().int().nonnegative(),
+  consumedTokens: z.number().int().nonnegative(),
   selectedTokens: z.number().int().nonnegative(),
   omittedTokens: z.number().int().nonnegative(),
 }).strict();
@@ -237,13 +240,14 @@ const contextPreviewDocumentSchema = z.object({
 }).strict();
 export const contextPreviewOutputSchema = z.object({
   previewDigest: checksum,
-  selectionPolicyVersion: z.literal("context-selection/v2"),
+  selectionPolicyVersion: z.literal("context-selection/v3"),
   mapRevision: checksum,
   mapDigest: checksum,
   primaryTargetScope: z.string(),
   affectedScopes: z.array(z.string()),
   budgetProfile: z.string(),
   budget: z.object({ softLimitTokens: z.number().int().nonnegative(), hardLimitTokens: z.number().int().positive() }).strict(),
+  budgetAllocation: z.array(contextBudgetAllocationSchema),
   selectedDocuments: z.array(contextPreviewDocumentSchema),
   omissions: z.array(z.unknown()),
   tokenEstimate: z.number().int().nonnegative(),

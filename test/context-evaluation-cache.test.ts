@@ -100,7 +100,7 @@ describe("versioned context cache and proposal-only feedback", () => {
       expect(proposal).toEqual(expect.objectContaining({
         schemaVersion: "abcm.eval.context-feedback-proposal/v1",
         status: "proposed",
-        basePolicyVersion: "context-selection/v2",
+        basePolicyVersion: "context-selection/v3",
         mapRevision: bundle.mapRevision,
       }));
       expect(runtime.contextFeedback!.propose(base)).toEqual(proposal);

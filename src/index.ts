@@ -36,6 +36,7 @@ export type {
   ContextBuildCacheMetadata,
   ContextBundle,
   ContextExecutionBinding,
+  ExplicitDocumentReference,
   ContextFingerprint,
   ContextFingerprintCatalog,
   ContextFingerprintCatalogRecord,
