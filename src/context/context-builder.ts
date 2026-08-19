@@ -10,6 +10,13 @@ import type { DocumentRecord, MapRevision, ScopeNode } from "../scope-map/types.
 import type { SkillConnectionResolver } from "../skills/skill-connection-resolver.js";
 import type { SkillContextRequirement } from "../skills/types.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
+import {
+  contextBuildCacheMetadata,
+  createContextBuildCacheIdentity,
+  MemoryContextBuildCacheCatalog,
+  type ContextBuildCacheCatalog,
+  type ContextBuildCacheBundle,
+} from "./context-build-cache.js";
 import type {
   BuildTaskContextRequest,
   ContextBudgetAllocation,
@@ -53,6 +60,7 @@ export interface ContextBuilderDependencies {
   scopePathResolver: ScopePathResolver;
   skillConnectionResolver: SkillConnectionResolver;
   fingerprintStore: ContextFingerprintStore;
+  cache?: ContextBuildCacheCatalog;
   options?: ContextBuilderOptions;
   observability?: AbcmObservability;
 }
@@ -111,6 +119,14 @@ function projection(document: DocumentRecord, body: string, roleId: string): Mat
   return { ...base, authoritative: false };
 }
 
+function cachedProjection(document: ContextBuildCacheBundle["selectedDocuments"][number], body: string): MaterializedDocumentProjection {
+  const base = document.projection;
+  if (base.mode === "full") return { ...base, content: body };
+  if (base.mode === "section") return { ...base, content: section(body) };
+  if (base.mode === "summary") return { ...base, content: summary(body) };
+  return base;
+}
+
 function documentId(link: string): string | undefined {
   return /^abcm:\/\/(?:artifact|document|plan|architecture)\/([^/?#]+)$/.exec(link)?.[1];
 }
@@ -133,11 +149,13 @@ export class ContextBuilder {
   readonly #dependencies: ContextBuilderDependencies;
   readonly #budgets: Readonly<Record<string, ContextBudgetProfile>>;
   readonly #defaultBudget: string;
+  readonly #cache: ContextBuildCacheCatalog;
 
   constructor(dependencies: ContextBuilderDependencies) {
     this.#dependencies = dependencies;
     this.#budgets = { ...DEFAULT_BUDGETS, ...(dependencies.options?.budgetProfiles ?? {}) };
     this.#defaultBudget = dependencies.options?.defaultBudgetProfile ?? "default";
+    this.#cache = dependencies.cache ?? new MemoryContextBuildCacheCatalog();
     for (const [name, budget] of Object.entries(this.#budgets)) {
       if (!Number.isSafeInteger(budget.softLimitTokens) || !Number.isSafeInteger(budget.hardLimitTokens) || budget.softLimitTokens < 0 || budget.hardLimitTokens <= 0 || budget.softLimitTokens > budget.hardLimitTokens) {
         throw new Error(`Context budget profile '${name}' is invalid.`);
@@ -192,6 +210,7 @@ export class ContextBuilder {
       omissions: bundle.omissions,
       tokenEstimate: bundle.tokenEstimate,
       fallbackModes: ["direct-search", "explicit-documents", "bounded-resource-read"],
+      cache: bundle.cache,
     });
   }
 
@@ -209,6 +228,33 @@ export class ContextBuilder {
     const budgetName = request.budgetProfile ?? this.#defaultBudget;
     const budget = this.#budgets[budgetName];
     if (budget === undefined) throw new AbcmError("CONTEXT_CONFIGURATION_INVALID", `Unknown context budget profile '${budgetName}'.`);
+    const cacheIdentity = createContextBuildCacheIdentity({
+      request,
+      principal,
+      revision,
+      workspaceId: bootstrap.anchor.workspaceId,
+      projectId: bootstrap.anchor.projectId,
+      budgetProfile: budgetName,
+      domainLanguageBootstrapDigest: bootstrap.bootstrapDigest,
+      selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION,
+    });
+    const cacheLookup = this.#cache.lookupContextBuildCache(cacheIdentity);
+    if (cacheLookup.state === "hit") {
+      throwIfAborted(signal);
+      const cachedBundle = await this.#materializeCachedBundle(cacheLookup.entry.bundle, cacheIdentity.workspaceId, signal);
+      const contextFingerprintLocation = persistFingerprint
+        ? await this.#dependencies.fingerprintStore.write(
+            cacheLookup.entry.fingerprint.workspaceId,
+            request.execution,
+            cacheLookup.entry.fingerprint,
+          )
+        : "";
+      return deepFreeze({
+        ...cachedBundle,
+        contextFingerprintLocation,
+        cache: contextBuildCacheMetadata(cacheIdentity, "hit"),
+      });
+    }
     const path = await this.#dependencies.scopePathResolver.resolve({
       domainLanguageBootstrapId: request.domainLanguageBootstrapId,
       goal: request.goal,
@@ -395,11 +441,7 @@ export class ContextBuilder {
       tokenEstimate,
       selectedDocuments: fingerprintDocuments,
     };
-    throwIfAborted(signal);
-    const contextFingerprintLocation = persistFingerprint
-      ? await this.#dependencies.fingerprintStore.write(bootstrap.anchor.workspaceId, request.execution, fingerprint)
-      : "";
-    return deepFreeze({
+    const bundle = {
       contextBundleId,
       bundleDigest,
       mapRevision: revision.revision,
@@ -424,8 +466,53 @@ export class ContextBuilder {
       conflicts: [],
       omissions: orderedOmissions,
       tokenEstimate,
+    } satisfies Omit<ContextBundle, "cache" | "contextFingerprintLocation">;
+    if (bundle.connectedSkills.length === 0) {
+      this.#cache.putContextBuildCache({
+        identity: cacheIdentity,
+        bundle: {
+          ...bundle,
+          connectedSkills: [],
+          selectedDocuments: bundle.selectedDocuments.map(document => ({
+            ...document,
+            projection: {
+              mode: document.projection.mode,
+              authoritative: document.projection.authoritative,
+              sourceDocumentId: document.projection.sourceDocumentId,
+              sourceChecksum: document.projection.sourceChecksum,
+            },
+          })),
+        },
+        fingerprint,
+      });
+    }
+    throwIfAborted(signal);
+    const contextFingerprintLocation = persistFingerprint
+      ? await this.#dependencies.fingerprintStore.write(bootstrap.anchor.workspaceId, request.execution, fingerprint)
+      : "";
+    return deepFreeze({
+      ...bundle,
       contextFingerprintLocation,
+      cache: contextBuildCacheMetadata(cacheIdentity, cacheLookup.state),
     });
+  }
+
+  async #materializeCachedBundle(bundle: ContextBuildCacheBundle, workspaceId: string, signal?: AbortSignal): Promise<Omit<ContextBundle, "cache" | "contextFingerprintLocation">> {
+    const selectedDocuments: SelectedContextDocument[] = [];
+    for (const document of bundle.selectedDocuments) {
+      throwIfAborted(signal);
+      const source = await this.#dependencies.files.read(workspaceId, document.relativePath, signal);
+      if (source.entry.checksum !== document.checksum) {
+        throw new AbcmError("DOMAIN_LANGUAGE_BOOTSTRAP_STALE", `Document '${document.documentId}' changed after cache publication.`);
+      }
+      const projection = cachedProjection(document, new TextDecoder().decode(source.content));
+      const tokenEstimate = projection.content === undefined ? 0 : tokens(projection.content);
+      if (tokenEstimate !== document.tokenEstimate) {
+        throw new AbcmError("DERIVED_STORE_CORRUPT", `Cached token estimate differs for '${document.documentId}'.`);
+      }
+      selectedDocuments.push({ ...document, projection });
+    }
+    return { ...bundle, selectedDocuments, connectedSkills: [] };
   }
 
   #collect(

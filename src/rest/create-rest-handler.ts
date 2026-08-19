@@ -10,6 +10,7 @@ import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
 import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
+import type { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -35,7 +36,14 @@ import {
   restWorkspaceUploadStartInputSchema,
   workspaceRegistrationSchema,
 } from "./schemas.js";
-import { contextBuildInputSchema, contextOutcomeListInputSchema, contextOutcomeSubmissionSchema, domainLanguageInputSchema } from "../mcp/tool-schemas.js";
+import {
+  contextBuildInputSchema,
+  contextFeedbackListInputSchema,
+  contextFeedbackSubmissionSchema,
+  contextOutcomeListInputSchema,
+  contextOutcomeSubmissionSchema,
+  domainLanguageInputSchema,
+} from "../mcp/tool-schemas.js";
 import { resolveRestLimitOptions, type AbcmRestLimitOptions } from "./config.js";
 
 export interface AbcmRestDependencies {
@@ -48,6 +56,7 @@ export interface AbcmRestDependencies {
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
   contextOutcomes?: ContextOutcomeService;
+  contextFeedback?: ContextFeedbackService;
   workspaces?: WorkspaceRegistrationService;
   documentation?: DirectoryDocumentationSyncService;
   obsidianSync?: ObsidianSyncService;
@@ -291,6 +300,20 @@ export function createAbcmRestHandler(
           fingerprintId: url.searchParams.get("fingerprintId"),
         });
         return json({ outcomes: dependencies.contextOutcomes.list(query.workspaceId, query.fingerprintId) });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/feedback") {
+        if (dependencies.contextFeedback === undefined) throw new AbcmError("ACCESS_DENIED", "Context feedback access is not configured.");
+        return json(dependencies.contextFeedback.propose(await readJson(request, contextFeedbackSubmissionSchema, maxRequestBodyBytes, signal)), 201);
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/context/feedback") {
+        if (dependencies.contextFeedback === undefined) throw new AbcmError("ACCESS_DENIED", "Context feedback access is not configured.");
+        const query = contextFeedbackListInputSchema.parse({
+          workspaceId: url.searchParams.get("workspaceId"),
+          fingerprintId: url.searchParams.get("fingerprintId"),
+        });
+        return json({ proposals: dependencies.contextFeedback.list(query.workspaceId, query.fingerprintId) });
       }
 
       const documentationApply = /^\/v1\/documentation-imports\/([^/]+)\/apply$/.exec(url.pathname);

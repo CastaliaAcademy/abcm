@@ -31,6 +31,9 @@ function receipt(input: {
       requestDigest: sha("3"),
       policyDigest: sha("4"),
     },
+    cache: input.variant === "direct"
+      ? { state: "bypass", policyVersion: "direct-search-no-cache/v1" }
+      : { state: "miss", policyVersion: "context-build-cache/v1", projectionPolicyVersion: "document-projection/v1", keyDigest: sha("c") },
     selectedDocuments: input.selected.map((documentId, index) => ({
       documentId,
       tokenEstimate: Math.floor(input.tokens / input.selected.length) + (index === 0 ? input.tokens % input.selected.length : 0),

@@ -7,6 +7,14 @@ export {
   getAbcmAgentInstructions,
 } from "./agent-instructions/agent-instructions.js";
 export { CONTEXT_SELECTION_POLICY_VERSION, ContextBuilder } from "./context/context-builder.js";
+export {
+  CONTEXT_BUILD_CACHE_POLICY_VERSION,
+  DOCUMENT_PROJECTION_POLICY_VERSION,
+  MemoryContextBuildCacheCatalog,
+  contextBuildCacheMetadata,
+  createContextBuildCacheIdentity,
+} from "./context/context-build-cache.js";
+export type { ContextBuildCacheCatalog, ContextBuildCacheEntry, ContextBuildCacheIdentity } from "./context/context-build-cache.js";
 export { DirectoryContextFingerprintStore } from "./context/directory-context-fingerprint-store.js";
 export { emitAudit, emitMetric, InMemoryAbcmObservability, observeOperation } from "./core/observability.js";
 export type {
@@ -25,6 +33,7 @@ export type {
   ContextBudgetAllocation,
   ContextBudgetProfile,
   ContextBuilderOptions,
+  ContextBuildCacheMetadata,
   ContextBundle,
   ContextExecutionBinding,
   ContextFingerprint,
@@ -66,6 +75,18 @@ export type {
   ContextOutcomeReceipt,
   ContextOutcomeSubmission,
 } from "./evaluation/context-outcome-receipt.js";
+export {
+  contextFeedbackProposalSchema,
+  contextFeedbackSubmissionSchema,
+  createContextFeedbackProposal,
+} from "./evaluation/context-feedback.js";
+export { ContextFeedbackService } from "./evaluation/context-feedback-service.js";
+export type {
+  ContextFeedbackCatalog,
+  ContextFeedbackProposal,
+  ContextFeedbackProposalInput,
+  ContextFeedbackSubmission,
+} from "./evaluation/context-feedback.js";
 export { runDirectSearchBaseline } from "./evaluation/direct-search-baseline.js";
 export type { DirectSearchBaselineRequest, DirectSearchBaselineResult } from "./evaluation/direct-search-baseline.js";
 export type {

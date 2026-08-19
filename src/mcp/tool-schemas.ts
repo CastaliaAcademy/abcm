@@ -5,6 +5,8 @@ import { buildTaskContextSchema } from "../context/schema.js";
 import { projectLanguageTagSchema } from "../core/project-language.js";
 import { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
 export { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
+import { contextFeedbackProposalSchema, contextFeedbackSubmissionSchema } from "../evaluation/context-feedback.js";
+export { contextFeedbackProposalSchema, contextFeedbackSubmissionSchema } from "../evaluation/context-feedback.js";
 import {
   workspaceBatchApplyInputSchema,
   workspaceBatchApplyOutputSchema,
@@ -180,6 +182,14 @@ const contextBudgetAllocationSchema = z.object({
 }).strict();
 
 export const contextBuildInputSchema = buildTaskContextSchema;
+const contextBuildCacheMetadataSchema = z.object({
+  state: z.enum(["hit", "miss", "stale"]),
+  policyVersion: z.literal("context-build-cache/v1"),
+  projectionPolicyVersion: z.literal("document-projection/v1"),
+  keyDigest: checksum,
+  workspaceSnapshotDigest: checksum,
+  principalAccessDigest: checksum,
+}).strict();
 export const contextBuildOutputSchema = z.object({
   contextBundleId: z.string(),
   bundleDigest: checksum,
@@ -206,6 +216,7 @@ export const contextBuildOutputSchema = z.object({
   omissions: z.array(z.unknown()),
   tokenEstimate: z.number().int().nonnegative(),
   contextFingerprintLocation: z.string(),
+  cache: contextBuildCacheMetadataSchema,
 }).strict();
 
 const contextPreviewDocumentSchema = z.object({
@@ -237,12 +248,15 @@ export const contextPreviewOutputSchema = z.object({
   omissions: z.array(z.unknown()),
   tokenEstimate: z.number().int().nonnegative(),
   fallbackModes: z.tuple([z.literal("direct-search"), z.literal("explicit-documents"), z.literal("bounded-resource-read")]),
+  cache: contextBuildCacheMetadataSchema,
 }).strict();
 export const contextOutcomeListInputSchema = z.object({
   workspaceId,
   fingerprintId: z.string().regex(/^fingerprint-[a-f0-9]{24}$/),
 }).strict();
 export const contextOutcomeListOutputSchema = z.object({ outcomes: z.array(contextOutcomeReceiptSchema) }).strict();
+export const contextFeedbackListInputSchema = contextOutcomeListInputSchema;
+export const contextFeedbackListOutputSchema = z.object({ proposals: z.array(contextFeedbackProposalSchema) }).strict();
 
 const documentationOperationSchema = z.object({
   operation: z.enum(["create", "update", "move", "delete", "unchanged", "conflict"]),
@@ -320,6 +334,8 @@ export const ABCM_MCP_TOOL_SCHEMAS = {
   "context.preview_task_context": { input: contextBuildInputSchema, output: contextPreviewOutputSchema },
   "context.record_outcome": { input: contextOutcomeSubmissionSchema, output: contextOutcomeReceiptSchema },
   "context.list_outcomes": { input: contextOutcomeListInputSchema, output: contextOutcomeListOutputSchema },
+  "context.propose_feedback": { input: contextFeedbackSubmissionSchema, output: contextFeedbackProposalSchema },
+  "context.list_feedback": { input: contextFeedbackListInputSchema, output: contextFeedbackListOutputSchema },
   "documentation_source.preview": { input: documentationPreviewInputSchema, output: documentationPreviewOutputSchema },
   "documentation_source.apply": { input: documentationApplyInputSchema, output: documentationSyncOutputSchema },
   "documentation_source.sync": { input: documentationSyncInputSchema, output: documentationSyncOutputSchema },

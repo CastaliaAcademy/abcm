@@ -56,6 +56,7 @@ const directReceipt = retrievalRunReceiptSchema.parse({
   variant: "direct",
   runId: "direct-1",
   inputIdentity,
+  cache: { state: "bypass", policyVersion: "direct-search-no-cache/v1" },
   selectedDocuments: direct.selectedDocuments.map(document => ({ documentId: document.documentId, tokenEstimate: document.tokenEstimate })),
   retrievedClaimIds: direct.retrievedClaimIds,
   totalInputTokens: direct.totalInputTokens,
@@ -85,6 +86,7 @@ try {
     tokenEstimate: number;
     selectedDocuments: Array<{ documentId: string; tokenEstimate: number; projection: { content?: string } }>;
     omissions: unknown[];
+    cache: { state: "hit" | "miss" | "stale"; policyVersion: string; projectionPolicyVersion: string; keyDigest: string };
   }> = [];
   for (let index = 0; index < fixtureManifest.repetitions; index++) {
     const started = performance.now();
@@ -99,13 +101,14 @@ try {
         repositoryPaths: fixtureManifest.allowedPathPrefixes,
       },
       budgetProfile: "expanded",
-      execution: { planId: "PLAN-0031", runId: `docker-${index}` },
+      execution: { planId: "PLAN-0031", runId: "docker-eval" },
     } });
     buildTimes.push(elapsed(started));
     if (bundle.isError) throw new Error(`Context build failed: ${JSON.stringify(bundle.content)}`);
     bundles.push(bundle.structuredContent as typeof bundles[number]);
   }
   const first = bundles[0]!;
+  const cacheStates = bundles.map(bundle => bundle.cache.state);
   const serialized = JSON.stringify(bundles);
   const traversal = await client.callTool({ name: "workspace.read_file", arguments: { workspaceId: fixtureManifest.workspaceId, path: "../foreign/secret.md" } });
   const traversalSerialized = JSON.stringify(traversal);
@@ -120,6 +123,7 @@ try {
     variant: "abcmAutomatic",
     runId: "abcm-docker-1",
     inputIdentity,
+    cache: first.cache,
     selectedDocuments: first.selectedDocuments.map(document => ({ documentId: document.documentId, tokenEstimate: document.tokenEstimate })),
     retrievedClaimIds,
     totalInputTokens: first.tokenEstimate,
@@ -155,11 +159,15 @@ try {
     benchmark: "context-efficiency-docker-v1",
     fixture: { workspaceId: fixtureManifest.workspaceId, goldDocumentIds: fixtureManifest.goldDocumentIds, repetitions: fixtureManifest.repetitions },
     direct: { durationMs: directMs, candidateReads: direct.trace.reads.length, selectedDocumentIds: direct.selectedDocuments.map(document => document.documentId), inputTokens: direct.totalInputTokens, digest: direct.resultDigest },
-    abcm: { bootstrapMs, coldBuildMs: buildTimes[0], warmBuildP50Ms: percentile(buildTimes.slice(1), 0.5), warmBuildP95Ms: percentile(buildTimes.slice(1), 0.95), selectedDocumentIds: selectedIds, inputTokens: first.tokenEstimate, bundleDigest: first.bundleDigest, identicalBundleRate: new Set(bundles.map(bundle => bundle.bundleDigest)).size === 1 ? 1 : 0, omissionCount: first.omissions.length },
+    abcm: { bootstrapMs, coldBuildMs: buildTimes[0], warmBuildP50Ms: percentile(buildTimes.slice(1), 0.5), warmBuildP95Ms: percentile(buildTimes.slice(1), 0.95), cacheStates, selectedDocumentIds: selectedIds, inputTokens: first.tokenEstimate, bundleDigest: first.bundleDigest, identicalBundleRate: new Set(bundles.map(bundle => bundle.bundleDigest)).size === 1 ? 1 : 0, omissionCount: first.omissions.length },
     priorityEvaluation: report.variants.abcmAutomatic,
   };
   console.log(JSON.stringify(output, null, 2));
-  if (process.env.ABCM_BENCH_ENFORCE === "true" && report.variants.abcmAutomatic?.overall !== "pass") process.exitCode = 1;
+  if (process.env.ABCM_BENCH_ENFORCE === "true" && (
+    report.variants.abcmAutomatic?.overall !== "pass" ||
+    cacheStates[0] !== "miss" ||
+    cacheStates.slice(1).some(state => state !== "hit")
+  )) process.exitCode = 1;
 } finally {
   await client.close();
 }

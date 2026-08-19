@@ -239,6 +239,22 @@ export function createAbcmOpenApiDocument(): JsonObject {
           responses: { "200": response("Immutable context outcome receipts", reference("ContextOutcomeListResult")), ...problemResponses },
         },
       },
+      "/v1/context/feedback": {
+        post: {
+          operationId: "proposeContextFeedback",
+          description: "Create an immutable body-free proposal; active ranking and datasets are not changed by this operation.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("ContextFeedbackSubmission") } } },
+          responses: { "201": response("Immutable context feedback proposal", reference("ContextFeedbackProposal")), ...problemResponses },
+        },
+        get: {
+          operationId: "listContextFeedback",
+          parameters: [
+            parameter("workspaceId", "query", true, { type: "string", minLength: 1 }),
+            parameter("fingerprintId", "query", true, { type: "string", pattern: "^fingerprint-[a-f0-9]{24}$" }),
+          ],
+          responses: { "200": response("Immutable context feedback proposals", reference("ContextFeedbackListResult")), ...problemResponses },
+        },
+      },
       "/v1/workspaces/{workspaceId}/documentation-sources/preview": {
         post: {
           operationId: "previewDocumentationSource",

@@ -15,6 +15,7 @@ import {
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
 import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
+import type { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -45,6 +46,10 @@ import {
   contextOutcomeListOutputSchema,
   contextOutcomeReceiptSchema,
   contextOutcomeSubmissionSchema,
+  contextFeedbackListInputSchema,
+  contextFeedbackListOutputSchema,
+  contextFeedbackProposalSchema,
+  contextFeedbackSubmissionSchema,
   documentationApplyInputSchema,
   documentationPreviewInputSchema,
   documentationPreviewOutputSchema,
@@ -87,6 +92,7 @@ export interface AbcmMcpDependencies {
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
   contextOutcomes?: ContextOutcomeService;
+  contextFeedback?: ContextFeedbackService;
   documentation?: DirectoryDocumentationSyncService;
   workspaces?: WorkspaceProvisioningService;
   mcpResourcePageSize?: number;
@@ -464,6 +470,30 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         outputSchema: contextOutcomeListOutputSchema,
       },
       async (input, context) => toolResult(async () => ({ outcomes: dependencies.contextOutcomes!.list(input.workspaceId, input.fingerprintId) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+  }
+  if (dependencies.contextFeedback !== undefined) {
+    server.registerTool(
+      "context.propose_feedback",
+      {
+        title: "Propose context feedback",
+        description: "Create an immutable body-free ranking-policy or dataset proposal without changing active selection.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: contextFeedbackSubmissionSchema,
+        outputSchema: contextFeedbackProposalSchema,
+      },
+      async (input, context) => toolResult(async () => ({ ...dependencies.contextFeedback!.propose(input) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "context.list_feedback",
+      {
+        title: "List context feedback proposals",
+        description: "List immutable body-free proposals for one principal-owned ContextFingerprint.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: contextFeedbackListInputSchema,
+        outputSchema: contextFeedbackListOutputSchema,
+      },
+      async (input, context) => toolResult(async () => ({ proposals: dependencies.contextFeedback!.list(input.workspaceId, input.fingerprintId) }), context.mcpReq.signal, operationTimeoutMs),
     );
   }
   if (dependencies.documentation !== undefined) {

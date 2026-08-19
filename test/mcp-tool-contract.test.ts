@@ -80,6 +80,8 @@ describe("MCP tool contract", () => {
         "context.build_task_context",
         "context.record_outcome",
         "context.list_outcomes",
+        "context.propose_feedback",
+        "context.list_feedback",
         "documentation_source.preview",
         "documentation_source.apply",
         "documentation_source.sync",
@@ -87,7 +89,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.9.0",
+        version: "1.10.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
@@ -113,6 +115,7 @@ describe("MCP tool contract", () => {
         "multiScopePolicyDigest",
         "affectedScopeDetails",
         "budgetAllocation",
+        "cache",
       ]));
       expect(contextTool.outputSchema.properties).toEqual(expect.objectContaining({
         multiScopePolicyDigest: expect.any(Object),

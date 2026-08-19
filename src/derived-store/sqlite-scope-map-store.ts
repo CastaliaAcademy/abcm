@@ -1,10 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { Database } from "bun:sqlite";
 
 import { AbcmError } from "../core/errors.js";
+import type {
+  ContextBuildCacheCatalog,
+  ContextBuildCacheEntry,
+  ContextBuildCacheIdentity,
+} from "../context/context-build-cache.js";
 import type {
   ContextBundleCatalogRecord,
   ContextFingerprint,
@@ -21,6 +26,13 @@ import type {
   TombstoneRecord,
 } from "../documentation/types.js";
 import {
+  contextFeedbackProposalSchema,
+  createContextFeedbackProposal,
+  type ContextFeedbackCatalog,
+  type ContextFeedbackProposal,
+  type ContextFeedbackProposalInput,
+} from "../evaluation/context-feedback.js";
+import {
   contextOutcomeSubmissionSchema,
   contextOutcomeReceiptSchema,
   createContextOutcomeReceipt,
@@ -31,7 +43,7 @@ import {
 import type { MapRevision } from "../scope-map/types.js";
 import type { RuntimeOwnerHandle, ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./types.js";
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 interface LeaseRow {
   owner_id: string;
@@ -49,7 +61,7 @@ interface RuntimeOwnerRow {
   fencing_token: number;
 }
 
-export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCatalog, ContextOutcomeCatalog {
+export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCatalog, ContextOutcomeCatalog, ContextBuildCacheCatalog, ContextFeedbackCatalog {
   readonly scanLeaseRenewalIntervalMs: number;
   readonly #database: Database;
   readonly #ownerId: string;
@@ -236,6 +248,117 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
       return rows.map(row => contextOutcomeReceiptSchema.parse(JSON.parse(row.outcome_json)));
     } catch {
       throw new AbcmError("DERIVED_STORE_CORRUPT", "Context outcome receipt payload is invalid.");
+    }
+  }
+
+  lookupContextBuildCache(identity: ContextBuildCacheIdentity): { state: "hit"; entry: ContextBuildCacheEntry } | { state: "miss" | "stale" } {
+    this.#assertRuntimeOwner(this.#clock());
+    const row = this.#database
+      .query<{ entry_json: string }, [string, string]>(
+        "SELECT entry_json FROM context_build_cache WHERE workspace_id = ? AND key_digest = ?",
+      )
+      .get(identity.workspaceId, identity.keyDigest);
+    if (row !== null) {
+      try {
+        const entry = JSON.parse(row.entry_json) as ContextBuildCacheEntry;
+        if (entry.identity.keyDigest !== identity.keyDigest || entry.identity.workspaceId !== identity.workspaceId) throw new Error("identity mismatch");
+        return { state: "hit", entry };
+      } catch {
+        throw new AbcmError("DERIVED_STORE_CORRUPT", "Context build cache payload is invalid.");
+      }
+    }
+    const stale = this.#database
+      .query<{ present: number }, [string, string]>(
+        "SELECT 1 AS present FROM context_build_cache WHERE workspace_id = ? AND family_digest = ? LIMIT 1",
+      )
+      .get(identity.workspaceId, identity.familyDigest);
+    return { state: stale === null ? "miss" : "stale" };
+  }
+
+  putContextBuildCache(entry: ContextBuildCacheEntry): void {
+    const payload = JSON.stringify(entry);
+    const entryDigest = `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+    this.#database.transaction(() => {
+      this.#assertRuntimeOwner(this.#clock());
+      const existing = this.#database
+        .query<{ entry_digest: string }, [string, string]>(
+          "SELECT entry_digest FROM context_build_cache WHERE workspace_id = ? AND key_digest = ?",
+        )
+        .get(entry.identity.workspaceId, entry.identity.keyDigest);
+      if (existing !== null) {
+        if (existing.entry_digest !== entryDigest) throw new AbcmError("CONTEXT_CACHE_CONFLICT", "Context cache identity produced a different immutable result.");
+        return;
+      }
+      this.#database.run(
+        `INSERT INTO context_build_cache
+          (workspace_id, key_digest, family_digest, principal_id, principal_access_digest, map_revision, workspace_snapshot_digest, policy_version, projection_policy_version, entry_digest, entry_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          entry.identity.workspaceId,
+          entry.identity.keyDigest,
+          entry.identity.familyDigest,
+          entry.identity.principalId,
+          entry.identity.principalAccessDigest,
+          entry.identity.mapRevision,
+          entry.identity.workspaceSnapshotDigest,
+          entry.identity.cachePolicyVersion,
+          entry.identity.projectionPolicyVersion,
+          entryDigest,
+          payload,
+        ],
+      );
+    }).immediate();
+  }
+
+  recordContextFeedback(input: ContextFeedbackProposalInput): ContextFeedbackProposal {
+    return this.#database.transaction(() => {
+      this.#assertRuntimeOwner(this.#clock());
+      const fingerprint = this.getContextFingerprint(input.workspaceId, input.fingerprintId);
+      if (
+        fingerprint === undefined ||
+        fingerprint.principalId !== input.principalId ||
+        fingerprint.bundleDigest !== input.bundleDigest ||
+        fingerprint.fingerprint.mapRevision !== input.mapRevision
+      ) {
+        throw new AbcmError("CONTEXT_FINGERPRINT_NOT_FOUND", "Context fingerprint is unavailable in this workspace.");
+      }
+      const candidate = createContextFeedbackProposal(input, new Date(this.#clock()).toISOString());
+      const existing = this.#database
+        .query<{ proposal_digest: string; proposal_json: string }, [string, string, string]>(
+          "SELECT proposal_digest, proposal_json FROM context_feedback_proposals WHERE workspace_id = ? AND fingerprint_id = ? AND feedback_id = ?",
+        )
+        .get(input.workspaceId, input.fingerprintId, input.feedbackId);
+      if (existing !== null) {
+        if (existing.proposal_digest !== candidate.proposalDigest) {
+          throw new AbcmError("CONTEXT_FEEDBACK_CONFLICT", "Feedback identity is already bound to a different immutable proposal.");
+        }
+        try {
+          return contextFeedbackProposalSchema.parse(JSON.parse(existing.proposal_json));
+        } catch {
+          throw new AbcmError("DERIVED_STORE_CORRUPT", "Context feedback proposal payload is invalid.");
+        }
+      }
+      this.#database.run(
+        `INSERT INTO context_feedback_proposals
+          (workspace_id, fingerprint_id, feedback_id, proposal_id, proposal_digest, proposal_json)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [input.workspaceId, input.fingerprintId, input.feedbackId, candidate.proposalId, candidate.proposalDigest, JSON.stringify(candidate)],
+      );
+      return candidate;
+    }).immediate();
+  }
+
+  listContextFeedback(workspaceId: string, fingerprintId: string): ContextFeedbackProposal[] {
+    this.#assertRuntimeOwner(this.#clock());
+    const rows = this.#database
+      .query<{ proposal_json: string }, [string, string]>(
+        "SELECT proposal_json FROM context_feedback_proposals WHERE workspace_id = ? AND fingerprint_id = ? ORDER BY feedback_id, proposal_id",
+      )
+      .all(workspaceId, fingerprintId);
+    try {
+      return rows.map(row => contextFeedbackProposalSchema.parse(JSON.parse(row.proposal_json)));
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Context feedback proposal payload is invalid.");
     }
   }
 
@@ -1121,6 +1244,34 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
           outcome_json TEXT NOT NULL,
           PRIMARY KEY (workspace_id, outcome_id),
           UNIQUE (workspace_id, fingerprint_id, repeat_id),
+          FOREIGN KEY (workspace_id, fingerprint_id) REFERENCES context_fingerprints(workspace_id, fingerprint_id) ON DELETE CASCADE
+        )`);
+      }
+      if (currentVersion < 10) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS context_build_cache (
+          workspace_id TEXT NOT NULL,
+          key_digest TEXT NOT NULL,
+          family_digest TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          principal_access_digest TEXT NOT NULL,
+          map_revision TEXT NOT NULL,
+          workspace_snapshot_digest TEXT NOT NULL,
+          policy_version TEXT NOT NULL,
+          projection_policy_version TEXT NOT NULL,
+          entry_digest TEXT NOT NULL,
+          entry_json TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, key_digest)
+        )`);
+        this.#database.run("CREATE INDEX IF NOT EXISTS context_build_cache_family_idx ON context_build_cache(workspace_id, family_digest)");
+        this.#database.run(`CREATE TABLE IF NOT EXISTS context_feedback_proposals (
+          workspace_id TEXT NOT NULL,
+          fingerprint_id TEXT NOT NULL,
+          feedback_id TEXT NOT NULL,
+          proposal_id TEXT NOT NULL,
+          proposal_digest TEXT NOT NULL,
+          proposal_json TEXT NOT NULL,
+          PRIMARY KEY (workspace_id, proposal_id),
+          UNIQUE (workspace_id, fingerprint_id, feedback_id),
           FOREIGN KEY (workspace_id, fingerprint_id) REFERENCES context_fingerprints(workspace_id, fingerprint_id) ON DELETE CASCADE
         )`);
       }

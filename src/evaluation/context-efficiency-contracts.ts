@@ -76,6 +76,14 @@ export const retrievalRunReceiptSchema = z.object({
     requestDigest: digest,
     policyDigest: digest,
   }).strict(),
+  cache: z.object({
+    state: z.enum(["bypass", "hit", "miss", "stale"]),
+    policyVersion: nonEmptyId,
+    projectionPolicyVersion: nonEmptyId.optional(),
+    keyDigest: digest.optional(),
+    workspaceSnapshotDigest: digest.optional(),
+    principalAccessDigest: digest.optional(),
+  }).strict(),
   selectedDocuments: z.array(z.object({
     documentId: nonEmptyId,
     tokenEstimate: z.number().int().nonnegative(),

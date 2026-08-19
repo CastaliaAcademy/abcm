@@ -151,6 +151,16 @@ export interface ContextBundle {
   omissions: readonly ContextOmission[];
   tokenEstimate: number;
   contextFingerprintLocation: string;
+  cache: ContextBuildCacheMetadata;
+}
+
+export interface ContextBuildCacheMetadata {
+  state: "hit" | "miss" | "stale";
+  policyVersion: "context-build-cache/v1";
+  projectionPolicyVersion: "document-projection/v1";
+  keyDigest: string;
+  workspaceSnapshotDigest: string;
+  principalAccessDigest: string;
 }
 
 export interface ContextSelectionPreview {
@@ -166,6 +176,7 @@ export interface ContextSelectionPreview {
   omissions: readonly ContextOmission[];
   tokenEstimate: number;
   fallbackModes: readonly ["direct-search", "explicit-documents", "bounded-resource-read"];
+  cache: ContextBuildCacheMetadata;
 }
 
 export interface ContextFingerprintStore {
