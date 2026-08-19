@@ -110,6 +110,12 @@ export interface ResolverPass {
   evidence: readonly ScopeResolutionEvidence[];
 }
 
+export interface ScopeResolutionWarning {
+  code: "DOMAIN_ALIAS_DEPRECATED";
+  term: string;
+  canonicalTerm: string;
+}
+
 export type AffectedScopeOrigin = "primary" | "explicit" | "relation";
 
 export interface AffectedScopeDetail {
@@ -143,6 +149,7 @@ export interface ResolvedScopePath {
   affectedScopeDetails: readonly AffectedScopeDetail[];
   multiScopePolicyDigest: string;
   normalizedIntent: NormalizedTaskIntent;
+  warnings: readonly ScopeResolutionWarning[];
   effectiveDomainLanguage: EffectiveDomainLanguage;
   domainLanguageSources: readonly DomainLanguageSource[];
   resolverTrace: {

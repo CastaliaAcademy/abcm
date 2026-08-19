@@ -263,6 +263,7 @@ export const contextPreviewOutputSchema = z.object({
   budgetAllocation: z.array(contextBudgetAllocationSchema),
   selectedDocuments: z.array(contextPreviewDocumentSchema),
   omissions: z.array(z.unknown()),
+  warnings: z.array(z.object({ code: z.string(), subjectId: z.string().optional() }).strict()),
   tokenEstimate: z.number().int().nonnegative(),
   fallbackModes: z.tuple([z.literal("direct-search"), z.literal("explicit-documents"), z.literal("bounded-resource-read")]),
   cache: contextBuildCacheMetadataSchema,

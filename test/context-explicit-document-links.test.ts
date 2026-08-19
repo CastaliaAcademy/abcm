@@ -78,6 +78,18 @@ describe("typed explicit document references", () => {
       ]))), principal);
       expect(prefix.selectedDocuments.map(document => document.documentId)).toContain("guide");
       expect(prefix.selectedDocuments.find(document => document.documentId === "guide")?.selectionReasons).toContain("path_prefix");
+
+      const mixedRequest = normalizeBuildTaskContextInput(buildTaskContextSchema.parse(request(bootstrap.bootstrapId, [
+        { selector: "document-id", documentId: "decision", expectedKind: "adr" },
+        { selector: "uri", uri: "abcm://artifact/guide", expectedKind: "guide" },
+        { selector: "repository-file", path: "project/artifacts/adr/decision.md", expectedKind: "adr" },
+      ])));
+      const mixed = await runtime.contextBuilder.build(mixedRequest, principal);
+      const repeated = await runtime.contextBuilder.build(mixedRequest, principal);
+      expect(mixed.selectedDocuments.map(document => document.documentId)).toEqual(["decision", "guide"]);
+      expect(mixed.selectedDocuments.find(document => document.documentId === "decision")?.selectionReasons).toEqual(["explicit_link", "path_exact"]);
+      expect(new Set(mixed.selectedDocuments.map(document => document.documentId)).size).toBe(2);
+      expect(repeated.bundleDigest).toBe(mixed.bundleDigest);
     } finally {
       await runtime.close();
     }

@@ -150,7 +150,14 @@ describe("ContextBuilder", () => {
     expect(preview.budgetAllocation).toEqual(result.budgetAllocation);
 
     const overflow = await fixture({ budgetProfiles: { impossible: { softLimitTokens: 1, hardLimitTokens: 1 } } });
-    await expect(overflow.builder.build({ ...request(overflow.bootstrap.bootstrapId), budgetProfile: "impossible" }, principal)).rejects.toMatchObject({ code: "REQUIRED_CONTEXT_EXCEEDS_LIMIT" });
+    await expect(overflow.builder.build({ ...request(overflow.bootstrap.bootstrapId), budgetProfile: "impossible" }, principal)).rejects.toMatchObject({
+      code: "REQUIRED_CONTEXT_EXCEEDS_LIMIT",
+      details: {
+        hardLimitTokens: 1,
+        mandatoryTokens: expect.any(Number),
+        documentIds: ["security-baseline", "search-implementation", "ADR-SEARCH"],
+      },
+    });
   });
 
   test("rejects unresolved explicit documents and stale materialized bytes", async () => {

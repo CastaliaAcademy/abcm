@@ -140,6 +140,7 @@ export class ScopePathResolver {
       affectedScopeDetails,
       multiScopePolicyDigest: this.#policyDigest,
       normalizedIntent: localIntent,
+      warnings: this.#deprecatedAliasWarnings(normalizedRequest, effective.effectiveLanguage),
       effectiveDomainLanguage: effective.effectiveLanguage,
       domainLanguageSources: effective.sources,
       resolverTrace: {
@@ -148,6 +149,21 @@ export class ScopePathResolver {
         passes,
       },
     };
+  }
+
+  #deprecatedAliasWarnings(request: ResolveTaskPathRequest, language: EffectiveDomainLanguage) {
+    const supplied = new Set([
+      ...(request.canonicalTerms ?? []).map(normalized),
+      ...request.goal.toLocaleLowerCase("en-US").split(/[^a-z0-9.-]+/).filter(Boolean).map(normalized),
+    ]);
+    return language.aliases
+      .filter(alias => alias.deprecated && supplied.has(normalized(alias.term)))
+      .map(alias => ({
+        code: "DOMAIN_ALIAS_DEPRECATED" as const,
+        term: alias.term,
+        canonicalTerm: alias.canonicalTerm,
+      }))
+      .sort((left, right) => left.term.localeCompare(right.term) || left.canonicalTerm.localeCompare(right.canonicalTerm));
   }
 
   #normalizeIntent(request: ResolveTaskPathRequest, language: EffectiveDomainLanguage): NormalizedTaskIntent {

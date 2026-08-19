@@ -33,7 +33,7 @@ async function fixture() {
   await scope(root, "project/billing", "service", "billing", "inherit-only");
   await writeFile(join(root, "domain-language/domains.yaml"), "apiVersion: abcm/v1\nkind: DomainLanguageDomains\ndomains:\n  - id: commerce\n    locked: true\n");
   await writeFile(join(root, "project/catalog/domain-language/glossary.yaml"), "apiVersion: abcm/v1\nkind: DomainLanguageGlossary\nconcepts:\n  - id: catalog.search\n    domainId: commerce\n    scopeId: search\n    term: Search\n");
-  await writeFile(join(root, "project/catalog/domain-language/aliases.yaml"), "apiVersion: abcm/v1\nkind: DomainLanguageAliases\naliases:\n  - term: find\n    canonicalTerm: catalog.search\n");
+  await writeFile(join(root, "project/catalog/domain-language/aliases.yaml"), "apiVersion: abcm/v1\nkind: DomainLanguageAliases\naliases:\n  - term: find\n    canonicalTerm: catalog.search\n  - term: old-find\n    canonicalTerm: catalog.search\n    deprecated: true\n");
   await mkdir(join(root, "project/catalog/artifacts/adr"), { recursive: true });
   await writeFile(join(root, "project/catalog/artifacts/adr/ADR-SEARCH.md"), "---\nid: ADR-SEARCH\nkind: adr\ntitle: Search decision\n---\nbody not exposed\n");
   const registry = new WorkspaceRegistry([{ id: "test", root }]);
@@ -80,6 +80,14 @@ describe("ScopePathResolver", () => {
     expect(result.normalizedIntent.canonicalTerms).toEqual(["catalog.search"]);
     expect(result.resolverTrace.passes.map(pass => [pass.pass, pass.targetScopeId])).toEqual([[1, "catalog"], [2, "search"]]);
     expect(result.domainLanguageSources.map(source => source.scopeId)).toContain("search");
+
+    const deprecated = await resolver.resolve({ domainLanguageBootstrapId: base.bootstrapId, goal: "catalog old-find" }, principal);
+    expect(deprecated.normalizedIntent.canonicalTerms).toEqual(["catalog.search"]);
+    expect(deprecated.warnings).toEqual([{
+      code: "DOMAIN_ALIAS_DEPRECATED",
+      term: "old-find",
+      canonicalTerm: "catalog.search",
+    }]);
   });
 
   test("fails closed for unknown language, ambiguous targets and inaccessible candidates", async () => {

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { ABCM_AGENT_INSTRUCTIONS } from "../src/agent-instructions/agent-instructions.js";
+import { CANONICAL_REMOTE_EVIDENCE_PATHS } from "./documentation-contract-paths.js";
 
 const baseUrl = (process.env.ABCM_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 const token = process.env.ABCM_API_TOKEN;
@@ -61,6 +62,13 @@ const files = new Map<string, Uint8Array>([
 
 for (const [path, bytes] of files) await putRemote(path, bytes);
 
+const remoteEvidence = new Map<string, Uint8Array>();
+for (const path of CANONICAL_REMOTE_EVIDENCE_PATHS) {
+  const current = await readRemote(path);
+  if (current === undefined) throw new Error(`Canonical remote evidence '${path}' is missing.`);
+  remoteEvidence.set(path, current.bytes);
+}
+
 const layoutPath = "config/documentation-layout.json";
 const layoutRemote = await readRemote(layoutPath);
 if (!layoutRemote) throw new Error("Documentation layout is missing.");
@@ -74,6 +82,12 @@ if (layout.schemaVersion !== 1 || layout.workspaceId !== workspaceId || layout.p
   throw new Error("Documentation layout identity differs from the configured target.");
 }
 for (const [path, bytes] of files) {
+  const entry = { repositoryPath: path, workspacePath: path, checksum: sha256(bytes), size: bytes.byteLength };
+  const index = layout.files.findIndex(candidate => candidate.repositoryPath === path);
+  if (index === -1) layout.files.push(entry);
+  else layout.files[index] = entry;
+}
+for (const [path, bytes] of remoteEvidence) {
   const entry = { repositoryPath: path, workspacePath: path, checksum: sha256(bytes), size: bytes.byteLength };
   const index = layout.files.findIndex(candidate => candidate.repositoryPath === path);
   if (index === -1) layout.files.push(entry);

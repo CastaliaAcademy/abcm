@@ -188,6 +188,7 @@ export interface ContextSelectionPreview {
   budgetAllocation: readonly ContextBudgetAllocation[];
   selectedDocuments: readonly ContextFingerprintDocument[];
   omissions: readonly ContextOmission[];
+  warnings: readonly { code: string; subjectId?: string }[];
   tokenEstimate: number;
   fallbackModes: readonly ["direct-search", "explicit-documents", "bounded-resource-read"];
   cache: ContextBuildCacheMetadata;
