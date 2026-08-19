@@ -90,6 +90,27 @@ describe("ScopePathResolver", () => {
     }]);
   });
 
+  test("accepts a declared primary concept term and canonicalizes it to the concept id", async () => {
+    const { root, scopeMap, domainLanguage, resolver } = await fixture();
+    await writeFile(join(root, "project/domain-language/glossary.yaml"), "apiVersion: abcm/v1\nkind: DomainLanguageGlossary\nconcepts:\n  - id: abcm.scope-map\n    domainId: commerce\n    scopeId: catalog\n    term: ScopeMap\n");
+    await scopeMap.scan("test");
+    const base = await bootstrap(domainLanguage);
+
+    expect(base.effectiveLanguage.concepts).toContainEqual(expect.objectContaining({
+      id: "abcm.scope-map",
+      term: "ScopeMap",
+    }));
+
+    const result = await resolver.resolve({
+      domainLanguageBootstrapId: base.bootstrapId,
+      goal: "catalog",
+      canonicalTerms: ["ScopeMap"],
+    }, principal);
+
+    expect(result.primaryTargetScopeId).toBe("catalog");
+    expect(result.normalizedIntent.canonicalTerms).toEqual(["abcm.scope-map"]);
+  });
+
   test("fails closed for unknown language, ambiguous targets and inaccessible candidates", async () => {
     const { root, scopeMap, domainLanguage, resolver } = await fixture();
     const base = await bootstrap(domainLanguage);

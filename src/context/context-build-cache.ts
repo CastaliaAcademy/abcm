@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { ContextPrincipal } from "../domain-language/types.js";
+import type { ConnectedSkillRecord } from "../skills/types.js";
 import type { MapRevision } from "../scope-map/types.js";
 import type {
   BuildTaskContextRequest,
@@ -39,12 +40,16 @@ export type CachedContextDocument = Omit<SelectedContextDocument, "projection"> 
   projection: Omit<MaterializedDocumentProjection, "content">;
 };
 
+export type CachedConnectedSkill = Omit<ConnectedSkillRecord, "body"> & {
+  relativePath: string;
+};
+
 export type ContextBuildCacheBundle = Omit<
   ContextBundle,
   "cache" | "contextFingerprintLocation" | "selectedDocuments" | "connectedSkills"
 > & {
   selectedDocuments: readonly CachedContextDocument[];
-  connectedSkills: readonly [];
+  connectedSkills: readonly CachedConnectedSkill[];
 };
 
 export interface ContextBuildCacheCatalog {

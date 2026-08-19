@@ -216,6 +216,8 @@ describe("ContextBuilder", () => {
 
   test("preserves structured multi-scope semantics through REST and MCP", async () => {
     const { root } = await fixture();
+    await mkdir(join(root, "agents/skills/multi-scope"), { recursive: true });
+    await writeFile(join(root, "agents/skills/multi-scope/SKILL.md"), "---\nname: multi-scope\ndescription: Multi-scope coordination\nmetadata:\n  abcm-skill-strategy: global\n---\nMULTI_SCOPE_SKILL_BODY\n");
     const runtime = createAbcmRuntime({ id: "test", root }, { contextPrincipal: principal });
     await runtime.scopeMap.scan("test");
     const bootstrap = await runtime.domainLanguage.createBootstrap({ anchor: { workspaceId: "test", projectId: "commerce" }, roleId: "executor-agent" }, principal);
@@ -238,6 +240,8 @@ describe("ContextBuilder", () => {
       multiScopePolicyDigest: string;
       budgetAllocation: Array<{ bucketId: string }>;
       selectedDocuments: Array<{ documentId: string }>;
+      connectedSkills: Array<{ skillId: string; body: string }>;
+      cache: { state: string; keyDigest: string };
     };
     expect(restBody.affectedScopes).toEqual(["search", "other-project"]);
     expect(restBody.affectedScopeDetails).toEqual([
@@ -247,6 +251,8 @@ describe("ContextBuilder", () => {
     expect(restBody.multiScopePolicyDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(restBody.budgetAllocation.map(item => item.bucketId)).toEqual(expect.arrayContaining(["search", "other-project"]));
     expect(restBody.selectedDocuments.map(item => item.documentId)).toContain("foreign-required");
+    expect(restBody.connectedSkills).toContainEqual(expect.objectContaining({ skillId: "multi-scope", body: expect.stringContaining("MULTI_SCOPE_SKILL_BODY") }));
+    expect(restBody.cache.state).toBe("miss");
 
     const server = runtime.createMcpServer();
     const client = new Client({ name: "multi-scope-context-client", version: "0.1.0" });
@@ -261,6 +267,7 @@ describe("ContextBuilder", () => {
         affectedScopeDetails: restBody.affectedScopeDetails,
         multiScopePolicyDigest: restBody.multiScopePolicyDigest,
         budgetAllocation: restBody.budgetAllocation,
+        cache: expect.objectContaining({ state: "hit", keyDigest: restBody.cache.keyDigest }),
       }));
     } finally {
       await client.close(); await server.close(); await runtime.close();

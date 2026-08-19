@@ -1,5 +1,8 @@
 name: abcm
 
+# ABCM_DOCUMENTATION_SOURCE_PATH is selected by the operator and must point to
+# a separate directory that neither contains nor is contained by the managed workspace.
+
 services:
   rest:
     environment:

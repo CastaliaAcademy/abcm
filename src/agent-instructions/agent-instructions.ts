@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.16.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.17.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.16.0
+Версия: 1.17.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -36,6 +36,7 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 - Контур (Scope): workflow, project, service или feature, объявленный файлом scope.yaml. Отношения родитель–потомок образуют топологию проекта.
 - Язык предметной области (Domain language): наследуемые соглашения, домены, понятия, псевдонимы, омонимы и правила именования в каталоге domain-language. Он определяет толкование терминов задачи.
 - ScopeMap: неизменяемая ревизия, производная от контуров, связей, документов, исполняемых ресурсов, навыков и диагностик.
+- PlantUML source: инертный типизированный исполняемый ресурс из architecture/plantuml/<category>/*.puml. ABCM проверяет envelope и безопасные локальные include, фиксирует dependency closure, но не исполняет и не рендерит диаграмму.
 - Контекстный пакет (Context bundle): неизменяемая ограниченная бюджетом выборка для одной задачи, роли, цели и ревизии карты.
 - Cache контекста: производное versioned-представление, ключ которого включает principal/access digest, MapRevision, проект, запрос, budget и версии selection/projection policy. Состояние hit, miss или stale является наблюдаемым и не меняет bundleDigest.
 - Business-eval profile: версионированный операторский профиль на сервере, который связывает workspace, запросы, fixtures, gold-набор, V0–V5 и пороги. Агент может выбрать только зарегистрированный profileId и не может передать серверу manifest, абсолютный путь или исполняемый код.
@@ -247,6 +248,10 @@ Fallback при недостаточном автоматическом конт
 
 Ошибки различаются: malformed input — REQUEST_INVALID на границе схемы; отсутствующий selector — CONTEXT_DOCUMENT_NOT_FOUND; недоступный — CONTEXT_DOCUMENT_ACCESS_DENIED без раскрытия тела; несовпавший expectedKind — CONTEXT_DOCUMENT_KIND_MISMATCH; изменение после MapRevision — DOMAIN_LANGUAGE_BOOTSTRAP_STALE; обязательный контекст вне hard limit — REQUIRED_CONTEXT_EXCEEDS_LIMIT.
 
+Для MCP предметная ошибка всегда имеет isError=true. Совместимое текстовое содержимое содержит JSON с полем code, а structuredContent содержит тот же стабильный код в error_code и сообщение в message. Не классифицируйте предметную ошибку по тексту и не заменяйте UNKNOWN_DOMAIN_TERM, CONTEXT_DOCUMENT_NOT_FOUND или REQUIRED_CONTEXT_EXCEEDS_LIMIT общим INVALID_ARGUMENT.
+
+canonicalTerms принимает canonical concept id, основной term, alias или однозначный homonym. Например, если glossary объявляет id=abcm.scope-map и term=ScopeMap, оба значения допустимы и нормализуются к abcm.scope-map; неизвестный term обязан завершиться UNKNOWN_DOMAIN_TERM.
+
 Контрпримеры: передавать \`../secret.md\`; использовать fuzzy repositoryPaths вместо explicitDocuments и ожидать mandatory semantics; скрывать CONTEXT_DOCUMENT_NOT_FOUND неограниченным сканированием workspace.
 
 Контрпример: скрыто просканировать весь workspace после неполного preview, смешать найденные файлы с bundle и заявить, что resolver выбрал их автоматически.
@@ -259,7 +264,7 @@ Fallback при недостаточном автоматическом конт
 - multiScopePolicyDigest — версия точных bounds и relation allowlist;
 - budgetAllocation — requested, reserved mandatory, consumed/selected и omitted optional tokens по scope buckets; для каждого bucket consumed не может быть меньше reserved;
 - bundleDigest и ContextFingerprint — воспроизводимая идентичность всего результата.
-- cache — hit, miss или stale, точный key digest, snapshot/access digests и версии cache/projection policy; stale означает, что старое совпадение не было использовано и результат построен заново.
+- cache — hit, miss или stale, точный key digest, snapshot/access digests и версии cache/projection policy; stale означает, что старое совпадение не было использовано и результат построен заново. Cache хранит только body-free метаданные документов и навыков; при hit тела повторно читаются из закреплённой ревизии и сверяются по checksum.
 
 Недоступный explicit scope останавливает весь build с generic TARGET_SCOPE_INVALID: нельзя продолжать с частичным bundle. Недоступный relation-derived scope исключается до формирования details, warnings, omissions и allocation; его id запрещено раскрывать. Mandatory context и подключённые skills всех разрешённых scopes резервируются до optional round-robin.
 
@@ -478,6 +483,8 @@ REST-эквиваленты:
 - context.build_task_context: ограниченный контекстный пакет задачи.
 - context.record_outcome, context.list_outcomes: неизменяемые repeat verdict, usage и cost для собственного ContextFingerprint; повтор repeatId с другим verdict является конфликтом.
 - context.propose_feedback, context.list_feedback: immutable proposal для useful/noise/required документа из собственного ContextFingerprint; операция не активирует новую ranking policy.
+- context.list_business_evaluation_profiles, context.run_business_evaluation, context.list_business_evaluations: server-owned retrieval benchmark без передачи dataset или corpus агентом.
+- context.start_task_success_evaluation, context.get_task_success_evaluation: запуск и чтение body-free task-success с отдельным внешним worker.
 - documentation_source.preview, apply, sync, cutover: импорт документации и передача владения, если эти операции настроены.
 - Ресурсы MCP предоставляют ограниченную карту и содержимое проекта; сначала обнаруживайте ресурсы, а не угадывайте URI.
 
@@ -486,6 +493,10 @@ REST-эквиваленты:
 Для прямой работы откройте каталог зарегистрированного проекта как хранилище Obsidian либо разместите хранилище внутри него. Такие изменения являются изменениями рабочего пространства и обязаны соответствовать структуре и проверкам ABCM.
 
 Для внешнего хранилища настройте источник документации. Сначала выполните preview, изучите операции create/update/move/delete/conflict, затем примените зафиксированный preview. Выполняйте cutover только после явного одобрения оператора и с ожидаемым snapshot digest. После cutover хранилище ABCM становится каноническим, а прежний источник не должен оставаться независимым писателем.
+
+Каталог внешнего источника выбирает оператор при запуске сервера. Агент передаёт только зарегистрированные workspaceId и sourceId и не может задать абсолютный путь через REST или MCP. Выбранный каталог обязан быть отдельным: он не может совпадать с canonical workspace, находиться внутри него или содержать его; граница повторно проверяется после раскрытия симлинков.
+
+Правильно: выбрать отдельный каталог заметок, смонтировать его read-only как documentation source, выполнить preview и только затем apply/sync. Контрпример: выбрать каталог canonical workspace либо его родителя и тем самым организовать импорт источника в самого себя.
 
 Правильно: выполнить preview, разрешить конфликты, применить изменения, проверить ScopeMap и только затем выполнить cutover.
 
