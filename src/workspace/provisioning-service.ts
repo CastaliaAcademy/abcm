@@ -86,6 +86,12 @@ export class WorkspaceProvisioningService {
       });
       const convention = "---\napiVersion: abcm/v1\nkind: DomainLanguageConvention\nmode: inherit-only\n---\n";
       const contextConfig = stringify({ apiVersion: "abcm/v1", kind: "ContextConfig", language: languageResult.data });
+      const architecturePolicy = stringify({
+        apiVersion: "abcm/v1",
+        kind: "ArchitecturePolicy",
+        enforcement: "required",
+        architecture: "abcm-mvp-agent-spec-v0.5",
+      });
       await this.#dependencies.files.write(
         input.id,
         "scope.yaml",
@@ -104,6 +110,13 @@ export class WorkspaceProvisioningService {
         input.id,
         "config/context.yaml",
         new TextEncoder().encode(contextConfig),
+        { ifNoneMatch: "*" },
+        signal,
+      );
+      await this.#dependencies.files.write(
+        input.id,
+        "config/architecture.yaml",
+        new TextEncoder().encode(architecturePolicy),
         { ifNoneMatch: "*" },
         signal,
       );

@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.15.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.16.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.15.0
+Версия: 1.16.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -18,11 +18,12 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 2. Прочитать обязательное поле language в <project>/config/context.yaml и использовать этот язык для общения и новых человекочитаемых документов.
 3. Явно определить целевое рабочее пространство и проект. Запрещено угадывать их идентификаторы.
 4. Вызвать scope_map.scan, если актуальная ревизия карты отсутствует.
-5. До толкования терминов проекта или определения пути задачи вызвать context.get_domain_language с якорем workspaceId и projectId.
-6. Если scope, причины выбора или ожидаемый размер спорны, сначала вызвать context.preview_task_context: preview не записывает fingerprint и не возвращает тела документов.
-7. Вызвать context.build_task_context, передав полученный bootstrap id, явную роль, тип задачи и цель.
-8. Работать только с ограниченным контекстным пакетом и файлами, которые намеренно прочитаны для задачи. По умолчанию запрещено сканировать всё рабочее пространство.
-9. Сохранить в итоговом отчёте контрольные суммы, ревизии карты, доказательства и результаты проверок.
+5. Прочитать effective file architecture через workspace.get_architecture_policy и проверить её через workspace.check_architecture_compliance. При required и noncompliant запрещено строить контекст в обход ошибки.
+6. До толкования терминов проекта или определения пути задачи вызвать context.get_domain_language с якорем workspaceId и projectId.
+7. Если scope, причины выбора или ожидаемый размер спорны, сначала вызвать context.preview_task_context: preview не записывает fingerprint и не возвращает тела документов.
+8. Вызвать context.build_task_context, передав полученный bootstrap id, явную роль, тип задачи и цель.
+9. Работать только с ограниченным контекстным пакетом и файлами, которые намеренно прочитаны для задачи. По умолчанию запрещено сканировать всё рабочее пространство.
+10. Сохранить в итоговом отчёте контрольные суммы, ревизии карты, доказательства и результаты проверок.
 
 Если обязательная операция недоступна, остановитесь и сообщите об отсутствующей возможности. Запрещено подменять разрешение контекста ABCM неограниченным сканированием файловой системы.
 
@@ -30,6 +31,7 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 
 - Рабочее пространство (Workspace): зарегистрированная граница хранения с идентификатором workspaceId. Пути API задаются относительно этой границы.
 - Проект (Project): корневой контур проекта внутри рабочего пространства. Одно рабочее пространство может содержать несколько проектов.
+- Политика файловой архитектуры (Architecture policy): управляемая конфигурация config/architecture.yaml. Workspace-policy действует по умолчанию на проекты workspace, а project-policy с тем же projectId является независимым override. Базовый профиль — required + abcm-mvp-agent-spec-v0.5.
 - Язык проекта (Project language): обязательный BCP 47-тег в config/context.yaml, который определяет язык общения агента и новых человекочитаемых документов. Он не заменяет язык предметной области.
 - Контур (Scope): workflow, project, service или feature, объявленный файлом scope.yaml. Отношения родитель–потомок образуют топологию проекта.
 - Язык предметной области (Domain language): наследуемые соглашения, домены, понятия, псевдонимы, омонимы и правила именования в каталоге domain-language. Он определяет толкование терминов задачи.
@@ -76,6 +78,41 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
     language: ru
 
 Значение language — непустой BCP 47-тег, например ru, ru-RU или en. Отсутствующее, пустое или невалидное поле делает конфигурацию проекта неготовой для работы агента.
+
+Новый управляемый workspace также получает базовую политику файловой архитектуры:
+
+    apiVersion: abcm/v1
+    kind: ArchitecturePolicy
+    enforcement: required
+    architecture: abcm-mvp-agent-spec-v0.5
+
+Управляйте политикой через специализированные операции, а не через незащищённую замену произвольного YAML. Если projectId не передан, настройка применяется на уровне workspace. Если projectId передан, создаётся или заменяется независимый project override. Одно workspace может содержать несколько project policies.
+
+MCP-примеры:
+
+    workspace.set_architecture_policy({
+      workspaceId: "castalia-public",
+      ifNoneMatch: "*"
+    })
+
+    workspace.set_architecture_policy({
+      workspaceId: "castalia-public",
+      projectId: "abcm",
+      enforcement: "required",
+      architecture: "abcm-mvp-agent-spec-v0.5",
+      ifNoneMatch: "*"
+    })
+
+    workspace.check_architecture_compliance({
+      workspaceId: "castalia-public",
+      projectId: "abcm"
+    })
+
+REST использует PUT/GET/DELETE /v1/workspaces/{workspaceId}/architecture-policy для workspace и /v1/workspaces/{workspaceId}/projects/{projectId}/architecture-policy для проекта. Перед заменой используйте If-Match с checksum текущей записи; при создании — If-None-Match: *. GET project policy возвращает configured и effective: при отсутствии project override effective наследуется от workspace. Список всех независимых записей возвращает GET /v1/workspaces/{workspaceId}/architecture-policies.
+
+required означает соблюдение нормативных MUST/MUST_NOT выбранного профиля: hierarchy, scope.yaml, DomainLanguageConvention и размещение нормативных материалов. Иллюстративные пустые каталоги из completeExample не становятся обязательными сами по себе.
+
+Контрпримеры: изменить workspace-policy, когда требовалось исключение только для одного проекта; считать configured=null отсутствием политики, не проверив effective; повторно записать настройку без If-Match; продолжить context build после ARCHITECTURE_POLICY_VIOLATION.
 
 Пример MCP, если сервер настроен с управляемым хранилищем рабочих пространств:
 

@@ -1,5 +1,24 @@
 export { createAbcmRuntime } from "./app/create-runtime.js";
 export {
+  ARCHITECTURE_POLICY_FILE,
+  BUILTIN_FILE_ARCHITECTURE,
+  ArchitecturePolicyService,
+  architectureComplianceSchema,
+  architecturePolicyDocumentSchema,
+  architecturePolicyInputSchema,
+  architecturePolicyRecordSchema,
+  architecturePolicyResolutionSchema,
+  architecturePolicyTargetSchema,
+} from "./architecture/architecture-policy-service.js";
+export type {
+  ArchitectureCompliance,
+  ArchitecturePolicyInput,
+  ArchitecturePolicyRecord,
+  ArchitecturePolicyResolution,
+  ArchitecturePolicyTarget,
+  ArchitectureViolation,
+} from "./architecture/architecture-policy-service.js";
+export {
   ABCM_AGENT_INSTRUCTIONS,
   ABCM_AGENT_INSTRUCTIONS_CHECKSUM,
   ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE,

@@ -55,6 +55,7 @@ const files = new Map<string, Uint8Array>([
   ["docs/operations/agent-instructions.md", encoder.encode(ABCM_AGENT_INSTRUCTIONS)],
   ["docs/development-plan.md", await localBytes(".abcm-documentation/docs/development-plan.md")],
   ["docs/release/known-gaps-v0.1.0.md", await localBytes(".abcm-documentation/docs/release/known-gaps-v0.1.0.md")],
+  ["docs/release/traceability-v0.1.0.yaml", await localBytes(".abcm-documentation/docs/release/traceability-v0.1.0.yaml")],
   ["docs/plans/v0.27/plan.md", await localBytes(".abcm-documentation/docs/plans/v0.27/plan.md")],
   ["docs/plans/v0.27/traceability.yaml", await localBytes(".abcm-documentation/docs/plans/v0.27/traceability.yaml")],
   ["docs/plans/v0.27/features/obsidian-bidirectional-sync.md", await localBytes(".abcm-documentation/docs/plans/v0.27/features/obsidian-bidirectional-sync.md")],
@@ -65,6 +66,11 @@ const files = new Map<string, Uint8Array>([
   ["docs/spec/extensions/context-efficiency-evaluation-v0.1.yaml", await localBytes(".abcm-documentation/docs/spec/extensions/context-efficiency-evaluation-v0.1.yaml")],
   ["artifacts/plans/PLAN-0031/evidence/implementation.md", await localBytes(".abcm-documentation/artifacts/plans/PLAN-0031/evidence/implementation.md")],
   ["artifacts/plans/PLAN-0031/evidence/server-owned-business-eval-2026-08-19.md", await localBytes(".abcm-documentation/artifacts/plans/PLAN-0031/evidence/server-owned-business-eval-2026-08-19.md")],
+  ["docs/spec/extensions/file-architecture-policy-v0.1.yaml", await localBytes(".abcm-documentation/docs/spec/extensions/file-architecture-policy-v0.1.yaml")],
+  ["docs/plans/v0.32/plan.md", await localBytes(".abcm-documentation/docs/plans/v0.32/plan.md")],
+  ["docs/plans/v0.32/verification-plan.md", await localBytes(".abcm-documentation/docs/plans/v0.32/verification-plan.md")],
+  ["docs/plans/v0.32/traceability.yaml", await localBytes(".abcm-documentation/docs/plans/v0.32/traceability.yaml")],
+  ["artifacts/plans/PLAN-0032/evidence/implementation.md", await localBytes(".abcm-documentation/artifacts/plans/PLAN-0032/evidence/implementation.md")],
 ]);
 
 for (const [path, bytes] of files) await putRemote(path, bytes);

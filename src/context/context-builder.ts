@@ -34,6 +34,7 @@ import type {
   SelectionReason,
 } from "./types.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
+import type { ArchitecturePolicyService } from "../architecture/architecture-policy-service.js";
 
 const PRIORITY: readonly SelectionReason[] = [
   "required_applicable", "operator_controlled_applicable", "role_required", "task_type_required", "explicit_link",
@@ -64,6 +65,7 @@ export interface ContextBuilderDependencies {
   cache?: ContextBuildCacheCatalog;
   options?: ContextBuilderOptions;
   observability?: AbcmObservability;
+  architecturePolicies?: Pick<ArchitecturePolicyService, "assertProjectCompliant">;
 }
 
 function stable(value: unknown): string {
@@ -228,6 +230,11 @@ export class ContextBuilder {
     }
     const revision = this.#dependencies.scopeMap.getActiveRevision(bootstrap.anchor.workspaceId);
     if (revision.revision !== bootstrap.mapRevision) throw new AbcmError("DOMAIN_LANGUAGE_BOOTSTRAP_STALE", "Context build MapRevision changed after bootstrap creation.");
+    await this.#dependencies.architecturePolicies?.assertProjectCompliant(
+      bootstrap.anchor.workspaceId,
+      bootstrap.anchor.projectId,
+      signal,
+    );
     const budgetName = request.budgetProfile ?? this.#defaultBudget;
     const budget = this.#budgets[budgetName];
     if (budget === undefined) throw new AbcmError("CONTEXT_CONFIGURATION_INVALID", `Unknown context budget profile '${budgetName}'.`);

@@ -1,5 +1,11 @@
 import { z } from "zod/v4";
 
+import {
+  architectureComplianceSchema,
+  architecturePolicyInputSchema,
+  architecturePolicyRecordSchema,
+  architecturePolicyResolutionSchema,
+} from "../architecture/architecture-policy-service.js";
 import { OBSIDIAN_SYNC_REST_SCHEMAS } from "../sync/rest-schemas.js";
 import {
   taskSuccessClaimRequestSchema,
@@ -49,6 +55,7 @@ import {
 
 export const workspaceRegistrationSchema = workspaceCreateInputSchema;
 export const workspaceRegistrationOutputSchema = workspaceCreateOutputSchema;
+export const architecturePolicyListOutputSchema = z.object({ policies: z.array(architecturePolicyRecordSchema) }).strict();
 
 export const restMoveFileInputSchema = workspaceMoveFileInputSchema.omit({ workspaceId: true });
 export const restCreateDirectoryInputSchema = workspaceCreateDirectoryInputSchema.omit({ workspaceId: true });
@@ -63,6 +70,11 @@ export const REST_SHARED_SCHEMAS = {
   FileEntry: fileEntrySchema,
   WorkspaceRegistration: workspaceRegistrationSchema,
   WorkspaceRegistrationResult: workspaceRegistrationOutputSchema,
+  ArchitecturePolicyInput: architecturePolicyInputSchema,
+  ArchitecturePolicyRecord: architecturePolicyRecordSchema,
+  ArchitecturePolicyResolution: architecturePolicyResolutionSchema,
+  ArchitecturePolicyListResult: architecturePolicyListOutputSchema,
+  ArchitectureCompliance: architectureComplianceSchema,
   MoveFileRequest: restMoveFileInputSchema,
   CreateDirectoryRequest: restCreateDirectoryInputSchema,
   MoveDirectoryRequest: restMoveDirectoryInputSchema,

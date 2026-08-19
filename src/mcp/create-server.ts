@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 
 import { getAbcmAgentInstructions } from "../agent-instructions/agent-instructions.js";
+import type { ArchitecturePolicyService } from "../architecture/architecture-policy-service.js";
 
 import { AbcmError } from "../core/errors.js";
 import { createOperationDeadline } from "../core/operation.js";
@@ -74,6 +75,16 @@ import {
   scopeMapScanOutputSchema,
   workspaceCreateInputSchema,
   workspaceCreateOutputSchema,
+  workspaceCheckArchitectureComplianceInputSchema,
+  workspaceCheckArchitectureComplianceOutputSchema,
+  workspaceDeleteArchitecturePolicyInputSchema,
+  workspaceDeleteArchitecturePolicyOutputSchema,
+  workspaceGetArchitecturePolicyInputSchema,
+  workspaceGetArchitecturePolicyOutputSchema,
+  workspaceListArchitecturePoliciesInputSchema,
+  workspaceListArchitecturePoliciesOutputSchema,
+  workspaceSetArchitecturePolicyInputSchema,
+  workspaceSetArchitecturePolicyOutputSchema,
   workspaceCreateDirectoryInputSchema,
   workspaceCreateDirectoryOutputSchema,
   workspaceDeleteDirectoryInputSchema,
@@ -97,6 +108,7 @@ export interface AbcmMcpDependencies {
   uploads?: WorkspaceUploadService;
   batches?: WorkspaceBatchService;
   scopeMap: ScopeMapService;
+  architecturePolicies?: ArchitecturePolicyService;
   defaultWorkspaceId: string;
   scopeMapAccess?: ScopeMapAccess;
   domainLanguage?: DomainLanguageService;
@@ -221,6 +233,94 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
     },
     async (input, context) => toolResult(async signal => ({ entries: await dependencies.files.list(input.workspaceId, input.path, input.recursive, signal) }), context.mcpReq.signal, operationTimeoutMs),
   );
+  if (dependencies.architecturePolicies !== undefined) {
+    server.registerTool(
+      "workspace.get_architecture_policy",
+      {
+        title: "Get file architecture policy",
+        description: "Resolve the configured and effective file architecture policy for a workspace or one project.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: workspaceGetArchitecturePolicyInputSchema,
+        outputSchema: workspaceGetArchitecturePolicyOutputSchema,
+      },
+      async (input, context) => toolResult(
+        async signal => ({ ...await dependencies.architecturePolicies!.resolve(input, signal) }),
+        context.mcpReq.signal,
+        operationTimeoutMs,
+      ),
+    );
+    server.registerTool(
+      "workspace.set_architecture_policy",
+      {
+        title: "Set file architecture policy",
+        description: "Create or replace a workspace policy or an independent project override with checksum preconditions.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+        inputSchema: workspaceSetArchitecturePolicyInputSchema,
+        outputSchema: workspaceSetArchitecturePolicyOutputSchema,
+      },
+      async (input, context) => toolResult(
+        async signal => ({ ...await dependencies.architecturePolicies!.set(
+          { workspaceId: input.workspaceId, ...(input.projectId === undefined ? {} : { projectId: input.projectId }) },
+          { enforcement: input.enforcement, architecture: input.architecture },
+          {
+            ...(input.ifMatch === undefined ? {} : { ifMatch: input.ifMatch }),
+            ...(input.ifNoneMatch === undefined ? {} : { ifNoneMatch: input.ifNoneMatch }),
+          },
+          signal,
+        ) }),
+        context.mcpReq.signal,
+        operationTimeoutMs,
+      ),
+    );
+    server.registerTool(
+      "workspace.delete_architecture_policy",
+      {
+        title: "Delete file architecture policy",
+        description: "Delete a workspace policy or project override; a deleted project override falls back to its workspace policy.",
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+        inputSchema: workspaceDeleteArchitecturePolicyInputSchema,
+        outputSchema: workspaceDeleteArchitecturePolicyOutputSchema,
+      },
+      async (input, context) => toolResult(async signal => {
+        await dependencies.architecturePolicies!.delete(
+          { workspaceId: input.workspaceId, ...(input.projectId === undefined ? {} : { projectId: input.projectId }) },
+          input.ifMatch === undefined ? {} : { ifMatch: input.ifMatch },
+          signal,
+        );
+        return { deleted: true };
+      }, context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "workspace.list_architecture_policies",
+      {
+        title: "List file architecture policies",
+        description: "List independently configured workspace and project file architecture policies in one workspace.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: workspaceListArchitecturePoliciesInputSchema,
+        outputSchema: workspaceListArchitecturePoliciesOutputSchema,
+      },
+      async (input, context) => toolResult(
+        async signal => ({ policies: await dependencies.architecturePolicies!.list(input.workspaceId, signal) }),
+        context.mcpReq.signal,
+        operationTimeoutMs,
+      ),
+    );
+    server.registerTool(
+      "workspace.check_architecture_compliance",
+      {
+        title: "Check file architecture compliance",
+        description: "Check a workspace or project against its effective required file architecture without returning document bodies.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: workspaceCheckArchitectureComplianceInputSchema,
+        outputSchema: workspaceCheckArchitectureComplianceOutputSchema,
+      },
+      async (input, context) => toolResult(
+        async signal => ({ ...await dependencies.architecturePolicies!.check(input, signal) }),
+        context.mcpReq.signal,
+        operationTimeoutMs,
+      ),
+    );
+  }
   server.registerTool(
     "workspace.read_file",
     {

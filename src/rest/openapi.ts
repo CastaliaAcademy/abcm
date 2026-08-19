@@ -24,6 +24,7 @@ const parameter = (name: string, location: "path" | "query" | "header", required
   schema: value,
 });
 const workspaceId = parameter("workspaceId", "path", true, { type: "string", minLength: 1 });
+const projectId = parameter("projectId", "path", true, { type: "string", minLength: 1 });
 const filePath = parameter("path", "query", true, { type: "string", minLength: 1 });
 const problemResponses = {
   "400": { $ref: "#/components/responses/Problem" },
@@ -83,6 +84,63 @@ export function createAbcmOpenApiDocument(): JsonObject {
           operationId: "createWorkspace",
           requestBody: { required: true, content: { "application/json": { schema: reference("WorkspaceRegistration") } } },
           responses: { "201": response("Workspace created", reference("WorkspaceRegistrationResult")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/architecture-policy": {
+        get: {
+          operationId: "getWorkspaceArchitecturePolicy",
+          parameters: [workspaceId],
+          responses: { "200": response("Configured and effective workspace architecture policy", reference("ArchitecturePolicyResolution")), ...problemResponses },
+        },
+        put: {
+          operationId: "setWorkspaceArchitecturePolicy",
+          parameters: [workspaceId, parameter("If-Match", "header", false, { type: "string" }), parameter("If-None-Match", "header", false, { type: "string", enum: ["*"] })],
+          requestBody: { required: true, content: { "application/json": { schema: reference("ArchitecturePolicyInput") } } },
+          responses: { "200": response("Workspace architecture policy replaced", reference("ArchitecturePolicyRecord")), "201": response("Workspace architecture policy created", reference("ArchitecturePolicyRecord")), ...problemResponses },
+        },
+        delete: {
+          operationId: "deleteWorkspaceArchitecturePolicy",
+          parameters: [workspaceId, parameter("If-Match", "header", false, { type: "string" })],
+          responses: { "204": response("Workspace architecture policy deleted"), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/architecture-policies": {
+        get: {
+          operationId: "listWorkspaceArchitecturePolicies",
+          parameters: [workspaceId],
+          responses: { "200": response("Workspace and project architecture policies", reference("ArchitecturePolicyListResult")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/architecture-compliance": {
+        get: {
+          operationId: "checkWorkspaceArchitectureCompliance",
+          parameters: [workspaceId],
+          responses: { "200": response("Workspace architecture compliance", reference("ArchitectureCompliance")), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/projects/{projectId}/architecture-policy": {
+        get: {
+          operationId: "getProjectArchitecturePolicy",
+          parameters: [workspaceId, projectId],
+          responses: { "200": response("Configured and inherited project architecture policy", reference("ArchitecturePolicyResolution")), ...problemResponses },
+        },
+        put: {
+          operationId: "setProjectArchitecturePolicy",
+          parameters: [workspaceId, projectId, parameter("If-Match", "header", false, { type: "string" }), parameter("If-None-Match", "header", false, { type: "string", enum: ["*"] })],
+          requestBody: { required: true, content: { "application/json": { schema: reference("ArchitecturePolicyInput") } } },
+          responses: { "200": response("Project architecture policy replaced", reference("ArchitecturePolicyRecord")), "201": response("Project architecture policy created", reference("ArchitecturePolicyRecord")), ...problemResponses },
+        },
+        delete: {
+          operationId: "deleteProjectArchitecturePolicy",
+          parameters: [workspaceId, projectId, parameter("If-Match", "header", false, { type: "string" })],
+          responses: { "204": response("Project architecture policy deleted; workspace inheritance resumes", undefined), ...problemResponses },
+        },
+      },
+      "/v1/workspaces/{workspaceId}/projects/{projectId}/architecture-compliance": {
+        get: {
+          operationId: "checkProjectArchitectureCompliance",
+          parameters: [workspaceId, projectId],
+          responses: { "200": response("Project architecture compliance", reference("ArchitectureCompliance")), ...problemResponses },
         },
       },
       "/v1/workspaces/{workspaceId}/files": {

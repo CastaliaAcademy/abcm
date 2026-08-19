@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 
 import { getAbcmAgentInstructions } from "../agent-instructions/agent-instructions.js";
+import { architecturePolicyInputSchema, type ArchitecturePolicyService } from "../architecture/architecture-policy-service.js";
 
 import { AbcmError } from "../core/errors.js";
 import { createOperationDeadline, throwIfAborted, type OperationDeadline } from "../core/operation.js";
@@ -60,6 +61,7 @@ export interface AbcmRestDependencies {
   uploads?: WorkspaceUploadService;
   batches?: WorkspaceBatchService;
   scopeMap: ScopeMapService;
+  architecturePolicies?: ArchitecturePolicyService;
   scopeMapAccess?: ScopeMapAccess;
   domainLanguage?: DomainLanguageService;
   contextPrincipal?: ContextPrincipal;
@@ -409,6 +411,48 @@ export function createAbcmRestHandler(
       if (!match) return problem(new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found."));
       const workspaceId = decodeURIComponent(match[1] ?? "");
       const endpoint = match[2]!;
+
+      const projectArchitecturePolicy = /^\/projects\/([^/]+)\/architecture-policy$/.exec(endpoint);
+      const projectArchitectureCompliance = /^\/projects\/([^/]+)\/architecture-compliance$/.exec(endpoint);
+      const architectureTarget = projectArchitecturePolicy === null
+        ? { workspaceId }
+        : { workspaceId, projectId: decodeURIComponent(projectArchitecturePolicy[1] ?? "") };
+      if (dependencies.architecturePolicies !== undefined && (endpoint === "/architecture-policy" || projectArchitecturePolicy !== null)) {
+        if (request.method === "GET") return json(await dependencies.architecturePolicies.resolve(architectureTarget, signal));
+        if (request.method === "PUT") {
+          const existing = await dependencies.architecturePolicies.get(architectureTarget, signal);
+          const ifMatch = parseEtag(request.headers.get("if-match"));
+          const ifNoneMatch = parseEtag(request.headers.get("if-none-match"));
+          if (ifNoneMatch !== undefined && ifNoneMatch !== "*") throw new AbcmError("REQUEST_INVALID", "If-None-Match only supports '*'.");
+          const record = await dependencies.architecturePolicies.set(
+            architectureTarget,
+            await readJson(request, architecturePolicyInputSchema, maxRequestBodyBytes, signal),
+            {
+              ...(ifMatch === undefined || ifMatch === "*" ? {} : { ifMatch }),
+              ...(ifNoneMatch === "*" ? { ifNoneMatch: "*" as const } : {}),
+            },
+            signal,
+          );
+          return json(record, existing === null ? 201 : 200, { etag: `"${record.checksum}"` });
+        }
+        if (request.method === "DELETE") {
+          const ifMatch = parseEtag(request.headers.get("if-match"));
+          await dependencies.architecturePolicies.delete(architectureTarget, ifMatch === undefined || ifMatch === "*" ? {} : { ifMatch }, signal);
+          return new Response(null, { status: 204 });
+        }
+      }
+      if (dependencies.architecturePolicies !== undefined && request.method === "GET" && endpoint === "/architecture-policies") {
+        return json({ policies: await dependencies.architecturePolicies.list(workspaceId, signal) });
+      }
+      if (dependencies.architecturePolicies !== undefined && request.method === "GET" && endpoint === "/architecture-compliance") {
+        return json(await dependencies.architecturePolicies.check({ workspaceId }, signal));
+      }
+      if (dependencies.architecturePolicies !== undefined && request.method === "GET" && projectArchitectureCompliance !== null) {
+        return json(await dependencies.architecturePolicies.check({
+          workspaceId,
+          projectId: decodeURIComponent(projectArchitectureCompliance[1] ?? ""),
+        }, signal));
+      }
 
       if (request.method === "POST" && endpoint === "/uploads") {
         if (dependencies.uploads === undefined) throw new AbcmError("FILE_NOT_FOUND", "REST endpoint was not found.");

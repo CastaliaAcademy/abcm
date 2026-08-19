@@ -19,12 +19,18 @@ describe("canonical remote documentation evidence", () => {
     const source = await Bun.file("scripts/sync-abcm-contracts.ts").text();
     for (const path of [
       "docs/release/known-gaps-v0.1.0.md",
+      "docs/release/traceability-v0.1.0.yaml",
       "docs/plans/v0.27/plan.md",
       "docs/plans/v0.27/traceability.yaml",
       "docs/plans/v0.27/features/obsidian-bidirectional-sync.md",
       "artifacts/plans/PLAN-0028/evidence/WU-09-github-draft-pr.md",
       "docs/spec/extensions/context-efficiency-evaluation-v0.1.yaml",
       "artifacts/plans/PLAN-0031/evidence/server-owned-business-eval-2026-08-19.md",
+      "docs/spec/extensions/file-architecture-policy-v0.1.yaml",
+      "docs/plans/v0.32/plan.md",
+      "docs/plans/v0.32/verification-plan.md",
+      "docs/plans/v0.32/traceability.yaml",
+      "artifacts/plans/PLAN-0032/evidence/implementation.md",
     ]) {
       expect(source).toContain(`[\"${path}\"`);
     }

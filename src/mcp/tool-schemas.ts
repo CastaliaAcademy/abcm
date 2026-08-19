@@ -1,6 +1,13 @@
 import { z } from "zod/v4";
 
 import { ABCM_AGENT_INSTRUCTIONS_VERSION } from "../agent-instructions/agent-instructions.js";
+import {
+  architectureComplianceSchema,
+  architecturePolicyInputSchema,
+  architecturePolicyRecordSchema,
+  architecturePolicyResolutionSchema,
+  architecturePolicyTargetSchema,
+} from "../architecture/architecture-policy-service.js";
 import { buildTaskContextSchema } from "../context/schema.js";
 import { projectLanguageTagSchema } from "../core/project-language.js";
 import { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
@@ -62,6 +69,22 @@ export const workspaceCreateInputSchema = z.object({
   language: projectLanguageTagSchema,
 }).strict();
 export const workspaceCreateOutputSchema = z.object({ id: z.string() }).strict();
+
+export const workspaceGetArchitecturePolicyInputSchema = architecturePolicyTargetSchema;
+export const workspaceGetArchitecturePolicyOutputSchema = architecturePolicyResolutionSchema;
+export const workspaceSetArchitecturePolicyInputSchema = architecturePolicyTargetSchema.extend({
+  enforcement: architecturePolicyInputSchema.shape.enforcement,
+  architecture: architecturePolicyInputSchema.shape.architecture,
+  ifMatch: checksum.optional(),
+  ifNoneMatch: z.literal("*").optional(),
+}).strict();
+export const workspaceSetArchitecturePolicyOutputSchema = architecturePolicyRecordSchema;
+export const workspaceDeleteArchitecturePolicyInputSchema = architecturePolicyTargetSchema.extend({ ifMatch: checksum.optional() }).strict();
+export const workspaceDeleteArchitecturePolicyOutputSchema = z.object({ deleted: z.literal(true) }).strict();
+export const workspaceListArchitecturePoliciesInputSchema = z.object({ workspaceId }).strict();
+export const workspaceListArchitecturePoliciesOutputSchema = z.object({ policies: z.array(architecturePolicyRecordSchema) }).strict();
+export const workspaceCheckArchitectureComplianceInputSchema = architecturePolicyTargetSchema;
+export const workspaceCheckArchitectureComplianceOutputSchema = architectureComplianceSchema;
 
 export const fileEntrySchema = z.object({
   path: z.string(),

@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 
+import { ArchitecturePolicyService } from "../architecture/architecture-policy-service.js";
 import { createAbcmMcpHttpHandler } from "../mcp/create-http-handler.js";
 import { createAbcmMcpServer } from "../mcp/create-server.js";
 import { ContextBuilder } from "../context/context-builder.js";
@@ -127,6 +128,7 @@ export function createAbcmRuntime(
     mutationCoordinator,
     ...(options.observability === undefined ? {} : { observability: options.observability }),
   });
+  const architecturePolicies = new ArchitecturePolicyService(files, scopeMap);
   const uploads = options.fileOperations === undefined
     ? undefined
     : new WorkspaceUploadService(registry, {
@@ -181,6 +183,7 @@ export function createAbcmRuntime(
     ...(contextBuildCacheCatalog === undefined ? {} : { cache: contextBuildCacheCatalog }),
     ...(options.context === undefined ? {} : { options: options.context }),
     ...(options.observability === undefined ? {} : { observability: options.observability }),
+    architecturePolicies,
   });
   const businessEvaluationProfiles = options.businessEvaluationProfiles === undefined
     ? undefined
@@ -228,6 +231,7 @@ export function createAbcmRuntime(
       ...(uploads === undefined ? {} : { uploads }),
       ...(batches === undefined ? {} : { batches }),
       scopeMap,
+      architecturePolicies,
       domainLanguage,
       contextBuilder,
       ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
@@ -251,6 +255,7 @@ export function createAbcmRuntime(
             ...(uploads === undefined ? {} : { uploads }),
             ...(batches === undefined ? {} : { batches }),
             scopeMap,
+            architecturePolicies,
             defaultWorkspaceId: defaultWorkspace.id,
             domainLanguage,
             contextBuilder,
@@ -308,6 +313,7 @@ export function createAbcmRuntime(
       taskSuccessEvaluations?.ready ?? Promise.resolve(),
     ]).then(() => undefined),
     scopeMap,
+    architecturePolicies,
     domainLanguage,
     scopePathResolver,
     skillConnectionResolver,
@@ -337,6 +343,7 @@ export function createAbcmRuntime(
         ...(uploads === undefined ? {} : { uploads }),
         ...(batches === undefined ? {} : { batches }),
         scopeMap,
+        architecturePolicies,
         defaultWorkspaceId: defaultWorkspace.id,
         domainLanguage,
         contextBuilder,

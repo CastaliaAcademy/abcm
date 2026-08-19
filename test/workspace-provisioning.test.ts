@@ -52,6 +52,9 @@ describe("WorkspaceProvisioningService", () => {
         (await files.read("castalia-public", "domain-language/DomainLanguageConvention.md")).content,
       ),
     ).toContain("mode: inherit-only");
+    expect(new TextDecoder().decode((await files.read("castalia-public", "config/architecture.yaml")).content)).toContain(
+      "architecture: abcm-mvp-agent-spec-v0.5",
+    );
     expect(new TextDecoder().decode((await files.read("castalia-public", "config/context.yaml")).content)).toContain(
       "language: ru",
     );
