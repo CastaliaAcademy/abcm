@@ -11,6 +11,11 @@ import type { ContextOutcomeCatalog } from "../evaluation/context-outcome-receip
 import { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
 import type { ContextFeedbackCatalog } from "../evaluation/context-feedback.js";
 import { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
+import {
+  ContextBusinessEvalRunner,
+  type BusinessEvaluationCatalog,
+  type BusinessVariantExecutor,
+} from "../evaluation/context-business-eval-runner.js";
 import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-store.js";
 import type { ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "../derived-store/types.js";
 import { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
@@ -64,6 +69,8 @@ export interface AbcmRuntimeOptions {
   contextOutcomeCatalog?: ContextOutcomeCatalog;
   contextBuildCacheCatalog?: ContextBuildCacheCatalog;
   contextFeedbackCatalog?: ContextFeedbackCatalog;
+  businessEvaluationCatalog?: BusinessEvaluationCatalog;
+  businessVariantExecutor?: BusinessVariantExecutor;
   obsidianSync?: Omit<ObsidianSyncServiceOptions, "observability">;
 }
 
@@ -145,6 +152,13 @@ export function createAbcmRuntime(
   const contextOutcomeCatalog = options.contextOutcomeCatalog ?? ownedScopeMapStore;
   const contextBuildCacheCatalog = options.contextBuildCacheCatalog ?? ownedScopeMapStore;
   const contextFeedbackCatalog = options.contextFeedbackCatalog ?? ownedScopeMapStore;
+  const businessEvaluationCatalog = options.businessEvaluationCatalog ?? ownedScopeMapStore;
+  if (options.businessVariantExecutor !== undefined && businessEvaluationCatalog === undefined) {
+    throw new Error("businessVariantExecutor requires a durable businessEvaluationCatalog or sqliteDerivedStoreEnabled=true.");
+  }
+  const contextBusinessEvaluations = options.businessVariantExecutor === undefined
+    ? undefined
+    : new ContextBusinessEvalRunner(businessEvaluationCatalog!, options.businessVariantExecutor);
   const contextOutcomes = contextOutcomeCatalog !== undefined && contextFingerprintCatalog !== undefined && options.contextPrincipal !== undefined
     ? new ContextOutcomeService(contextOutcomeCatalog, contextFingerprintCatalog, options.contextPrincipal)
     : undefined;
@@ -187,6 +201,7 @@ export function createAbcmRuntime(
       contextBuilder,
       ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
       ...(contextFeedback === undefined ? {} : { contextFeedback }),
+      ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
       ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
       ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
       ...(documentation === undefined ? {} : { documentation }),
@@ -209,6 +224,7 @@ export function createAbcmRuntime(
             contextBuilder,
             ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
             ...(contextFeedback === undefined ? {} : { contextFeedback }),
+            ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
             ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
             ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
             ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),
@@ -262,6 +278,8 @@ export function createAbcmRuntime(
     contextBuildCacheCatalog,
     contextFeedbackCatalog,
     contextFeedback,
+    businessEvaluationCatalog,
+    contextBusinessEvaluations,
     scopeMapReconciler,
     workspaceProvisioning,
     documentation,
@@ -281,6 +299,7 @@ export function createAbcmRuntime(
         contextBuilder,
         ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
         ...(contextFeedback === undefined ? {} : { contextFeedback }),
+        ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
         ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
         ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
         ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),

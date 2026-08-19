@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.11.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.12.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.11.0
+Версия: 1.12.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -36,6 +36,7 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 - ScopeMap: неизменяемая ревизия, производная от контуров, связей, документов, исполняемых ресурсов, навыков и диагностик.
 - Контекстный пакет (Context bundle): неизменяемая ограниченная бюджетом выборка для одной задачи, роли, цели и ревизии карты.
 - Cache контекста: производное versioned-представление, ключ которого включает principal/access digest, MapRevision, проект, запрос, budget и версии selection/projection policy. Состояние hit, miss или stale является наблюдаемым и не меняет bundleDigest.
+- Business-eval run: серверное исполнение pinned manifest для вариантов V0–V5. Оно сохраняет неизменяемый body-free receipt, но само по себе не доказывает качество продукта без пройденных relevance, fallback, determinism, isolation и task-success gates.
 - Навык (Skill): повторно используемая процедура с объявленными требованиями к контексту. Навык дополняет рабочий процесс, но не может отменять инструкции рабочего пространства или границы доступа.
 - План (Plan): контракт разработки с трассировкой требований. Планы фич, планы проверки, доказательства и записи трассировки хранятся вместе с ним.
 - Источник документации (Documentation source): внешний каталог, например хранилище Obsidian, который можно предварительно сравнить, синхронизировать и явно перевести под управление ABCM.
@@ -252,6 +253,7 @@ Fallback при недостаточном автоматическом конт
 13. Выполните план проверки фичи и сохраните доказательства. Запрещено заявлять о проверках, которые не выполнялись.
 14. Если сервер предоставляет outcome API, после фактической проверки зарегистрируйте отдельный context.record_outcome для каждого repeat. Укажите fingerprintId, тот же runId, rubric/model/evidence digests, usage и стоимость; не помещайте в receipt тела документов или полный output задачи.
 15. Если выбранный документ оказался полезным, шумным или обязательным, можно создать context.propose_feedback. Указывайте только documentId из собственного ContextFingerprint и rationaleDigest. Ответ всегда имеет status=proposed: он не меняет active ranking или dataset без regression gates и отдельного решения оператора.
+16. Если сервер предоставляет business-eval API, запускайте context.run_business_evaluation только с утверждёнными dataset/fixtures и полной pinned identity: workspace snapshot, access, request set, baseline, selection/cache policies, budget, а для task-success также model и blind judge rubric. V0 является baseline; V3 обязан фиксировать cold cache, V4 — warm cache. Повтор той же identity возвращает прежний receipt. Получайте историю через context.list_business_evaluations. Не помещайте в manifests, observations или receipts document bodies, bearer tokens и полный model output.
 
 Правильная замена через MCP:
 

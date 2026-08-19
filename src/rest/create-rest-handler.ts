@@ -11,6 +11,7 @@ import type { DomainLanguageService } from "../domain-language/domain-language-s
 import type { ContextPrincipal } from "../domain-language/types.js";
 import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
 import type { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
+import type { ContextBusinessEvalRunner } from "../evaluation/context-business-eval-runner.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -42,6 +43,8 @@ import {
   contextFeedbackSubmissionSchema,
   contextOutcomeListInputSchema,
   contextOutcomeSubmissionSchema,
+  businessEvaluationListRequestSchema,
+  businessEvaluationRunRequestSchema,
   domainLanguageInputSchema,
 } from "../mcp/tool-schemas.js";
 import { resolveRestLimitOptions, type AbcmRestLimitOptions } from "./config.js";
@@ -57,6 +60,7 @@ export interface AbcmRestDependencies {
   contextBuilder?: ContextBuilder;
   contextOutcomes?: ContextOutcomeService;
   contextFeedback?: ContextFeedbackService;
+  contextBusinessEvaluations?: ContextBusinessEvalRunner;
   workspaces?: WorkspaceRegistrationService;
   documentation?: DirectoryDocumentationSyncService;
   obsidianSync?: ObsidianSyncService;
@@ -314,6 +318,25 @@ export function createAbcmRestHandler(
           fingerprintId: url.searchParams.get("fingerprintId"),
         });
         return json({ proposals: dependencies.contextFeedback.list(query.workspaceId, query.fingerprintId) });
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/business-evaluations") {
+        if (dependencies.contextBusinessEvaluations === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Context business evaluation access is not configured.");
+        }
+        const body = await readJson(request, businessEvaluationRunRequestSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.contextBusinessEvaluations.run(body.dataset, body.fixtures, body.input, signal), 201);
+      }
+
+      if (request.method === "GET" && url.pathname === "/v1/context/business-evaluations") {
+        if (dependencies.contextBusinessEvaluations === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Context business evaluation access is not configured.");
+        }
+        const query = businessEvaluationListRequestSchema.parse({
+          workspaceId: url.searchParams.get("workspaceId"),
+          datasetId: url.searchParams.get("datasetId"),
+        });
+        return json({ evaluations: dependencies.contextBusinessEvaluations.list(query.workspaceId, query.datasetId) });
       }
 
       const documentationApply = /^\/v1\/documentation-imports\/([^/]+)\/apply$/.exec(url.pathname);

@@ -90,6 +90,30 @@ export type {
 } from "./evaluation/context-feedback.js";
 export { runDirectSearchBaseline } from "./evaluation/direct-search-baseline.js";
 export type { DirectSearchBaselineRequest, DirectSearchBaselineResult } from "./evaluation/direct-search-baseline.js";
+export {
+  ContextBusinessEvalRunner,
+  InMemoryBusinessEvaluationCatalog,
+  businessEvaluationInputSchema,
+  businessEvaluationListRequestSchema,
+  businessEvaluationReceiptSchema,
+  businessEvaluationRunRequestSchema,
+  businessFixtureCatalogSchema,
+  businessScenarioDatasetSchema,
+  businessVariantObservationSchema,
+  contextBusinessVariants,
+} from "./evaluation/context-business-eval-runner.js";
+export type {
+  BusinessEvaluationCatalog,
+  BusinessEvaluationInput,
+  BusinessEvaluationReceipt,
+  BusinessEvaluationRunRequest,
+  BusinessFixtureCatalog,
+  BusinessScenarioDataset,
+  BusinessVariant,
+  BusinessVariantExecutionRequest,
+  BusinessVariantExecutor,
+  BusinessVariantObservation,
+} from "./evaluation/context-business-eval-runner.js";
 export type {
   RuntimeOwnerHandle,
   ScanLeaseHandle,

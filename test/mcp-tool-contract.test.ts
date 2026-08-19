@@ -34,6 +34,20 @@ async function fixture() {
       documentationSources: [{ id: "docs", workspaceId: "test", root: source, targetBasePath: "artifacts/mirror" }],
       workspaceStoreRoot: workspaceStore,
       fileOperations: { stateRoot: fileOperationState },
+      businessVariantExecutor: async () => ({
+        resultDigest: `sha256:${"0".repeat(64)}`,
+        selectorTraceDigest: `sha256:${"0".repeat(64)}`,
+        selectedDocuments: [],
+        retrievedClaimIds: [],
+        totalInputTokens: 0,
+        taskSucceeded: false,
+        totalCostMicrounits: 0,
+        unauthorizedDisclosureCount: 0,
+        errorCode: "NOT_EXECUTED",
+        cache: { state: "bypass", policyVersion: "test/v1" },
+        latencyMs: { total: 0 },
+        fallback: { availableModes: [] },
+      }),
     },
   );
   await runtime.ready;
@@ -82,6 +96,8 @@ describe("MCP tool contract", () => {
         "context.list_outcomes",
         "context.propose_feedback",
         "context.list_feedback",
+        "context.run_business_evaluation",
+        "context.list_business_evaluations",
         "documentation_source.preview",
         "documentation_source.apply",
         "documentation_source.sync",
@@ -89,7 +105,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.11.0",
+        version: "1.12.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),

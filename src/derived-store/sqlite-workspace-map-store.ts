@@ -20,11 +20,12 @@ import type {
 import type { MapRevision } from "../scope-map/types.js";
 import type { ContextOutcomeCatalog, ContextOutcomeReceipt, ContextOutcomeSubmission } from "../evaluation/context-outcome-receipt.js";
 import type { ContextFeedbackCatalog, ContextFeedbackProposal, ContextFeedbackProposalInput } from "../evaluation/context-feedback.js";
+import type { BusinessEvaluationCatalog, BusinessEvaluationReceipt } from "../evaluation/context-business-eval-runner.js";
 import type { WorkspaceRegistry } from "../workspace/registry.js";
 import { SqliteScopeMapStore } from "./sqlite-scope-map-store.js";
 import type { ScanLeaseHandle, ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "./types.js";
 
-export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStateStore, ContextFingerprintCatalog, ContextOutcomeCatalog, ContextBuildCacheCatalog, ContextFeedbackCatalog {
+export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStateStore, ContextFingerprintCatalog, ContextOutcomeCatalog, ContextBuildCacheCatalog, ContextFeedbackCatalog, BusinessEvaluationCatalog {
   readonly scanLeaseRenewalIntervalMs: number;
   readonly #registry: WorkspaceRegistry;
   readonly #options: SqliteWorkspaceMapStoreOptions;
@@ -128,6 +129,21 @@ export class SqliteWorkspaceMapStore implements ScopeMapStore, DocumentationStat
   listContextFeedback(workspaceId: string, fingerprintId: string): ContextFeedbackProposal[] {
     this.#assertHealthy();
     return this.#store(workspaceId).listContextFeedback(workspaceId, fingerprintId);
+  }
+
+  getBusinessEvaluation(workspaceId: string, runId: string): BusinessEvaluationReceipt | undefined {
+    this.#assertHealthy();
+    return this.#store(workspaceId).getBusinessEvaluation(workspaceId, runId);
+  }
+
+  recordBusinessEvaluation(receipt: BusinessEvaluationReceipt): BusinessEvaluationReceipt {
+    this.#assertHealthy();
+    return this.#store(receipt.workspaceId).recordBusinessEvaluation(receipt);
+  }
+
+  listBusinessEvaluations(workspaceId: string, datasetId: string): BusinessEvaluationReceipt[] {
+    this.#assertHealthy();
+    return this.#store(workspaceId).listBusinessEvaluations(workspaceId, datasetId);
   }
 
   resolveDocumentStorage(workspaceId: string, targetPath: string): DocumentStorageResolution {

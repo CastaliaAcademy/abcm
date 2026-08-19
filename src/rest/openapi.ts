@@ -255,6 +255,22 @@ export function createAbcmOpenApiDocument(): JsonObject {
           responses: { "200": response("Immutable context feedback proposals", reference("ContextFeedbackListResult")), ...problemResponses },
         },
       },
+      "/v1/context/business-evaluations": {
+        post: {
+          operationId: "runContextBusinessEvaluation",
+          description: "Run a manifest-driven V0-V5 matrix and persist one immutable body-free receipt.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("BusinessEvaluationRunRequest") } } },
+          responses: { "201": response("Immutable business evaluation receipt", reference("BusinessEvaluationReceipt")), ...problemResponses },
+        },
+        get: {
+          operationId: "listContextBusinessEvaluations",
+          parameters: [
+            parameter("workspaceId", "query", true, { type: "string", minLength: 1 }),
+            parameter("datasetId", "query", true, { type: "string", minLength: 1 }),
+          ],
+          responses: { "200": response("Immutable business evaluation receipts", reference("BusinessEvaluationListResult")), ...problemResponses },
+        },
+      },
       "/v1/workspaces/{workspaceId}/documentation-sources/preview": {
         post: {
           operationId: "previewDocumentationSource",

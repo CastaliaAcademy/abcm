@@ -40,10 +40,15 @@ import {
   type ContextOutcomeReceipt,
   type ContextOutcomeSubmission,
 } from "../evaluation/context-outcome-receipt.js";
+import {
+  businessEvaluationReceiptSchema,
+  type BusinessEvaluationCatalog,
+  type BusinessEvaluationReceipt,
+} from "../evaluation/context-business-eval-runner.js";
 import type { MapRevision } from "../scope-map/types.js";
 import type { RuntimeOwnerHandle, ScanLeaseHandle, ScopeMapStore, SqliteScopeMapStoreOptions } from "./types.js";
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 
 interface LeaseRow {
   owner_id: string;
@@ -61,7 +66,7 @@ interface RuntimeOwnerRow {
   fencing_token: number;
 }
 
-export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCatalog, ContextOutcomeCatalog, ContextBuildCacheCatalog, ContextFeedbackCatalog {
+export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCatalog, ContextOutcomeCatalog, ContextBuildCacheCatalog, ContextFeedbackCatalog, BusinessEvaluationCatalog {
   readonly scanLeaseRenewalIntervalMs: number;
   readonly #database: Database;
   readonly #ownerId: string;
@@ -359,6 +364,62 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
       return rows.map(row => contextFeedbackProposalSchema.parse(JSON.parse(row.proposal_json)));
     } catch {
       throw new AbcmError("DERIVED_STORE_CORRUPT", "Context feedback proposal payload is invalid.");
+    }
+  }
+
+  getBusinessEvaluation(workspaceId: string, runId: string): BusinessEvaluationReceipt | undefined {
+    this.#assertRuntimeOwner(this.#clock());
+    const row = this.#database
+      .query<{ receipt_json: string }, [string, string]>("SELECT receipt_json FROM business_evaluation_receipts WHERE workspace_id = ? AND run_id = ?")
+      .get(workspaceId, runId);
+    if (row === null) return undefined;
+    try {
+      return businessEvaluationReceiptSchema.parse(JSON.parse(row.receipt_json));
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Business evaluation receipt payload is invalid.");
+    }
+  }
+
+  recordBusinessEvaluation(receipt: BusinessEvaluationReceipt): BusinessEvaluationReceipt {
+    const parsed = businessEvaluationReceiptSchema.parse(receipt);
+    return this.#database.transaction(() => {
+      this.#assertRuntimeOwner(this.#clock());
+      const existing = this.#database
+        .query<{ aggregate_digest: string; receipt_json: string }, [string]>(
+          "SELECT aggregate_digest, receipt_json FROM business_evaluation_receipts WHERE run_id = ?",
+        )
+        .get(parsed.runId);
+      if (existing !== null) {
+        if (existing.aggregate_digest !== parsed.aggregateDigest) {
+          throw new AbcmError("BUSINESS_EVALUATION_CONFLICT", "Business evaluation run identity is already bound to a different immutable receipt.");
+        }
+        try {
+          return businessEvaluationReceiptSchema.parse(JSON.parse(existing.receipt_json));
+        } catch {
+          throw new AbcmError("DERIVED_STORE_CORRUPT", "Business evaluation receipt payload is invalid.");
+        }
+      }
+      this.#database.run(
+        `INSERT INTO business_evaluation_receipts
+          (workspace_id, dataset_id, run_id, aggregate_digest, receipt_json)
+         VALUES (?, ?, ?, ?, ?)`,
+        [parsed.workspaceId, parsed.datasetId, parsed.runId, parsed.aggregateDigest, JSON.stringify(parsed)],
+      );
+      return parsed;
+    }).immediate();
+  }
+
+  listBusinessEvaluations(workspaceId: string, datasetId: string): BusinessEvaluationReceipt[] {
+    this.#assertRuntimeOwner(this.#clock());
+    const rows = this.#database
+      .query<{ receipt_json: string }, [string, string]>(
+        "SELECT receipt_json FROM business_evaluation_receipts WHERE workspace_id = ? AND dataset_id = ? ORDER BY run_id",
+      )
+      .all(workspaceId, datasetId);
+    try {
+      return rows.map(row => businessEvaluationReceiptSchema.parse(JSON.parse(row.receipt_json)));
+    } catch {
+      throw new AbcmError("DERIVED_STORE_CORRUPT", "Business evaluation receipt payload is invalid.");
     }
   }
 
@@ -1274,6 +1335,18 @@ export class SqliteScopeMapStore implements ScopeMapStore, ContextFingerprintCat
           UNIQUE (workspace_id, fingerprint_id, feedback_id),
           FOREIGN KEY (workspace_id, fingerprint_id) REFERENCES context_fingerprints(workspace_id, fingerprint_id) ON DELETE CASCADE
         )`);
+      }
+      if (currentVersion < 11) {
+        this.#database.run(`CREATE TABLE IF NOT EXISTS business_evaluation_receipts (
+          workspace_id TEXT NOT NULL,
+          dataset_id TEXT NOT NULL,
+          run_id TEXT PRIMARY KEY,
+          aggregate_digest TEXT NOT NULL,
+          receipt_json TEXT NOT NULL
+        )`);
+        this.#database.run(
+          "CREATE INDEX IF NOT EXISTS business_evaluation_dataset_idx ON business_evaluation_receipts(workspace_id, dataset_id, run_id)",
+        );
       }
       this.#database.run(
         `INSERT INTO schema_metadata (key, value) VALUES ('schema_version', ?)

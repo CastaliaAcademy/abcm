@@ -8,6 +8,16 @@ export { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../
 import { contextFeedbackProposalSchema, contextFeedbackSubmissionSchema } from "../evaluation/context-feedback.js";
 export { contextFeedbackProposalSchema, contextFeedbackSubmissionSchema } from "../evaluation/context-feedback.js";
 import {
+  businessEvaluationListRequestSchema,
+  businessEvaluationReceiptSchema,
+  businessEvaluationRunRequestSchema,
+} from "../evaluation/context-business-eval-runner.js";
+export {
+  businessEvaluationListRequestSchema,
+  businessEvaluationReceiptSchema,
+  businessEvaluationRunRequestSchema,
+} from "../evaluation/context-business-eval-runner.js";
+import {
   workspaceBatchApplyInputSchema,
   workspaceBatchApplyOutputSchema,
   workspaceUploadAbortInputSchema,
@@ -26,6 +36,9 @@ export const agentInstructionsOutputSchema = z.object({
   contentType: z.literal("text/markdown; charset=utf-8"),
   checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   content: z.string().min(1),
+}).strict();
+export const businessEvaluationListOutputSchema = z.object({
+  evaluations: z.array(businessEvaluationReceiptSchema),
 }).strict();
 
 const workspaceId = z.string().min(1);
@@ -340,6 +353,8 @@ export const ABCM_MCP_TOOL_SCHEMAS = {
   "context.list_outcomes": { input: contextOutcomeListInputSchema, output: contextOutcomeListOutputSchema },
   "context.propose_feedback": { input: contextFeedbackSubmissionSchema, output: contextFeedbackProposalSchema },
   "context.list_feedback": { input: contextFeedbackListInputSchema, output: contextFeedbackListOutputSchema },
+  "context.run_business_evaluation": { input: businessEvaluationRunRequestSchema, output: businessEvaluationReceiptSchema },
+  "context.list_business_evaluations": { input: businessEvaluationListRequestSchema, output: businessEvaluationListOutputSchema },
   "documentation_source.preview": { input: documentationPreviewInputSchema, output: documentationPreviewOutputSchema },
   "documentation_source.apply": { input: documentationApplyInputSchema, output: documentationSyncOutputSchema },
   "documentation_source.sync": { input: documentationSyncInputSchema, output: documentationSyncOutputSchema },

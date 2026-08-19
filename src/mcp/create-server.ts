@@ -16,6 +16,7 @@ import type { DomainLanguageService } from "../domain-language/domain-language-s
 import type { ContextPrincipal } from "../domain-language/types.js";
 import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
 import type { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
+import type { ContextBusinessEvalRunner } from "../evaluation/context-business-eval-runner.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -50,6 +51,10 @@ import {
   contextFeedbackListOutputSchema,
   contextFeedbackProposalSchema,
   contextFeedbackSubmissionSchema,
+  businessEvaluationListOutputSchema,
+  businessEvaluationListRequestSchema,
+  businessEvaluationReceiptSchema,
+  businessEvaluationRunRequestSchema,
   documentationApplyInputSchema,
   documentationPreviewInputSchema,
   documentationPreviewOutputSchema,
@@ -93,6 +98,7 @@ export interface AbcmMcpDependencies {
   contextBuilder?: ContextBuilder;
   contextOutcomes?: ContextOutcomeService;
   contextFeedback?: ContextFeedbackService;
+  contextBusinessEvaluations?: ContextBusinessEvalRunner;
   documentation?: DirectoryDocumentationSyncService;
   workspaces?: WorkspaceProvisioningService;
   mcpResourcePageSize?: number;
@@ -494,6 +500,38 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         outputSchema: contextFeedbackListOutputSchema,
       },
       async (input, context) => toolResult(async () => ({ proposals: dependencies.contextFeedback!.list(input.workspaceId, input.fingerprintId) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+  }
+  if (dependencies.contextBusinessEvaluations !== undefined) {
+    server.registerTool(
+      "context.run_business_evaluation",
+      {
+        title: "Run context business evaluation",
+        description: "Run the pinned V0-V5 manifest matrix and persist one immutable body-free receipt.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: businessEvaluationRunRequestSchema,
+        outputSchema: businessEvaluationReceiptSchema,
+      },
+      async (input, context) => toolResult(
+        async signal => ({ ...(await dependencies.contextBusinessEvaluations!.run(input.dataset, input.fixtures, input.input, signal)) }),
+        context.mcpReq.signal,
+        operationTimeoutMs,
+      ),
+    );
+    server.registerTool(
+      "context.list_business_evaluations",
+      {
+        title: "List context business evaluations",
+        description: "List immutable body-free evaluation receipts for one workspace and dataset.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: businessEvaluationListRequestSchema,
+        outputSchema: businessEvaluationListOutputSchema,
+      },
+      async (input, context) => toolResult(
+        async () => ({ evaluations: dependencies.contextBusinessEvaluations!.list(input.workspaceId, input.datasetId) }),
+        context.mcpReq.signal,
+        operationTimeoutMs,
+      ),
     );
   }
   if (dependencies.documentation !== undefined) {
