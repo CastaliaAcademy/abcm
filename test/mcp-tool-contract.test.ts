@@ -104,7 +104,7 @@ describe("MCP tool contract", () => {
       const listed = await client.listTools();
       expect(client.getNegotiatedProtocolVersion()).toBe("2025-11-25");
       expect(client.getServerCapabilities()?.experimental?.["abcm.dev/contract"]).toEqual({
-        contractVersion: "0.5.0",
+        contractVersion: "0.5.1",
         specificationVersion: "0.5.0",
         supportedProtocolVersions: ["2025-11-25"],
         operationTimeoutMs: 30000,
@@ -151,7 +151,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.17.0",
+        version: "1.17.1",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
@@ -160,12 +160,22 @@ describe("MCP tool contract", () => {
       expect((instructions.structuredContent as { content: string }).content).toContain("Недоступный explicit scope");
       for (const tool of listed.tools) {
         expect(tool.inputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));
-        expect(tool.outputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));
+        const alternatives = (tool.outputSchema as { anyOf?: Array<Record<string, unknown>> }).anyOf;
+        expect(alternatives).toHaveLength(2);
+        expect(alternatives).toContainEqual(expect.objectContaining({
+          type: "object",
+          additionalProperties: false,
+          required: ["error_code", "message"],
+          properties: expect.objectContaining({
+            error_code: expect.objectContaining({ type: "string" }),
+            message: expect.objectContaining({ type: "string" }),
+          }),
+        }));
         expect(tool.annotations?.openWorldHint).toBe(false);
       }
       const contextTool = listed.tools.find(tool => tool.name === "context.build_task_context") as unknown as {
         inputSchema: { properties: { targetHints: { anyOf: Array<{ properties?: { scopeIds?: { minItems?: number; maxItems?: number; items?: unknown } } }> } } };
-        outputSchema: { required?: string[]; properties: Record<string, unknown> };
+        outputSchema: { anyOf: Array<{ required?: string[]; properties?: Record<string, unknown> }> };
       };
       const structuredHints = contextTool.inputSchema.properties.targetHints.anyOf.find(option => option.properties?.scopeIds !== undefined);
       expect(structuredHints?.properties?.scopeIds).toEqual(expect.objectContaining({
@@ -173,13 +183,14 @@ describe("MCP tool contract", () => {
         maxItems: 8,
         items: expect.objectContaining({ anyOf: expect.any(Array) }),
       }));
-      expect(contextTool.outputSchema.required).toEqual(expect.arrayContaining([
+      const contextSuccessSchema = contextTool.outputSchema.anyOf.find(option => option.properties?.bundleDigest !== undefined);
+      expect(contextSuccessSchema?.required).toEqual(expect.arrayContaining([
         "multiScopePolicyDigest",
         "affectedScopeDetails",
         "budgetAllocation",
         "cache",
       ]));
-      expect(contextTool.outputSchema.properties).toEqual(expect.objectContaining({
+      expect(contextSuccessSchema?.properties).toEqual(expect.objectContaining({
         multiScopePolicyDigest: expect.any(Object),
         affectedScopeDetails: expect.any(Object),
         budgetAllocation: expect.any(Object),

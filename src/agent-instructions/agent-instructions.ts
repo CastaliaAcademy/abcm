@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.17.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.17.1" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.17.0
+Версия: 1.17.1
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -248,7 +248,7 @@ Fallback при недостаточном автоматическом конт
 
 Ошибки различаются: malformed input — REQUEST_INVALID на границе схемы; отсутствующий selector — CONTEXT_DOCUMENT_NOT_FOUND; недоступный — CONTEXT_DOCUMENT_ACCESS_DENIED без раскрытия тела; несовпавший expectedKind — CONTEXT_DOCUMENT_KIND_MISMATCH; изменение после MapRevision — DOMAIN_LANGUAGE_BOOTSTRAP_STALE; обязательный контекст вне hard limit — REQUIRED_CONTEXT_EXCEEDS_LIMIT.
 
-Для MCP предметная ошибка всегда имеет isError=true. Совместимое текстовое содержимое содержит JSON с полем code, а structuredContent содержит тот же стабильный код в error_code и сообщение в message. Не классифицируйте предметную ошибку по тексту и не заменяйте UNKNOWN_DOMAIN_TERM, CONTEXT_DOCUMENT_NOT_FOUND или REQUIRED_CONTEXT_EXCEEDS_LIMIT общим INVALID_ARGUMENT.
+Для MCP предметная ошибка всегда имеет isError=true. Совместимое текстовое содержимое содержит JSON с полем code, а structuredContent содержит тот же стабильный код в error_code и сообщение в message. Объявленная outputSchema каждого tool является объединением успешного результата и общей схемы предметной ошибки, поэтому строгий клиент обязан сохранить error_code. Не классифицируйте предметную ошибку по тексту и не заменяйте UNKNOWN_DOMAIN_TERM, CONTEXT_DOCUMENT_NOT_FOUND или REQUIRED_CONTEXT_EXCEEDS_LIMIT общим INVALID_ARGUMENT.
 
 canonicalTerms принимает canonical concept id, основной term, alias или однозначный homonym. Например, если glossary объявляет id=abcm.scope-map и term=ScopeMap, оба значения допустимы и нормализуются к abcm.scope-map; неизвестный term обязан завершиться UNKNOWN_DOMAIN_TERM.
 

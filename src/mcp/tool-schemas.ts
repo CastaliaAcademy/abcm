@@ -41,6 +41,16 @@ import {
   workspaceUploadStartOutputSchema,
 } from "../workspace/file-operation-contracts.js";
 
+export const toolErrorOutputSchema = z.object({
+  error_code: z.string().min(1),
+  message: z.string().min(1),
+  details: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+
+export function toolOutputSchema<T extends z.ZodType>(successSchema: T) {
+  return z.union([successSchema, toolErrorOutputSchema]);
+}
+
 export const agentInstructionsInputSchema = z.object({}).strict();
 export const agentInstructionsOutputSchema = z.object({
   version: z.literal(ABCM_AGENT_INSTRUCTIONS_VERSION),
