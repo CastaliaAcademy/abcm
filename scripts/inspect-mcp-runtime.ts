@@ -69,8 +69,8 @@ try {
   if (names.length !== expectedToolCount || new Set(names).size !== names.length) {
     throw new Error(`Expected ${expectedToolCount} unique MCP tools, received ${names.length}.`);
   }
-  if (serverVersion !== instructionVersion) {
-    throw new Error(`MCP server version '${serverVersion}' differs from instruction version '${instructionVersion}'.`);
+  if (serverVersion !== "0.1.1" || instructionVersion !== "1.18.1") {
+    throw new Error(`Unexpected server/instruction versions: server='${serverVersion}', instructions='${instructionVersion}'.`);
   }
   if (textError.code !== "CONTEXT_DOCUMENT_NOT_FOUND" || structuredError?.error_code !== textError.code) {
     throw new Error(`Structured error mismatch: text='${textError.code}', structured='${structuredError?.error_code}'.`);

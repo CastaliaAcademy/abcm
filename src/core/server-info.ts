@@ -1,4 +1,4 @@
-export const ABCM_RUNTIME_VERSION = "1.18.1" as const;
+export const ABCM_RUNTIME_VERSION = "0.1.1" as const;
 
 export const ABCM_SERVER_INFO = {
   name: "abcm-mcp-server",
