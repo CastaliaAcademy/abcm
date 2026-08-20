@@ -58,6 +58,7 @@ try {
   const overflowStructuredError = overflow.structuredContent as { error_code?: string } | undefined;
   const serverVersion = client.getServerVersion()?.version;
   const instructionVersion = (instructions.structuredContent as { version?: string } | undefined)?.version;
+  const instructionContent = (instructions.structuredContent as { content?: string } | undefined)?.content;
   const profilesResult = await client.callTool({ name: "context.list_business_evaluation_profiles", arguments: {} });
   const profiles = (profilesResult.structuredContent as { profiles?: Array<{ phase?: string }> } | undefined)?.profiles ?? [];
   const documentationResult = await client.callTool({
@@ -69,8 +70,11 @@ try {
   if (names.length !== expectedToolCount || new Set(names).size !== names.length) {
     throw new Error(`Expected ${expectedToolCount} unique MCP tools, received ${names.length}.`);
   }
-  if (serverVersion !== "0.1.1" || instructionVersion !== "1.18.1") {
+  if (serverVersion !== "0.1.1" || instructionVersion !== "1.18.2") {
     throw new Error(`Unexpected server/instruction versions: server='${serverVersion}', instructions='${instructionVersion}'.`);
+  }
+  if (!instructionContent?.includes("не добавляет pairing, device, cursor или conflict операции в MCP manifest")) {
+    throw new Error("MCP agent instructions do not contain the current Obsidian plugin boundary.");
   }
   if (textError.code !== "CONTEXT_DOCUMENT_NOT_FOUND" || structuredError?.error_code !== textError.code) {
     throw new Error(`Structured error mismatch: text='${textError.code}', structured='${structuredError?.error_code}'.`);

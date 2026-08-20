@@ -18,6 +18,8 @@ For Obsidian, open the managed project directory as a vault:
 C:\Users\egor\Documents\Qualia\castalia\документация\Castalia\public\abcm
 ```
 
+This direct-folder mode is different from the bidirectional `abcm-obsidian-plugin`, which maps one vault folder to one server-assigned `workspaceId/projectId` through the scoped REST sync API. Obsidian device operations are not MCP tools; MCP remains the agent interface. The canonical integration guide is `docs/integrations/obsidian.md` in the ABCM workspace.
+
 To import an independently managed Obsidian vault, select a separate source directory and enable the documentation overlay:
 
 ```bash

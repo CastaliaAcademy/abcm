@@ -31,6 +31,7 @@ describe("canonical remote documentation evidence", () => {
     for (const path of [
       "docs/release/known-gaps-v0.1.0.md",
       "docs/release/traceability-v0.1.0.yaml",
+      "docs/integrations/obsidian.md",
       "artifacts/plans/PLAN-0028/plan.md",
       "artifacts/plans/PLAN-0028/traceability.yaml",
       "artifacts/plans/PLAN-0028/features/obsidian-bidirectional-sync.md",
