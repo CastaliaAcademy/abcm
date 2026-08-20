@@ -53,6 +53,8 @@ const files = new Map<string, Uint8Array>([
   ["docs/api/openapi-v1.json", await localBytes(".abcm-generated/openapi-v1.json")],
   ["docs/release/sbom.cdx.json", await localBytes(".abcm-generated/sbom.cdx.json")],
   ["docs/operations/agent-instructions.md", encoder.encode(ABCM_AGENT_INSTRUCTIONS)],
+  ["docs/operations/production-deployment.md", await localBytes(".abcm-documentation/docs/operations/production-deployment.md")],
+  ["agents/skills/migrate-project-to-abcm/references/migration-contract.md", await localBytes(".abcm-documentation/agents/skills/migrate-project-to-abcm/references/migration-contract.md")],
   ["docs/security/threat-model.md", await localBytes(".abcm-documentation/docs/security/threat-model.md")],
   ["artifacts/plans/ABCM-MVP/development-plan.md", await localBytes(".abcm-documentation/artifacts/plans/ABCM-MVP/development-plan.md")],
   ["docs/release/known-gaps-v0.1.0.md", await localBytes(".abcm-documentation/docs/release/known-gaps-v0.1.0.md")],

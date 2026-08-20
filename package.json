@@ -35,6 +35,7 @@
     "sbom:generate": "bun run scripts/generate-sbom.ts",
     "documentation:export": "bun run scripts/export-abcm-documentation.ts",
     "documentation:sync-contracts": "bun run scripts/sync-abcm-contracts.ts",
+    "runtime:inspect": "bun run scripts/inspect-mcp-runtime.ts",
     "documentation:check": "bun run documentation:export && bun run openapi:generate && bun run sbom:generate && bun run scripts/check-documentation.ts",
     "traceability:check": "bun run scripts/check-traceability.ts .abcm-documentation",
     "release:check": "bun x tsc -p tsconfig.release.json && bun run sbom:generate && bun run scripts/check-release.ts",
