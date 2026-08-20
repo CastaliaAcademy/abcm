@@ -18,6 +18,11 @@ import {
   type ScopeContentIndex,
 } from "./content-indexer.js";
 import { indexExplicitRelations } from "./explicit-relations.js";
+import {
+  buildTypedLinkGraph,
+  linkSourcesFromGraph,
+  type DocumentLinkSource,
+} from "./link-graph.js";
 import type {
   DocumentRecord,
   ExecutableResourceRecord,
@@ -36,6 +41,7 @@ import type {
   ScopeNode,
   ScopeRelation,
   SkillDescriptor,
+  TypedLinkGraph,
 } from "./types.js";
 
 const SCOPE_KINDS = ["workflow", "project", "service", "feature"] as const;
@@ -87,9 +93,10 @@ function normalizedDigest(
   documents: readonly DocumentRecord[],
   executableResources: readonly ExecutableResourceRecord[],
   skills: readonly SkillDescriptor[],
+  linkGraph: TypedLinkGraph,
   diagnostics: readonly MapDiagnostic[],
 ): string {
-  const normalized = JSON.stringify({ nodes, relations, files, documents, executableResources, skills, diagnostics });
+  const normalized = JSON.stringify({ nodes, relations, files, documents, executableResources, skills, linkGraph, diagnostics });
   return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
@@ -280,6 +287,7 @@ export class ScopeMapService {
     nodes.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     const files: FileRecord[] = [];
     const documentCandidates: DocumentRecord[] = [];
+    const linkSources: DocumentLinkSource[] = [];
     const executableResources: ExecutableResourceRecord[] = [];
     const skills: SkillDescriptor[] = [];
     const indexes = await Promise.all(
@@ -289,6 +297,7 @@ export class ScopeMapService {
     for (const index of indexes) {
       files.push(...index.files);
       documentCandidates.push(...index.documentCandidates);
+      linkSources.push(...index.linkSources);
       executableResources.push(...index.executableResources);
       skills.push(...index.skills);
       diagnostics.push(...(index.diagnostics ?? []));
@@ -311,6 +320,7 @@ export class ScopeMapService {
     executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     skills.sort((left, right) => `${left.skillId}/${left.sourceScopeId}`.localeCompare(`${right.skillId}/${right.sourceScopeId}`));
     const documents = resolveDocumentCandidates(documentCandidates, diagnostics);
+    const linkGraph = buildTypedLinkGraph(linkSources, documents, diagnostics);
     throwIfAborted(signal);
     const explicit = await indexExplicitRelations(workspace, nodes, documents, diagnostics);
     throwIfAborted(signal);
@@ -325,7 +335,7 @@ export class ScopeMapService {
       ),
     );
     diagnostics.sort((left, right) => `${left.path}/${left.code}`.localeCompare(`${right.path}/${right.code}`));
-    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, skills, diagnostics);
+    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, skills, linkGraph, diagnostics);
     const revision: MapRevision = {
       revision: digest,
       digest,
@@ -336,6 +346,7 @@ export class ScopeMapService {
       documents,
       executableResources,
       skills,
+      linkGraph,
       diagnostics,
     };
     return revision;
@@ -429,7 +440,7 @@ export class ScopeMapService {
     }
 
     const diagnostics = previous.diagnostics.filter(
-      diagnostic => diagnostic.code !== "DOCUMENT_ID_DUPLICATE" &&
+      diagnostic => diagnostic.code !== "DOCUMENT_ID_DUPLICATE" && !diagnostic.code.startsWith("LINK_GRAPH_") &&
         (diagnostic.scopeId === undefined || !impacted.has(diagnostic.scopeId)),
     );
     const nodes = await Promise.all(
@@ -442,11 +453,13 @@ export class ScopeMapService {
 
     const files = previous.files.filter(file => !impacted.has(file.scopeId));
     const documentCandidates = previous.documents.filter(document => !impacted.has(document.scopeId));
+    const linkSources = linkSourcesFromGraph(previous.linkGraph).filter(source => !impacted.has(source.scopeId));
     const executableResources = previous.executableResources.filter(resource => !impacted.has(resource.scopeId));
     const skills = previous.skills.filter(skill => !impacted.has(skill.sourceScopeId));
     for (const content of indexed.values()) {
       files.push(...content.files);
       documentCandidates.push(...content.documentCandidates);
+      linkSources.push(...content.linkSources);
       executableResources.push(...content.executableResources);
       skills.push(...content.skills);
       diagnostics.push(...(content.diagnostics ?? []));
@@ -455,6 +468,7 @@ export class ScopeMapService {
     executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     skills.sort((left, right) => `${left.skillId}/${left.sourceScopeId}`.localeCompare(`${right.skillId}/${right.sourceScopeId}`));
     const documents = resolveDocumentCandidates(documentCandidates, diagnostics);
+    const linkGraph = buildTypedLinkGraph(linkSources, documents, diagnostics);
 
     const relations = previous.relations.filter(
       relation => relation.relationType === "parent-child" || !impacted.has(relation.fromId),
@@ -472,7 +486,7 @@ export class ScopeMapService {
       ),
     );
     diagnostics.sort((left, right) => `${left.path}/${left.code}`.localeCompare(`${right.path}/${right.code}`));
-    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, skills, diagnostics);
+    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, skills, linkGraph, diagnostics);
     return {
       revision: digest,
       digest,
@@ -483,6 +497,7 @@ export class ScopeMapService {
       documents,
       executableResources,
       skills,
+      linkGraph,
       diagnostics,
     };
   }
@@ -600,6 +615,14 @@ export class ScopeMapService {
         documents: map.documents.filter(document => document.scopeId === scopeId),
         executableResources: map.executableResources.filter(resource => resource.scopeId === scopeId),
         skills: map.skills.filter(skill => skill.sourceScopeId === scopeId),
+        linkGraphNodes: map.linkGraph.nodes.filter(node => node.scopeId === scopeId),
+        linkGraphEdges: map.linkGraph.edges.filter(edge => {
+          const from = map.linkGraph.nodes.find(node => node.documentId === edge.fromDocumentId);
+          const to = edge.toDocumentId === undefined
+            ? undefined
+            : map.linkGraph.nodes.find(node => node.documentId === edge.toDocumentId);
+          return from?.scopeId === scopeId || to?.scopeId === scopeId;
+        }),
         diagnostics: map.diagnostics.filter(diagnostic => diagnostic.scopeId === scopeId),
       });
     return [...ids].filter(scopeId => snapshot(previous, scopeId) !== snapshot(revision, scopeId)).sort();
@@ -838,6 +861,15 @@ export class ScopeMapService {
         indexedFiles: revision.files.length,
         documents: revision.documents.length,
         executableResources: revision.executableResources.length,
+      },
+      linkGraphSummary: {
+        policyVersion: revision.linkGraph.policyVersion,
+        digest: revision.linkGraph.digest,
+        nodes: revision.linkGraph.nodes.length,
+        edges: revision.linkGraph.edges.length,
+        resolved: revision.linkGraph.edges.filter(edge => edge.status === "resolved").length,
+        broken: revision.linkGraph.edges.filter(edge => edge.status === "broken").length,
+        ambiguous: revision.linkGraph.edges.filter(edge => edge.status === "ambiguous").length,
       },
     };
   }

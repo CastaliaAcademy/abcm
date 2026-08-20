@@ -184,6 +184,7 @@ export class ContextBuilder {
 
   async preview(request: BuildTaskContextRequest, principal: ContextPrincipal, signal?: AbortSignal): Promise<ContextSelectionPreview> {
     const bundle = await this.#build(request, principal, signal, false);
+    const bootstrap = this.#dependencies.domainLanguage.validateBootstrap(request.domainLanguageBootstrapId, principal);
     const selectedDocuments: ContextFingerprintDocument[] = bundle.selectedDocuments.map(item => ({
       documentId: item.documentId,
       scopeId: item.scopeId,
@@ -203,6 +204,7 @@ export class ContextBuilder {
     return deepFreeze({
       previewDigest: digest({ selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION, bundleDigest: bundle.bundleDigest }),
       selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION,
+      workspaceId: bootstrap.anchor.workspaceId,
       mapRevision: bundle.mapRevision,
       mapDigest: bundle.mapDigest,
       primaryTargetScope: bundle.primaryTargetScope,

@@ -4,6 +4,12 @@ import { ArchitecturePolicyService } from "../architecture/architecture-policy-s
 import { createAbcmMcpHttpHandler } from "../mcp/create-http-handler.js";
 import { createAbcmMcpServer } from "../mcp/create-server.js";
 import { ContextBuilder } from "../context/context-builder.js";
+import {
+  ContextLinkGraphSessionService,
+  type ContextLinkGraphSessionOptions,
+} from "../context/link-graph-session.js";
+import { ContextLinkGraphWebSocketAdapter } from "../context/link-graph-websocket.js";
+import { SqliteContextLinkGraphSessionStore } from "../context/link-graph-session-store.js";
 import type { ContextBuildCacheCatalog } from "../context/context-build-cache.js";
 import type { AbcmObservability } from "../core/observability.js";
 import { DirectoryContextFingerprintStore } from "../context/directory-context-fingerprint-store.js";
@@ -68,6 +74,7 @@ export interface AbcmRuntimeOptions {
   contextPrincipal?: ContextPrincipal;
   domainLanguage?: DomainLanguageServiceOptions;
   context?: ContextBuilderOptions;
+  contextLinkGraph?: ContextLinkGraphSessionOptions & { stateRoot?: string };
   observability?: AbcmObservability;
   contextFingerprintCatalog?: ContextFingerprintCatalog;
   contextOutcomeCatalog?: ContextOutcomeCatalog;
@@ -185,6 +192,26 @@ export function createAbcmRuntime(
     ...(options.observability === undefined ? {} : { observability: options.observability }),
     architecturePolicies,
   });
+  const contextLinkGraphStateRoot = options.contextLinkGraph?.stateRoot ?? (
+    options.fileOperations === undefined ? undefined : resolve(options.fileOperations.stateRoot, "context-link-graph")
+  );
+  const contextLinkGraphSessionStore = contextLinkGraphStateRoot === undefined
+    ? undefined
+    : new SqliteContextLinkGraphSessionStore(contextLinkGraphStateRoot);
+  const contextLinkGraphSessions = options.contextPrincipal === undefined
+    ? undefined
+    : new ContextLinkGraphSessionService({
+        contextBuilder,
+        scopeMap,
+        principal: options.contextPrincipal,
+        ...(options.contextLinkGraph?.ttlMs === undefined ? {} : { ttlMs: options.contextLinkGraph.ttlMs }),
+        ...(options.contextLinkGraph?.ticketTtlMs === undefined ? {} : { ticketTtlMs: options.contextLinkGraph.ticketTtlMs }),
+        ...(options.contextLinkGraph?.maxCandidates === undefined ? {} : { maxCandidates: options.contextLinkGraph.maxCandidates }),
+        ...(contextLinkGraphSessionStore === undefined ? {} : { store: contextLinkGraphSessionStore }),
+      });
+  const contextLinkGraphWebSocket = contextLinkGraphSessions === undefined
+    ? undefined
+    : new ContextLinkGraphWebSocketAdapter(contextLinkGraphSessions);
   const businessEvaluationProfiles = options.businessEvaluationProfiles === undefined
     ? undefined
     : new BusinessEvaluationProfileRegistry(options.businessEvaluationProfiles);
@@ -234,6 +261,7 @@ export function createAbcmRuntime(
       architecturePolicies,
       domainLanguage,
       contextBuilder,
+      ...(contextLinkGraphSessions === undefined ? {} : { contextLinkGraphSessions }),
       ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
       ...(contextFeedback === undefined ? {} : { contextFeedback }),
       ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
@@ -259,6 +287,7 @@ export function createAbcmRuntime(
             defaultWorkspaceId: defaultWorkspace.id,
             domainLanguage,
             contextBuilder,
+            ...(contextLinkGraphSessions === undefined ? {} : { contextLinkGraphSessions }),
             ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
             ...(contextFeedback === undefined ? {} : { contextFeedback }),
             ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
@@ -318,6 +347,8 @@ export function createAbcmRuntime(
     scopePathResolver,
     skillConnectionResolver,
     contextBuilder,
+    contextLinkGraphSessions,
+    contextLinkGraphWebSocket,
     contextFingerprintStore,
     contextFingerprintCatalog,
     contextOutcomeCatalog,
@@ -347,6 +378,7 @@ export function createAbcmRuntime(
         defaultWorkspaceId: defaultWorkspace.id,
         domainLanguage,
         contextBuilder,
+        ...(contextLinkGraphSessions === undefined ? {} : { contextLinkGraphSessions }),
         ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
         ...(contextFeedback === undefined ? {} : { contextFeedback }),
         ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
@@ -368,7 +400,11 @@ export function createAbcmRuntime(
             obsidianSync?.close();
           } finally {
             try {
-              ownedScopeMapStore?.close();
+              try {
+                contextLinkGraphSessionStore?.close();
+              } finally {
+                ownedScopeMapStore?.close();
+              }
             } finally {
               mutationCoordinator.close();
             }

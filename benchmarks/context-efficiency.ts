@@ -5,6 +5,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { z } from "zod/v4";
 
 import { parseSafeYaml } from "../src/core/safe-yaml.js";
+import type { ContextLinkGraphFinalizeResult, ContextLinkGraphSessionView } from "../src/context/link-graph-session.js";
 import { contextEfficiencyManifestSchema, retrievalRunReceiptSchema } from "../src/evaluation/context-efficiency-contracts.js";
 import { evaluateContextEfficiency } from "../src/evaluation/context-efficiency-evaluator.js";
 import { runDirectSearchBaseline } from "../src/evaluation/direct-search-baseline.js";
@@ -63,6 +64,29 @@ const businessQualificationSchema = z.object({
 });
 const businessQualification = businessQualificationSchema.parse(
   parseSafeYaml(await Bun.file("benchmarks/fixtures/context-efficiency-v1/business-qualification.yaml").text()),
+);
+const linkGraphQualificationSchema = z.object({
+  schemaVersion: z.literal("abcm.benchmark.link-graph-context/v1"),
+  id: z.string().min(1),
+  workspaceId: z.string().min(1),
+  seedDocumentIds: z.array(z.string().min(1)).min(1),
+  expectedInitialCandidates: z.array(z.string().min(1)),
+  expandFromDocumentIds: z.array(z.string().min(1)).min(1),
+  expectedExpandedCandidates: z.array(z.string().min(1)),
+  confirmedDocumentIds: z.array(z.string().min(1)).min(1),
+  mandatoryDocumentIds: z.array(z.string().min(1)).min(1),
+  requiredFallbackModes: z.array(z.enum(["direct-search", "explicit-documents", "bounded-resource-read"])).min(1),
+  repetitions: z.number().int().min(2).max(30),
+  gates: z.object({
+    relevance: z.object({ mandatoryRecallMin: z.number().min(0).max(1), precisionVsDirect: z.literal("gte") }).strict(),
+    fallback: z.object({ requireAllDeclaredModes: z.literal(true) }).strict(),
+    determinism: z.object({ identicalBundleRateMin: z.number().min(0).max(1) }).strict(),
+    isolation: z.object({ unauthorizedDisclosureMax: z.number().int().nonnegative() }).strict(),
+    contextEfficiency: z.object({ tokenReductionMin: z.number().min(0).max(1) }).strict(),
+  }).strict(),
+}).strict();
+const linkGraphQualification = linkGraphQualificationSchema.parse(
+  parseSafeYaml(await Bun.file("benchmarks/fixtures/context-efficiency-v1/link-graph-qualification.yaml").text()),
 );
 const baseUrl = process.env.ABCM_BENCH_BASE_URL ?? "http://127.0.0.1:8791";
 const token = process.env.ABCM_BENCH_TOKEN ?? "benchmark-token-123456789";
@@ -169,6 +193,101 @@ try {
   const guided = guidedResult.structuredContent as typeof first;
   const guidedCorpus = guided.selectedDocuments.map(document => document.projection.content ?? "").join("\n").toLocaleLowerCase("ru-RU");
   const guidedClaimIds = fixtureManifest.claims.filter(claim => claim.allTerms.every(term => guidedCorpus.includes(term.toLocaleLowerCase("ru-RU")))).map(claim => claim.id);
+  const graphRuns: Array<{ view: ContextLinkGraphSessionView; result: ContextLinkGraphFinalizeResult; durationMs: number }> = [];
+  for (let index = 0; index < linkGraphQualification.repetitions; index++) {
+    const graphStarted = performance.now();
+    const started = await client.callTool({ name: "context.start_link_graph_session", arguments: {
+      workspaceId: linkGraphQualification.workspaceId,
+      seedDocumentIds: linkGraphQualification.seedDocumentIds,
+      request: {
+        domainLanguageBootstrapId: bootstrapId,
+        roleId: fixtureManifest.roleId,
+        taskType: fixtureManifest.taskType,
+        goal: fixtureManifest.goal,
+        targetHints: { scopeIds: [fixtureManifest.scopeId] },
+        budgetProfile: "expanded",
+        execution: { planId: "PLAN-0033", runId: "docker-link-graph-eval" },
+      },
+    } });
+    if (started.isError) throw new Error(`Link-graph session start failed: ${JSON.stringify(started.content)}`);
+    const initial = started.structuredContent as unknown as ContextLinkGraphSessionView;
+    const initialCandidateIds = initial.candidates.map(candidate => candidate.documentId).sort();
+    if (JSON.stringify(initialCandidateIds) !== JSON.stringify([...linkGraphQualification.expectedInitialCandidates].sort())) {
+      throw new Error(`Unexpected initial link-graph candidates: ${JSON.stringify(initialCandidateIds)}`);
+    }
+    const expandedResult = await client.callTool({ name: "context.step_link_graph_session", arguments: {
+      sessionId: initial.sessionId,
+      sequence: 1,
+      previousStateDigest: initial.stateDigest,
+      operation: { kind: "expand", fromDocumentIds: linkGraphQualification.expandFromDocumentIds },
+    } });
+    if (expandedResult.isError) throw new Error(`Link-graph expansion failed: ${JSON.stringify(expandedResult.content)}`);
+    const expanded = expandedResult.structuredContent as unknown as ContextLinkGraphSessionView;
+    const expandedCandidateIds = expanded.candidates.map(candidate => candidate.documentId).sort();
+    if (JSON.stringify(expandedCandidateIds) !== JSON.stringify([...linkGraphQualification.expectedExpandedCandidates].sort())) {
+      throw new Error(`Unexpected expanded link-graph candidates: ${JSON.stringify(expandedCandidateIds)}`);
+    }
+    const confirmedResult = await client.callTool({ name: "context.step_link_graph_session", arguments: {
+      sessionId: initial.sessionId,
+      sequence: 2,
+      previousStateDigest: expanded.stateDigest,
+      operation: { kind: "confirm", documentIds: linkGraphQualification.confirmedDocumentIds },
+    } });
+    if (confirmedResult.isError) throw new Error(`Link-graph confirmation failed: ${JSON.stringify(confirmedResult.content)}`);
+    const confirmed = confirmedResult.structuredContent as unknown as ContextLinkGraphSessionView;
+    const finalizedResult = await client.callTool({ name: "context.finalize_link_graph_session", arguments: {
+      sessionId: initial.sessionId,
+      expectedStateDigest: confirmed.stateDigest,
+    } });
+    if (finalizedResult.isError) throw new Error(`Link-graph finalization failed: ${JSON.stringify(finalizedResult.content)}`);
+    graphRuns.push({
+      view: confirmed,
+      result: finalizedResult.structuredContent as unknown as ContextLinkGraphFinalizeResult,
+      durationMs: elapsed(graphStarted),
+    });
+  }
+  const graphFirst = graphRuns[0]!;
+  const graphSelectedIds = graphFirst.result.bundle.selectedDocuments.map(document => document.documentId);
+  const graphGold = new Set(fixtureManifest.goldDocumentIds);
+  const graphMandatoryRecall = linkGraphQualification.mandatoryDocumentIds.filter(documentId => graphSelectedIds.includes(documentId)).length /
+    linkGraphQualification.mandatoryDocumentIds.length;
+  const graphPrecision = graphSelectedIds.filter(documentId => graphGold.has(documentId)).length / graphSelectedIds.length;
+  const directPrecision = direct.selectedDocuments.filter(document => graphGold.has(document.documentId)).length / direct.selectedDocuments.length;
+  const graphTokenReduction = (direct.totalInputTokens - graphFirst.result.bundle.tokenEstimate) / direct.totalInputTokens;
+  const graphSerialized = JSON.stringify(graphRuns.map(run => ({ view: run.view, receipt: run.result.receipt })));
+  const graphUnauthorizedDisclosureCount = fixtureManifest.forbiddenMarkers.some(marker => graphSerialized.includes(marker)) ? 1 : 0;
+  const graphIdenticalBundleRate = new Set(graphRuns.map(run => run.result.bundle.bundleDigest)).size === 1 ? 1 : 0;
+  const graphFallbackPass = linkGraphQualification.requiredFallbackModes.every(mode => graphFirst.view.fallbackModes.includes(mode));
+  const linkGraphPriorityEvaluation = {
+    priorityOrder: ["task_relevance", "fallback_flexibility", "determinism", "workspace_isolation", "context_efficiency"],
+    taskRelevance: {
+      mandatoryRecall: graphMandatoryRecall,
+      precision: graphPrecision,
+      directPrecision,
+      pass: graphMandatoryRecall >= linkGraphQualification.gates.relevance.mandatoryRecallMin && graphPrecision >= directPrecision,
+    },
+    fallbackFlexibility: {
+      availableModes: graphFirst.view.fallbackModes,
+      pass: graphFallbackPass,
+    },
+    determinism: {
+      identicalBundleRate: graphIdenticalBundleRate,
+      pass: graphIdenticalBundleRate >= linkGraphQualification.gates.determinism.identicalBundleRateMin,
+    },
+    workspaceIsolation: {
+      unauthorizedDisclosureCount: graphUnauthorizedDisclosureCount,
+      pass: graphUnauthorizedDisclosureCount <= linkGraphQualification.gates.isolation.unauthorizedDisclosureMax,
+    },
+    contextEfficiency: {
+      directInputTokens: direct.totalInputTokens,
+      graphInputTokens: graphFirst.result.bundle.tokenEstimate,
+      tokenReduction: graphTokenReduction,
+      pass: graphTokenReduction >= linkGraphQualification.gates.contextEfficiency.tokenReductionMin,
+    },
+  };
+  const linkGraphOverallPass = Object.entries(linkGraphPriorityEvaluation)
+    .filter(([key]) => key !== "priorityOrder")
+    .every(([, gate]) => (gate as { pass: boolean }).pass);
   const abcmReceipt = retrievalRunReceiptSchema.parse({
     schemaVersion: "abcm.eval.retrieval-run/v1",
     scenarioId: "docker-known-data",
@@ -322,6 +441,20 @@ try {
     fixture: { workspaceId: fixtureManifest.workspaceId, goldDocumentIds: fixtureManifest.goldDocumentIds, repetitions: fixtureManifest.repetitions },
     direct: { durationMs: directMs, candidateReads: direct.trace.reads.length, selectedDocumentIds: direct.selectedDocuments.map(document => document.documentId), inputTokens: direct.totalInputTokens, digest: direct.resultDigest },
     abcm: { bootstrapMs, coldBuildMs: buildTimes[0], warmBuildP50Ms: percentile(buildTimes.slice(1), 0.5), warmBuildP95Ms: percentile(buildTimes.slice(1), 0.95), cacheStates, selectedDocumentIds: selectedIds, inputTokens: first.tokenEstimate, bundleDigest: first.bundleDigest, identicalBundleRate: new Set(bundles.map(bundle => bundle.bundleDigest)).size === 1 ? 1 : 0, omissionCount: first.omissions.length },
+    linkGraph: {
+      qualificationId: linkGraphQualification.id,
+      repetitions: linkGraphQualification.repetitions,
+      durationP50Ms: percentile(graphRuns.map(run => run.durationMs), 0.5),
+      durationP95Ms: percentile(graphRuns.map(run => run.durationMs), 0.95),
+      selectedDocumentIds: graphSelectedIds,
+      confirmedDocumentIds: graphFirst.result.receipt.confirmedDocumentIds,
+      inputTokens: graphFirst.result.bundle.tokenEstimate,
+      bundleDigest: graphFirst.result.bundle.bundleDigest,
+      receiptDigest: graphFirst.result.receipt.receiptDigest,
+      receiptBodyFree: !graphSerialized.toLocaleLowerCase("ru-RU").includes("прежний результат"),
+      priorityEvaluation: linkGraphPriorityEvaluation,
+      overall: linkGraphOverallPass ? "pass" : "fail",
+    },
     priorityEvaluation: report.variants.abcmAutomatic,
     businessEvaluation: {
       runId: businessReceipt.runId,
@@ -343,6 +476,9 @@ try {
   console.log(JSON.stringify(output, null, 2));
   if (process.env.ABCM_BENCH_ENFORCE === "true" && (
     report.variants.abcmAutomatic?.overall !== "pass" ||
+    !linkGraphOverallPass ||
+    !graphRuns.every(run => run.result.receipt.steps.length === 2) ||
+    graphRuns.some(run => run.result.receipt.bundleDigest !== run.result.bundle.bundleDigest) ||
     cacheStates[0] !== "miss" ||
     cacheStates.slice(1).some(state => state !== "hit") ||
     businessReceipt.variantAggregates.some(aggregate => aggregate.variant !== "V0" && aggregate.gates.overall !== "pass") ||

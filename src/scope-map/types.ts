@@ -80,7 +80,10 @@ export interface MapDiagnostic {
     | "PLANTUML_ENVELOPE_INVALID"
     | "PLANTUML_INCLUDE_INVALID"
     | "PLANTUML_INCLUDE_UNRESOLVED"
-    | "PLANTUML_INCLUDE_CYCLE";
+    | "PLANTUML_INCLUDE_CYCLE"
+    | "LINK_GRAPH_BROKEN"
+    | "LINK_GRAPH_AMBIGUOUS"
+    | "LINK_GRAPH_CYCLE";
   severity: "branch_error" | "scope_error" | "warning";
   path: string;
   message: string;
@@ -127,6 +130,61 @@ export interface DocumentRecord {
   storageMode: "managed" | "mirror";
 }
 
+export type LinkGraphEdgeType =
+  | "wiki-link"
+  | "embed"
+  | "heading-reference"
+  | "block-reference"
+  | "domain-relation"
+  | "backlink";
+
+export interface LinkGraphHeading {
+  text: string;
+  anchor: string;
+}
+
+export interface LinkGraphNode {
+  nodeId: string;
+  documentId: string;
+  scopeId: string;
+  relativePath: string;
+  checksum: string;
+  title: string;
+  aliases: readonly string[];
+  headings: readonly LinkGraphHeading[];
+  blocks: readonly string[];
+}
+
+export interface LinkGraphReference {
+  rawTarget: string;
+  documentTarget: string;
+  heading?: string;
+  blockId?: string;
+}
+
+export interface LinkGraphEdge {
+  edgeId: string;
+  type: LinkGraphEdgeType;
+  fromNodeId: string;
+  fromDocumentId: string;
+  toNodeId?: string;
+  toDocumentId?: string;
+  sourcePath: string;
+  sourceLine: number;
+  sourceKind: "body" | "frontmatter" | "derived";
+  reference: LinkGraphReference;
+  status: "resolved" | "broken" | "ambiguous";
+  derivedFromEdgeId?: string;
+}
+
+export interface TypedLinkGraph {
+  apiVersion: "abcm/link-graph/v1";
+  policyVersion: "v1";
+  digest: string;
+  nodes: readonly LinkGraphNode[];
+  edges: readonly LinkGraphEdge[];
+}
+
 export interface ExecutableResourceRecord {
   resourceId: string;
   scopeId: string;
@@ -171,6 +229,7 @@ export interface MapRevision {
   documents: readonly DocumentRecord[];
   executableResources: readonly ExecutableResourceRecord[];
   skills: readonly SkillDescriptor[];
+  linkGraph: TypedLinkGraph;
   diagnostics: readonly MapDiagnostic[];
 }
 
@@ -214,6 +273,15 @@ export interface MapRevisionSummary {
   relations: readonly ScopeRelation[];
   diagnostics: readonly MapDiagnostic[];
   resourceSummary: ScopeMapProjection["resourceSummary"];
+  linkGraphSummary: {
+    policyVersion: TypedLinkGraph["policyVersion"];
+    digest: string;
+    nodes: number;
+    edges: number;
+    resolved: number;
+    broken: number;
+    ambiguous: number;
+  };
 }
 
 export interface ScopeMapChanged {

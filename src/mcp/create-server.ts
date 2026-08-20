@@ -7,6 +7,7 @@ import { AbcmError } from "../core/errors.js";
 import { createOperationDeadline } from "../core/operation.js";
 import { normalizeBuildTaskContextInput } from "../context/schema.js";
 import type { ContextBuilder } from "../context/context-builder.js";
+import type { ContextLinkGraphSessionService } from "../context/link-graph-session.js";
 import {
   ABCM_MCP_CONTRACT_VERSION,
   ABCM_MCP_PROTOCOL_VERSIONS,
@@ -45,6 +46,12 @@ import {
   contextBuildInputSchema,
   contextBuildOutputSchema,
   contextPreviewOutputSchema,
+  contextLinkGraphFinalizeInputSchema,
+  contextLinkGraphFinalizeOutputSchema,
+  contextLinkGraphGetInputSchema,
+  contextLinkGraphSessionOutputSchema,
+  contextLinkGraphStartInputSchema,
+  contextLinkGraphStepInputSchema,
   contextOutcomeListInputSchema,
   contextOutcomeListOutputSchema,
   contextOutcomeReceiptSchema,
@@ -115,6 +122,7 @@ export interface AbcmMcpDependencies {
   domainLanguage?: DomainLanguageService;
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
+  contextLinkGraphSessions?: ContextLinkGraphSessionService;
   contextOutcomes?: ContextOutcomeService;
   contextFeedback?: ContextFeedbackService;
   contextBusinessEvaluations?: BusinessEvaluationApi;
@@ -563,6 +571,67 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         dependencies.contextPrincipal!,
         signal,
       )) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+  }
+  if (dependencies.contextLinkGraphSessions !== undefined) {
+    server.registerTool(
+      "context.start_link_graph_session",
+      {
+        title: "Start interactive link-graph context session",
+        description: "Start a principal-bound, body-free, revision-pinned link-graph session from a normal context preview.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: contextLinkGraphStartInputSchema,
+        outputSchema: toolOutputSchema(contextLinkGraphSessionOutputSchema),
+      },
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextLinkGraphSessions!.start({
+        workspaceId: input.workspaceId,
+        request: normalizeBuildTaskContextInput(input.request),
+        ...(input.seedDocumentIds === undefined ? {} : { seedDocumentIds: input.seedDocumentIds }),
+      }, signal)) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "context.get_link_graph_session",
+      {
+        title: "Get interactive link-graph context session",
+        description: "Reconnect to the current body-free state of a principal-bound link-graph session.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: contextLinkGraphGetInputSchema,
+        outputSchema: toolOutputSchema(contextLinkGraphSessionOutputSchema),
+      },
+      async (input, context) => toolResult(async () => ({ ...dependencies.contextLinkGraphSessions!.get(input.sessionId) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "context.step_link_graph_session",
+      {
+        title: "Apply link-graph context session step",
+        description: "Apply one sequenced, digest-checked expand, narrow, confirm, undo, or cancel operation.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: contextLinkGraphStepInputSchema,
+        outputSchema: toolOutputSchema(contextLinkGraphSessionOutputSchema),
+      },
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextLinkGraphSessions!.step(input, signal)) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "context.issue_link_graph_ticket",
+      {
+        title: "Issue one-time link-graph WebSocket ticket",
+        description: "Issue a new short-lived one-time WebSocket subprotocol ticket for reconnecting to an unchanged graph session.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+        inputSchema: contextLinkGraphFinalizeInputSchema,
+        outputSchema: toolOutputSchema(contextLinkGraphSessionOutputSchema),
+      },
+      async (input, context) => toolResult(async () => ({ ...dependencies.contextLinkGraphSessions!.issueWebSocketTicket(input) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "context.finalize_link_graph_session",
+      {
+        title: "Finalize link-graph context session",
+        description: "Build an immutable ContextBundle through the standard ContextBuilder with confirmed graph documents as explicit selectors.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: contextLinkGraphFinalizeInputSchema,
+        outputSchema: toolOutputSchema(contextLinkGraphFinalizeOutputSchema),
+      },
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextLinkGraphSessions!.finalize(input, signal)) }), context.mcpReq.signal, operationTimeoutMs),
     );
   }
   if (dependencies.contextOutcomes !== undefined) {

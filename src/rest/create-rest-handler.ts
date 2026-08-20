@@ -7,6 +7,12 @@ import { AbcmError } from "../core/errors.js";
 import { createOperationDeadline, throwIfAborted, type OperationDeadline } from "../core/operation.js";
 import { normalizeBuildTaskContextInput } from "../context/schema.js";
 import type { ContextBuilder } from "../context/context-builder.js";
+import type { ContextLinkGraphSessionService } from "../context/link-graph-session.js";
+import {
+  contextLinkGraphStartInputSchema,
+  restContextLinkGraphFinalizeInputSchema,
+  restContextLinkGraphStepInputSchema,
+} from "../context/link-graph-session-schema.js";
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
@@ -66,6 +72,7 @@ export interface AbcmRestDependencies {
   domainLanguage?: DomainLanguageService;
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
+  contextLinkGraphSessions?: ContextLinkGraphSessionService;
   contextOutcomes?: ContextOutcomeService;
   contextFeedback?: ContextFeedbackService;
   contextBusinessEvaluations?: BusinessEvaluationApi;
@@ -299,6 +306,42 @@ export function createAbcmRestHandler(
         }
         const body = await readJson(request, contextBuildInputSchema, maxRequestBodyBytes, signal);
         return json(await dependencies.contextBuilder.preview(normalizeBuildTaskContextInput(body), dependencies.contextPrincipal, signal));
+      }
+
+      if (request.method === "POST" && url.pathname === "/v1/context/link-graph/sessions") {
+        if (dependencies.contextLinkGraphSessions === undefined) {
+          throw new AbcmError("ACCESS_DENIED", "Context link-graph sessions are not configured.");
+        }
+        const body = await readJson(request, contextLinkGraphStartInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.contextLinkGraphSessions.start({
+          workspaceId: body.workspaceId,
+          request: normalizeBuildTaskContextInput(body.request),
+          ...(body.seedDocumentIds === undefined ? {} : { seedDocumentIds: body.seedDocumentIds }),
+        }, signal), 201);
+      }
+
+      const linkGraphSession = /^\/v1\/context\/link-graph\/sessions\/(graph-session-[a-f0-9]{24})$/.exec(url.pathname);
+      if (request.method === "GET" && linkGraphSession !== null) {
+        if (dependencies.contextLinkGraphSessions === undefined) throw new AbcmError("ACCESS_DENIED", "Context link-graph sessions are not configured.");
+        return json(dependencies.contextLinkGraphSessions.get(linkGraphSession[1]!));
+      }
+      const linkGraphStep = /^\/v1\/context\/link-graph\/sessions\/(graph-session-[a-f0-9]{24})\/steps$/.exec(url.pathname);
+      if (request.method === "POST" && linkGraphStep !== null) {
+        if (dependencies.contextLinkGraphSessions === undefined) throw new AbcmError("ACCESS_DENIED", "Context link-graph sessions are not configured.");
+        const body = await readJson(request, restContextLinkGraphStepInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.contextLinkGraphSessions.step({ sessionId: linkGraphStep[1]!, ...body }, signal));
+      }
+      const linkGraphFinalize = /^\/v1\/context\/link-graph\/sessions\/(graph-session-[a-f0-9]{24})\/finalize$/.exec(url.pathname);
+      if (request.method === "POST" && linkGraphFinalize !== null) {
+        if (dependencies.contextLinkGraphSessions === undefined) throw new AbcmError("ACCESS_DENIED", "Context link-graph sessions are not configured.");
+        const body = await readJson(request, restContextLinkGraphFinalizeInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.contextLinkGraphSessions.finalize({ sessionId: linkGraphFinalize[1]!, ...body }, signal));
+      }
+      const linkGraphTicket = /^\/v1\/context\/link-graph\/sessions\/(graph-session-[a-f0-9]{24})\/ticket$/.exec(url.pathname);
+      if (request.method === "POST" && linkGraphTicket !== null) {
+        if (dependencies.contextLinkGraphSessions === undefined) throw new AbcmError("ACCESS_DENIED", "Context link-graph sessions are not configured.");
+        const body = await readJson(request, restContextLinkGraphFinalizeInputSchema, maxRequestBodyBytes, signal);
+        return json(dependencies.contextLinkGraphSessions.issueWebSocketTicket({ sessionId: linkGraphTicket[1]!, ...body }), 201);
       }
 
       if (request.method === "POST" && url.pathname === "/v1/context/outcomes") {

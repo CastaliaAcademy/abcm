@@ -9,6 +9,22 @@ import {
   architecturePolicyTargetSchema,
 } from "../architecture/architecture-policy-service.js";
 import { buildTaskContextSchema } from "../context/schema.js";
+import {
+  contextLinkGraphFinalizeInputSchema,
+  contextLinkGraphGetInputSchema,
+  contextLinkGraphSessionOutputSchema,
+  contextLinkGraphRetrievalReceiptSchema,
+  contextLinkGraphStartInputSchema,
+  contextLinkGraphStepInputSchema,
+} from "../context/link-graph-session-schema.js";
+export {
+  contextLinkGraphFinalizeInputSchema,
+  contextLinkGraphGetInputSchema,
+  contextLinkGraphSessionOutputSchema,
+  contextLinkGraphRetrievalReceiptSchema,
+  contextLinkGraphStartInputSchema,
+  contextLinkGraphStepInputSchema,
+} from "../context/link-graph-session-schema.js";
 import { projectLanguageTagSchema } from "../core/project-language.js";
 import { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
 export { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
@@ -197,6 +213,15 @@ export const scopeMapScanOutputSchema = z.object({
       documents: z.number().int().nonnegative(),
       executableResources: z.number().int().nonnegative(),
     }).strict(),
+    linkGraphSummary: z.object({
+      policyVersion: z.literal("v1"),
+      digest: checksum,
+      nodes: z.number().int().nonnegative(),
+      edges: z.number().int().nonnegative(),
+      resolved: z.number().int().nonnegative(),
+      broken: z.number().int().nonnegative(),
+      ambiguous: z.number().int().nonnegative(),
+    }).strict(),
   }).strict(),
 }).strict();
 
@@ -278,6 +303,10 @@ export const contextBuildOutputSchema = z.object({
   contextFingerprintLocation: z.string(),
   cache: contextBuildCacheMetadataSchema,
 }).strict();
+export const contextLinkGraphFinalizeOutputSchema = z.object({
+  bundle: contextBuildOutputSchema,
+  receipt: contextLinkGraphRetrievalReceiptSchema,
+}).strict();
 
 const contextPreviewDocumentSchema = z.object({
   documentId: z.string(),
@@ -298,6 +327,7 @@ const contextPreviewDocumentSchema = z.object({
 export const contextPreviewOutputSchema = z.object({
   previewDigest: checksum,
   selectionPolicyVersion: z.literal("context-selection/v3"),
+  workspaceId: z.string().min(1),
   mapRevision: checksum,
   mapDigest: checksum,
   primaryTargetScope: z.string(),
@@ -394,6 +424,11 @@ export const ABCM_MCP_TOOL_SCHEMAS = {
   "context.get_domain_language": { input: domainLanguageInputSchema, output: domainLanguageOutputSchema },
   "context.build_task_context": { input: contextBuildInputSchema, output: contextBuildOutputSchema },
   "context.preview_task_context": { input: contextBuildInputSchema, output: contextPreviewOutputSchema },
+  "context.start_link_graph_session": { input: contextLinkGraphStartInputSchema, output: contextLinkGraphSessionOutputSchema },
+  "context.get_link_graph_session": { input: contextLinkGraphGetInputSchema, output: contextLinkGraphSessionOutputSchema },
+  "context.step_link_graph_session": { input: contextLinkGraphStepInputSchema, output: contextLinkGraphSessionOutputSchema },
+  "context.issue_link_graph_ticket": { input: contextLinkGraphFinalizeInputSchema, output: contextLinkGraphSessionOutputSchema },
+  "context.finalize_link_graph_session": { input: contextLinkGraphFinalizeInputSchema, output: contextLinkGraphFinalizeOutputSchema },
   "context.record_outcome": { input: contextOutcomeSubmissionSchema, output: contextOutcomeReceiptSchema },
   "context.list_outcomes": { input: contextOutcomeListInputSchema, output: contextOutcomeListOutputSchema },
   "context.propose_feedback": { input: contextFeedbackSubmissionSchema, output: contextFeedbackProposalSchema },

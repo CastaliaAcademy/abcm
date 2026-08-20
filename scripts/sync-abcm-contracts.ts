@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { ABCM_AGENT_INSTRUCTIONS } from "../src/agent-instructions/agent-instructions.js";
-import { CANONICAL_REMOTE_EVIDENCE_PATHS } from "./documentation-contract-paths.js";
+import { CANONICAL_PLAN_0033_PATHS, CANONICAL_REMOTE_EVIDENCE_PATHS } from "./documentation-contract-paths.js";
 
 const baseUrl = (process.env.ABCM_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 const token = process.env.ABCM_API_TOKEN;
@@ -53,6 +53,7 @@ const files = new Map<string, Uint8Array>([
   ["docs/api/openapi-v1.json", await localBytes(".abcm-generated/openapi-v1.json")],
   ["docs/release/sbom.cdx.json", await localBytes(".abcm-generated/sbom.cdx.json")],
   ["docs/operations/agent-instructions.md", encoder.encode(ABCM_AGENT_INSTRUCTIONS)],
+  ["docs/security/threat-model.md", await localBytes(".abcm-documentation/docs/security/threat-model.md")],
   ["artifacts/plans/ABCM-MVP/development-plan.md", await localBytes(".abcm-documentation/artifacts/plans/ABCM-MVP/development-plan.md")],
   ["docs/release/known-gaps-v0.1.0.md", await localBytes(".abcm-documentation/docs/release/known-gaps-v0.1.0.md")],
   ["docs/release/traceability-v0.1.0.yaml", await localBytes(".abcm-documentation/docs/release/traceability-v0.1.0.yaml")],
@@ -72,6 +73,8 @@ const files = new Map<string, Uint8Array>([
   ["artifacts/plans/PLAN-0032/traceability.yaml", await localBytes(".abcm-documentation/artifacts/plans/PLAN-0032/traceability.yaml")],
   ["artifacts/plans/PLAN-0032/evidence/implementation.md", await localBytes(".abcm-documentation/artifacts/plans/PLAN-0032/evidence/implementation.md")],
 ]);
+
+for (const path of CANONICAL_PLAN_0033_PATHS) files.set(path, await localBytes(`.abcm-documentation/${path}`));
 
 for (const [path, bytes] of files) await putRemote(path, bytes);
 
