@@ -179,6 +179,7 @@ export interface ContextBuildCacheMetadata {
 export interface ContextSelectionPreview {
   previewDigest: string;
   selectionPolicyVersion: "context-selection/v3";
+  workspaceId: string;
   mapRevision: string;
   mapDigest: string;
   primaryTargetScope: string;

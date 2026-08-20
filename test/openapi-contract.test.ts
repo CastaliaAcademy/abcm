@@ -10,7 +10,7 @@ describe("OpenAPI contract", () => {
   test("is generated deterministically from shared schemas", () => {
     const document = createAbcmOpenApiDocument() as {
       openapi: string;
-      paths: Record<string, Record<string, { operationId: string }>>;
+      paths: Record<string, Record<string, { operationId: string; security?: unknown[]; responses?: Record<string, unknown> }>>;
       components: { schemas: Record<string, unknown> };
     };
     expect(createAbcmOpenApiDocument()).toEqual(document);
@@ -26,6 +26,7 @@ describe("OpenAPI contract", () => {
       "checkWorkspaceArchitectureCompliance",
       "claimTaskSuccessJob",
       "completeWorkspaceUpload",
+      "connectContextLinkGraphWebSocket",
       "createDirectory",
       "createObsidianPairing",
       "createWorkspace",
@@ -34,7 +35,9 @@ describe("OpenAPI contract", () => {
       "deleteFile",
       "deleteProjectArchitecturePolicy",
       "deleteWorkspaceArchitecturePolicy",
+      "finalizeContextLinkGraphSession",
       "getAgentInstructions",
+      "getContextLinkGraphSession",
       "getDomainLanguage",
       "getObsidianSyncChanges",
       "getObsidianSyncConflict",
@@ -44,6 +47,7 @@ describe("OpenAPI contract", () => {
       "getTaskSuccessEvaluation",
       "getWorkspaceArchitecturePolicy",
       "health",
+      "issueContextLinkGraphTicket",
       "listContextBusinessEvaluationProfiles",
       "listContextBusinessEvaluations",
       "listContextFeedback",
@@ -66,12 +70,19 @@ describe("OpenAPI contract", () => {
       "scanScopeMap",
       "setProjectArchitecturePolicy",
       "setWorkspaceArchitecturePolicy",
+      "startContextLinkGraphSession",
       "startTaskSuccessEvaluation",
       "startWorkspaceUpload",
+      "stepContextLinkGraphSession",
       "submitTaskSuccessJob",
       "synchronizeDocumentationSource",
       "writeFile",
     ]);
+    expect(document.paths["/v1/context/link-graph/ws"]?.get).toEqual(expect.objectContaining({
+      operationId: "connectContextLinkGraphWebSocket",
+      security: [],
+      responses: expect.objectContaining({ "101": expect.any(Object), "401": expect.any(Object) }),
+    }));
     expect(document.components.schemas).toEqual(expect.objectContaining({
       ArchitecturePolicyInput: expect.objectContaining({ additionalProperties: false }),
       ArchitecturePolicyRecord: expect.objectContaining({ additionalProperties: false }),
@@ -89,6 +100,11 @@ describe("OpenAPI contract", () => {
       DomainLanguageRequest: expect.objectContaining({ additionalProperties: false }),
       BuildTaskContextRequest: expect.objectContaining({ additionalProperties: false }),
       PreviewTaskContextResult: expect.objectContaining({ additionalProperties: false }),
+      ContextLinkGraphStartRequest: expect.objectContaining({ additionalProperties: false }),
+      ContextLinkGraphSessionResult: expect.objectContaining({ additionalProperties: false }),
+      ContextLinkGraphStepRequest: expect.objectContaining({ additionalProperties: false }),
+      ContextLinkGraphFinalizeRequest: expect.objectContaining({ additionalProperties: false }),
+      ContextLinkGraphFinalizeResult: expect.objectContaining({ additionalProperties: false }),
       ContextOutcomeSubmission: expect.objectContaining({ additionalProperties: false }),
       ContextOutcomeReceipt: expect.objectContaining({ additionalProperties: false }),
       ContextOutcomeListResult: expect.objectContaining({ additionalProperties: false }),

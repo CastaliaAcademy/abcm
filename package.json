@@ -31,6 +31,7 @@
     "bench": "bun run benchmarks/large-fixture.ts",
     "benchmark:context-efficiency": "bun run benchmarks/context-efficiency.ts",
     "benchmark:context-efficiency:docker": "bun run scripts/run-context-efficiency-docker.ts",
+    "benchmark:link-graph:docker": "bun run scripts/run-context-efficiency-docker.ts",
     "sbom:generate": "bun run scripts/generate-sbom.ts",
     "documentation:export": "bun run scripts/export-abcm-documentation.ts",
     "documentation:sync-contracts": "bun run scripts/sync-abcm-contracts.ts",

@@ -30,6 +30,10 @@ const contextPrincipal = parseContextPrincipalEnvironment(process.env, "stdio-cl
 const mcpOperationTimeoutMs = optionalPositiveInteger("ABCM_MCP_OPERATION_TIMEOUT_MS");
 const businessEvaluationProfiles = await loadBusinessEvaluationProfiles(process.env.ABCM_BUSINESS_EVALUATION_PROFILES);
 const taskSuccessEnvironment = parseTaskSuccessEnvironment(process.env);
+const contextLinkGraphSessionTtlMs = optionalPositiveInteger("ABCM_CONTEXT_LINK_GRAPH_SESSION_TTL_MS");
+const contextLinkGraphTicketTtlMs = optionalPositiveInteger("ABCM_CONTEXT_LINK_GRAPH_TICKET_TTL_MS");
+const contextLinkGraphMaxCandidates = optionalPositiveInteger("ABCM_CONTEXT_LINK_GRAPH_MAX_CANDIDATES");
+const contextLinkGraphStateRoot = process.env.ABCM_CONTEXT_LINK_GRAPH_STATE_ROOT;
 
 function optionalPositiveInteger(name: string): number | undefined {
   const value = process.env[name];
@@ -50,6 +54,18 @@ const runtime = createAbcmRuntime(
   {
     contextPrincipal,
     scopeMapAccess: contextPrincipal.access,
+    ...(
+      contextLinkGraphSessionTtlMs === undefined && contextLinkGraphTicketTtlMs === undefined && contextLinkGraphMaxCandidates === undefined && contextLinkGraphStateRoot === undefined
+        ? {}
+        : {
+            contextLinkGraph: {
+              ...(contextLinkGraphSessionTtlMs === undefined ? {} : { ttlMs: contextLinkGraphSessionTtlMs }),
+              ...(contextLinkGraphTicketTtlMs === undefined ? {} : { ticketTtlMs: contextLinkGraphTicketTtlMs }),
+              ...(contextLinkGraphMaxCandidates === undefined ? {} : { maxCandidates: contextLinkGraphMaxCandidates }),
+              ...(contextLinkGraphStateRoot === undefined ? {} : { stateRoot: resolve(contextLinkGraphStateRoot) }),
+            },
+          }
+    ),
     ...(mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs }),
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
     ...(fileOperationStateRoot === undefined ? {} : {

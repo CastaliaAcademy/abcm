@@ -35,6 +35,31 @@ export {
 } from "./context/context-build-cache.js";
 export type { ContextBuildCacheCatalog, ContextBuildCacheEntry, ContextBuildCacheIdentity } from "./context/context-build-cache.js";
 export { DirectoryContextFingerprintStore } from "./context/directory-context-fingerprint-store.js";
+export { ContextLinkGraphSessionService } from "./context/link-graph-session.js";
+export type {
+  ContextLinkGraphCandidate,
+  ContextLinkGraphFinalizeInput,
+  ContextLinkGraphFinalizeResult,
+  ContextLinkGraphRetrievalReceipt,
+  ContextLinkGraphSessionDependencies,
+  ContextLinkGraphSessionOptions,
+  ContextLinkGraphSessionView,
+  ContextLinkGraphStartInput,
+  ContextLinkGraphStepInput,
+  ContextLinkGraphStepOperation,
+} from "./context/link-graph-session.js";
+export {
+  contextLinkGraphFinalizeInputSchema,
+  contextLinkGraphGetInputSchema,
+  contextLinkGraphRetrievalReceiptSchema,
+  contextLinkGraphSessionOutputSchema,
+  contextLinkGraphStartInputSchema,
+  contextLinkGraphStepInputSchema,
+} from "./context/link-graph-session-schema.js";
+export { ContextLinkGraphWebSocketAdapter } from "./context/link-graph-websocket.js";
+export type { ContextLinkGraphWebSocketData } from "./context/link-graph-websocket.js";
+export { SqliteContextLinkGraphSessionStore } from "./context/link-graph-session-store.js";
+export type { ContextLinkGraphSessionStore, ContextLinkGraphSessionStoreRecord } from "./context/link-graph-session-store.js";
 export { emitAudit, emitMetric, InMemoryAbcmObservability, observeOperation } from "./core/observability.js";
 export type {
   AbcmAuditEvent,
@@ -250,6 +275,11 @@ export type {
   MapDiagnostic,
   MapRevision,
   MapRevisionSummary,
+  LinkGraphEdge,
+  LinkGraphEdgeType,
+  LinkGraphHeading,
+  LinkGraphNode,
+  LinkGraphReference,
   ScopeMapProjection,
   ScopeMapProjectionNode,
   ScopeMapProjectionQuery,
@@ -261,6 +291,7 @@ export type {
   ScopeNode,
   SkillConnectionStrategy,
   SkillDescriptor,
+  TypedLinkGraph,
 } from "./scope-map/types.js";
 export type { ScopeMapServiceOptions } from "./scope-map/scope-map-service.js";
 export * from "./sync/contracts.js";

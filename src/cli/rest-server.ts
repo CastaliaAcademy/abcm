@@ -9,6 +9,7 @@ import { parseTaskSuccessEnvironment } from "../evaluation/task-success-config.j
 import { parseScopeMapReconcileEnvironment } from "../scope-map/reconcile-config.js";
 import { parseRestLimitEnvironment } from "../rest/config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
+import type { ContextLinkGraphWebSocketData } from "../context/link-graph-websocket.js";
 
 const workspaceId = process.env.ABCM_WORKSPACE_ID ?? "default";
 const workspaceRoot = resolve(process.env.ABCM_WORKSPACE_ROOT ?? process.cwd());
@@ -38,6 +39,10 @@ const restLimits = parseRestLimitEnvironment(process.env);
 const contextPrincipal = parseContextPrincipalEnvironment(process.env, "static-bearer");
 const businessEvaluationProfiles = await loadBusinessEvaluationProfiles(process.env.ABCM_BUSINESS_EVALUATION_PROFILES);
 const taskSuccessEnvironment = parseTaskSuccessEnvironment(process.env);
+const contextLinkGraphSessionTtlMs = optionalPositiveInteger("ABCM_CONTEXT_LINK_GRAPH_SESSION_TTL_MS");
+const contextLinkGraphTicketTtlMs = optionalPositiveInteger("ABCM_CONTEXT_LINK_GRAPH_TICKET_TTL_MS");
+const contextLinkGraphMaxCandidates = optionalPositiveInteger("ABCM_CONTEXT_LINK_GRAPH_MAX_CANDIDATES");
+const contextLinkGraphStateRoot = process.env.ABCM_CONTEXT_LINK_GRAPH_STATE_ROOT;
 
 function commaSeparated(value: string | undefined): string[] | undefined {
   if (value === undefined) return undefined;
@@ -79,6 +84,18 @@ const runtime = createAbcmRuntime(
     ...(mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs }),
     contextPrincipal,
     scopeMapAccess: contextPrincipal.access,
+    ...(
+      contextLinkGraphSessionTtlMs === undefined && contextLinkGraphTicketTtlMs === undefined && contextLinkGraphMaxCandidates === undefined && contextLinkGraphStateRoot === undefined
+        ? {}
+        : {
+            contextLinkGraph: {
+              ...(contextLinkGraphSessionTtlMs === undefined ? {} : { ttlMs: contextLinkGraphSessionTtlMs }),
+              ...(contextLinkGraphTicketTtlMs === undefined ? {} : { ticketTtlMs: contextLinkGraphTicketTtlMs }),
+              ...(contextLinkGraphMaxCandidates === undefined ? {} : { maxCandidates: contextLinkGraphMaxCandidates }),
+              ...(contextLinkGraphStateRoot === undefined ? {} : { stateRoot: resolve(contextLinkGraphStateRoot) }),
+            },
+          }
+    ),
     ...(allowedHostnames === undefined ? {} : { mcpAllowedHostnames: allowedHostnames }),
     ...(allowedOrigins === undefined ? {} : { mcpAllowedOrigins: allowedOrigins }),
     ...(workspaceStoreRoot === undefined ? {} : { workspaceStoreRoot }),
@@ -126,7 +143,17 @@ const runtime = createAbcmRuntime(
 await runtime.ready;
 await runtime.scopeMap.scan(workspaceId);
 
-const server = Bun.serve({ hostname, port, fetch: runtime.httpHandler });
+const server = Bun.serve<ContextLinkGraphWebSocketData>({
+  hostname,
+  port,
+  fetch: (request, bunServer) => {
+    if (new URL(request.url).pathname === runtime.contextLinkGraphWebSocket?.path) {
+      return runtime.contextLinkGraphWebSocket.upgrade(request, bunServer);
+    }
+    return runtime.httpHandler(request);
+  },
+  websocket: runtime.contextLinkGraphWebSocket!.handlers,
+});
 installGracefulShutdown(async () => {
   await server.stop();
   await runtime.close();

@@ -6,6 +6,7 @@ import { z } from "zod/v4";
 import { throwIfAborted } from "../core/operation.js";
 import { parseSafeYaml } from "../core/safe-yaml.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
+import { parseDocumentLinkSource, type DocumentLinkSource } from "./link-graph.js";
 import type {
   DocumentRecord,
   ExecutableResourceRecord,
@@ -60,6 +61,7 @@ const documentMetadataSchema = z
     audiences: z.array(z.string()).optional(),
     taskTypes: z.array(z.string()).optional(),
     tags: z.array(z.string()).optional(),
+    aliases: z.union([z.string(), z.array(z.string())]).optional(),
     domain: z.string().min(1).optional(),
     worker: z.string().min(1).optional(),
     links: z.array(z.string()).optional(),
@@ -81,6 +83,7 @@ interface PlantUmlCandidate {
 export interface ScopeContentIndex {
   files: FileRecord[];
   documentCandidates: DocumentRecord[];
+  linkSources: DocumentLinkSource[];
   executableResources: ExecutableResourceRecord[];
   skills: SkillDescriptor[];
   diagnostics?: MapDiagnostic[];
@@ -354,6 +357,7 @@ export async function indexScopeContent(
   const scopeRoot = join(workspace.root, scope.relativePath);
   const files: FileRecord[] = [];
   const documentCandidates: DocumentRecord[] = [];
+  const linkSources: DocumentLinkSource[] = [];
   const executableResources: ExecutableResourceRecord[] = [];
   const plantUmlCandidates: PlantUmlCandidate[] = [];
   const skills: SkillDescriptor[] = [];
@@ -403,7 +407,20 @@ export async function indexScopeContent(
         message: invalidPlacement,
       });
     } else if (parsedMetadata !== undefined) {
-      documentCandidates.push(documentFrom(scope, relativePath, fileChecksum, parsedMetadata));
+      const document = documentFrom(scope, relativePath, fileChecksum, parsedMetadata);
+      documentCandidates.push(document);
+      if (extname(scopeRelativePath).toLocaleLowerCase("en-US") === ".md") {
+        linkSources.push(parseDocumentLinkSource(
+          document,
+          parsedMetadata.aliases === undefined
+            ? []
+            : typeof parsedMetadata.aliases === "string"
+              ? [parsedMetadata.aliases]
+              : parsedMetadata.aliases,
+          parsedMetadata.links ?? [],
+          new TextDecoder().decode(content),
+        ));
+      }
     }
     if (fileClassification === "executable_resource" && PLANTUML_SOURCE_PATH.test(scopeRelativePath)) {
       plantUmlCandidates.push({
@@ -471,9 +488,10 @@ export async function indexScopeContent(
 
   files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   documentCandidates.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  linkSources.sort((left, right) => left.documentId.localeCompare(right.documentId));
   executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   skills.sort((left, right) => `${left.skillId}/${left.sourceScopeId}`.localeCompare(`${right.skillId}/${right.sourceScopeId}`));
-  return { files, documentCandidates, executableResources, skills, diagnostics };
+  return { files, documentCandidates, linkSources, executableResources, skills, diagnostics };
 }
 
 export function resolveDocumentCandidates(

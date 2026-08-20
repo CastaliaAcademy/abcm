@@ -118,6 +118,41 @@ describe("incremental ScopeMap reconcile", () => {
     expect(readiness.nodes.find(node => node.scopeId === "workflow")?.readiness).toBe("warning");
   });
 
+  test("re-resolves retained link declarations when a target gains an alias", async () => {
+    const { root, service, indexedScopeIds } = await fixture();
+    await mkdir(join(root, "project/unrelated/artifacts/adr"), { recursive: true });
+    await writeFile(
+      join(root, "project/unrelated/artifacts/adr/ADR-UNRELATED.md"),
+      "---\nid: ADR-UNRELATED\nkind: adr\ntitle: Unrelated\n---\n[[Future Alias]]\n",
+    );
+    const initial = await service.scan("test");
+    expect(initial.linkGraph.edges).toContainEqual(
+      expect.objectContaining({
+        type: "wiki-link",
+        fromDocumentId: "ADR-UNRELATED",
+        status: "broken",
+        reference: expect.objectContaining({ documentTarget: "Future Alias" }),
+      }),
+    );
+    indexedScopeIds.length = 0;
+    await writeFile(
+      join(root, "project/changed/artifacts/adr/ADR-TARGET.md"),
+      "---\nid: ADR-TARGET\nkind: adr\ntitle: Target\naliases: [Future Alias]\n---\nv2\n",
+    );
+
+    const reconciled = await service.reconcile("test", ["project/changed/artifacts/adr/ADR-TARGET.md"]);
+
+    expect(indexedScopeIds.sort()).toEqual(["changed", "reverse"]);
+    expect(reconciled.linkGraph.edges).toContainEqual(
+      expect.objectContaining({
+        type: "wiki-link",
+        fromDocumentId: "ADR-UNRELATED",
+        toDocumentId: "ADR-TARGET",
+        status: "resolved",
+      }),
+    );
+  });
+
   test("emits one isolated post-publication event for a changed digest", async () => {
     const { root, service } = await fixture();
     await service.scan("test");

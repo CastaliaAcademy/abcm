@@ -25,6 +25,7 @@ const parameter = (name: string, location: "path" | "query" | "header", required
 });
 const workspaceId = parameter("workspaceId", "path", true, { type: "string", minLength: 1 });
 const projectId = parameter("projectId", "path", true, { type: "string", minLength: 1 });
+const graphSessionId = parameter("sessionId", "path", true, { type: "string", pattern: "^graph-session-[a-f0-9]{24}$" });
 const filePath = parameter("path", "query", true, { type: "string", minLength: 1 });
 const problemResponses = {
   "400": { $ref: "#/components/responses/Problem" },
@@ -279,6 +280,63 @@ export function createAbcmOpenApiDocument(): JsonObject {
           description: "Body-free, non-persisting explanation of deterministic context selection and available fallback modes.",
           requestBody: { required: true, content: { "application/json": { schema: reference("BuildTaskContextRequest") } } },
           responses: { "200": response("Explainable task context preview", reference("PreviewTaskContextResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/link-graph/sessions": {
+        post: {
+          operationId: "startContextLinkGraphSession",
+          description: "Start a principal-bound, revision-pinned, body-free interactive link-graph session.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("ContextLinkGraphStartRequest") } } },
+          responses: { "201": response("Interactive link-graph session started", reference("ContextLinkGraphSessionResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/link-graph/sessions/{sessionId}": {
+        get: {
+          operationId: "getContextLinkGraphSession",
+          parameters: [graphSessionId],
+          responses: { "200": response("Current body-free link-graph session state", reference("ContextLinkGraphSessionResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/link-graph/sessions/{sessionId}/steps": {
+        post: {
+          operationId: "stepContextLinkGraphSession",
+          parameters: [graphSessionId],
+          requestBody: { required: true, content: { "application/json": { schema: reference("ContextLinkGraphStepRequest") } } },
+          responses: { "200": response("Updated body-free link-graph session state", reference("ContextLinkGraphSessionResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/link-graph/sessions/{sessionId}/finalize": {
+        post: {
+          operationId: "finalizeContextLinkGraphSession",
+          parameters: [graphSessionId],
+          requestBody: { required: true, content: { "application/json": { schema: reference("ContextLinkGraphFinalizeRequest") } } },
+          responses: { "200": response("Immutable context bundle and body-free graph retrieval receipt", reference("ContextLinkGraphFinalizeResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/link-graph/sessions/{sessionId}/ticket": {
+        post: {
+          operationId: "issueContextLinkGraphTicket",
+          description: "Issue a new short-lived one-time WebSocket subprotocol ticket for reconnecting to an unchanged session.",
+          parameters: [graphSessionId],
+          requestBody: { required: true, content: { "application/json": { schema: reference("ContextLinkGraphFinalizeRequest") } } },
+          responses: { "201": response("One-time WebSocket ticket issued", reference("ContextLinkGraphSessionResult")), ...problemResponses },
+        },
+      },
+      "/v1/context/link-graph/ws": {
+        get: {
+          operationId: "connectContextLinkGraphWebSocket",
+          description: "Upgrade to the step-only WebSocket transport. Authentication uses the short-lived one-time abcm.ticket.* subprotocol returned by session start or ticket reissue; a bearer credential must not be placed in the URL.",
+          security: [],
+          parameters: [parameter("Sec-WebSocket-Protocol", "header", true, {
+            type: "string",
+            description: "Comma-separated abcm.link-graph.v1, abcm.session.<sessionId>, and abcm.ticket.<one-time-ticket> protocols.",
+          })],
+          responses: {
+            "101": { description: "WebSocket upgrade accepted; only sequenced session step messages are transported." },
+            "400": problemResponses["400"],
+            "401": problemResponses["401"],
+            "426": { $ref: "#/components/responses/Problem" },
+          },
         },
       },
       "/v1/context/outcomes": {

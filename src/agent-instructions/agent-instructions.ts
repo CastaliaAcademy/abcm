@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.17.1" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.18.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
 export const ABCM_AGENT_INSTRUCTIONS = `# Инструкция для агента ABCM
 
-Версия: 1.17.1
+Версия: 1.18.0
 
 ABCM (Agent Build Context Manager) предоставляет агентам ограниченное и воспроизводимое представление проекта. Файлы рабочего пространства являются источником истины. Ревизии ScopeMap, контекстные пакеты, индексы и состояние SQLite — производные представления; их запрещено редактировать как первичные данные.
 
@@ -21,7 +21,7 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 5. Прочитать effective file architecture через workspace.get_architecture_policy и проверить её через workspace.check_architecture_compliance. При required и noncompliant запрещено строить контекст в обход ошибки.
 6. До толкования терминов проекта или определения пути задачи вызвать context.get_domain_language с якорем workspaceId и projectId.
 7. Если scope, причины выбора или ожидаемый размер спорны, сначала вызвать context.preview_task_context: preview не записывает fingerprint и не возвращает тела документов.
-8. Вызвать context.build_task_context, передав полученный bootstrap id, явную роль, тип задачи и цель.
+8. Вызвать context.build_task_context либо, когда отбор требуется уточнять по связям документов, пройти context.start_link_graph_session → step/confirm → context.finalize_link_graph_session. Финализация графа обязана использовать тот же ContextBuilder.
 9. Работать только с ограниченным контекстным пакетом и файлами, которые намеренно прочитаны для задачи. По умолчанию запрещено сканировать всё рабочее пространство.
 10. Сохранить в итоговом отчёте контрольные суммы, ревизии карты, доказательства и результаты проверок.
 
@@ -35,7 +35,8 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 - Язык проекта (Project language): обязательный BCP 47-тег в config/context.yaml, который определяет язык общения агента и новых человекочитаемых документов. Он не заменяет язык предметной области.
 - Контур (Scope): workflow, project, service или feature, объявленный файлом scope.yaml. Отношения родитель–потомок образуют топологию проекта.
 - Язык предметной области (Domain language): наследуемые соглашения, домены, понятия, псевдонимы, омонимы и правила именования в каталоге domain-language. Он определяет толкование терминов задачи.
-- ScopeMap: неизменяемая ревизия, производная от контуров, связей, документов, исполняемых ресурсов, навыков и диагностик.
+- ScopeMap: неизменяемая ревизия, производная от контуров, связей, документов, исполняемых ресурсов, навыков, типизированного графа ссылок и диагностик.
+- Типизированный граф ссылок (Typed link graph): body-free индекс wiki links, embeds, ссылок на заголовки и блоки, frontmatter-связей и backlinks. Узлы закреплены за documentId; неоднозначные, битые и циклические связи диагностируются детерминированно.
 - PlantUML source: инертный типизированный исполняемый ресурс из architecture/plantuml/<category>/*.puml. ABCM проверяет envelope и безопасные локальные include, фиксирует dependency closure, но не исполняет и не рендерит диаграмму.
 - Контекстный пакет (Context bundle): неизменяемая ограниченная бюджетом выборка для одной задачи, роли, цели и ревизии карты.
 - Cache контекста: производное versioned-представление, ключ которого включает principal/access digest, MapRevision, проект, запрос, budget и версии selection/projection policy. Состояние hit, miss или stale является наблюдаемым и не меняет bundleDigest.
@@ -256,6 +257,46 @@ canonicalTerms принимает canonical concept id, основной term, a
 
 Контрпример: скрыто просканировать весь workspace после неполного preview, смешать найденные файлы с bundle и заявить, что resolver выбрал их автоматически.
 
+## Интерактивный граф ссылок
+
+Интерактивный граф применяется только для уточнения кандидатов после обычного Context preview. Он не является вторым ContextBuilder и не даёт произвольного чтения workspace. ScopeMap извлекает из Markdown только метаданные узла, aliases, заголовки, block ids и объявления связей; тела документов в графе и состоянии сессии не хранятся.
+
+Поддерживаемые типы рёбер: wiki-link, embed, heading-reference, block-reference, domain-relation и производный backlink. Разрешение выполняется по documentId, title, alias и безопасному относительному пути. Один и тот же MapRevision и запрос дают одинаковые node/edge ids, порядок кандидатов и graph digest. LINK_GRAPH_BROKEN, LINK_GRAPH_AMBIGUOUS и LINK_GRAPH_CYCLE являются наблюдаемыми диагностическими кодами.
+
+Сессия привязана к workspaceId, principal/access digest, MapRevision, linkGraph policy и selection policy. До помещения кандидата во frontier сервер проверяет document.read; запрещённый документ не появляется ни как кандидат, ни как скрытый omission с раскрывающим идентификатором. Каждая операция передаёт следующий sequence и previousStateDigest. Точный повтор той же операции идемпотентен; повтор sequence с другим содержимым, пропуск номера или устаревший digest завершается CONTEXT_GRAPH_SEQUENCE_CONFLICT. Изменение ScopeMap завершает сессию CONTEXT_GRAPH_SESSION_STALE.
+
+MCP-пример:
+
+    context.start_link_graph_session({
+      workspaceId: "castalia-public",
+      request: {
+        domainLanguageBootstrapId: "bootstrap-...",
+        roleId: "executor-agent",
+        taskType: "implementation",
+        goal: "Изменить обработку команд",
+        targetHints: { scopeIds: ["dataplane-command-gateway"] }
+      },
+      seedDocumentIds: ["ADR-COMMANDS"]
+    })
+
+    context.step_link_graph_session({
+      sessionId: "graph-session-...",
+      sequence: 1,
+      previousStateDigest: "sha256:...",
+      operation: { kind: "confirm", documentIds: ["RUNBOOK-COMMANDS"] }
+    })
+
+    context.finalize_link_graph_session({
+      sessionId: "graph-session-...",
+      expectedStateDigest: "sha256:..."
+    })
+
+expand добавляет доступных соседей выбранных узлов; narrow оставляет явный поднабор видимых кандидатов; confirm делает документы обязательными explicit document selectors при финализации; undo откатывает последнюю операцию; cancel закрывает сессию. Финальный ответ содержит bundle и body-free receipt с закреплёнными ревизиями, digest каждого шага, изменением прогноза токенов и digest результата. Сам bundle, budget admission, projections, cache и ContextFingerprint строит существующий ContextBuilder. Если граф не помогает, используйте объявленные fallback modes: direct-search в разрешённой границе, explicit-documents или bounded-resource-read.
+
+REST использует POST /v1/context/link-graph/sessions, GET состояния, POST /steps, POST /ticket и POST /finalize. WebSocket /v1/context/link-graph/ws переносит только sequenced step-сообщения и body-free состояния. Bearer-токен запрещено помещать в URL. Для подключения используются возвращённые сервером subprotocols: версия протокола, session id и короткоживущий одноразовый ticket. Для reconnect получите новый ticket через context.issue_link_graph_ticket или REST /ticket, передав текущий state digest.
+
+Правильно: изучить body-free кандидатов, подтвердить только необходимые документы и финализировать штатным вызовом. Контрпримеры: передать чужой documentId как seed; повторить использованный ticket; отправить sequence=3 после sequence=1; продолжить после изменения MapRevision; считать candidate уже прочитанным телом документа; обходить CONTEXT_GRAPH_SESSION_STALE прямым неограниченным сканированием.
+
 Проверяйте ответ:
 
 - primaryTargetScope — первый подтверждённый exact scope;
@@ -462,6 +503,8 @@ REST-эквиваленты:
 - POST /v1/context/domain-language: bootstrap языка предметной области.
 - POST /v1/context/preview-task-context: объяснимый body-free preview без записи fingerprint.
 - POST /v1/context/build-task-context: неизменяемый контекст задачи.
+- Маршруты /v1/context/link-graph/sessions: body-free интерактивный отбор, sequenced steps, новый одноразовый WebSocket ticket и финализация через ContextBuilder.
+- WebSocket /v1/context/link-graph/ws: только step-транспорт; bearer не передаётся в URL, авторизация соединения выполняется одноразовыми subprotocol tickets.
 - POST и GET /v1/context/outcomes: регистрация и чтение неизменяемых body-free outcome receipts, связанных с ContextFingerprint.
 - POST и GET /v1/context/feedback: создание и чтение body-free proposal для ranking-policy или dataset; active policy не изменяется.
 - Маршруты preview, apply, sync и cutover документации: управляемый жизненный цикл внешних документов.
@@ -481,6 +524,9 @@ REST-эквиваленты:
 - context.get_domain_language: обязательный bootstrap языка до толкования пути задачи.
 - context.preview_task_context: объяснимый выбор документов, проекций, бюджета и fallback без materialized bodies и производной записи.
 - context.build_task_context: ограниченный контекстный пакет задачи.
+- context.start_link_graph_session, get_link_graph_session, step_link_graph_session: body-free интерактивный frontier с pinned revision, sequence и state digest.
+- context.issue_link_graph_ticket: новый короткоживущий одноразовый ticket для WebSocket reconnect; предыдущий ticket становится недействительным.
+- context.finalize_link_graph_session: финализация подтверждённых документов только через стандартный ContextBuilder.
 - context.record_outcome, context.list_outcomes: неизменяемые repeat verdict, usage и cost для собственного ContextFingerprint; повтор repeatId с другим verdict является конфликтом.
 - context.propose_feedback, context.list_feedback: immutable proposal для useful/noise/required документа из собственного ContextFingerprint; операция не активирует новую ranking policy.
 - context.list_business_evaluation_profiles, context.run_business_evaluation, context.list_business_evaluations: server-owned retrieval benchmark без передачи dataset или corpus агентом.

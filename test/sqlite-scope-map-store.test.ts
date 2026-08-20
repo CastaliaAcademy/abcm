@@ -44,6 +44,13 @@ function revision(id: string): MapRevision {
     documents: [],
     executableResources: [],
     skills: [],
+    linkGraph: {
+      apiVersion: "abcm/link-graph/v1",
+      policyVersion: "v1",
+      digest: "sha256:empty-link-graph",
+      nodes: [],
+      edges: [],
+    },
     diagnostics: [],
   };
 }

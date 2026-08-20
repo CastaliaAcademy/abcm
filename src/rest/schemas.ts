@@ -8,6 +8,13 @@ import {
 } from "../architecture/architecture-policy-service.js";
 import { OBSIDIAN_SYNC_REST_SCHEMAS } from "../sync/rest-schemas.js";
 import {
+  contextLinkGraphSessionOutputSchema,
+  contextLinkGraphRetrievalReceiptSchema,
+  contextLinkGraphStartInputSchema,
+  restContextLinkGraphFinalizeInputSchema,
+  restContextLinkGraphStepInputSchema,
+} from "../context/link-graph-session-schema.js";
+import {
   taskSuccessClaimRequestSchema,
   taskSuccessClaimResultSchema,
   taskSuccessSessionSchema,
@@ -89,6 +96,14 @@ export const REST_SHARED_SCHEMAS = {
   BuildTaskContextRequest: contextBuildInputSchema,
   BuildTaskContextResult: contextBuildOutputSchema,
   PreviewTaskContextResult: contextPreviewOutputSchema,
+  ContextLinkGraphStartRequest: contextLinkGraphStartInputSchema,
+  ContextLinkGraphSessionResult: contextLinkGraphSessionOutputSchema,
+  ContextLinkGraphStepRequest: restContextLinkGraphStepInputSchema,
+  ContextLinkGraphFinalizeRequest: restContextLinkGraphFinalizeInputSchema,
+  ContextLinkGraphFinalizeResult: z.object({
+    bundle: contextBuildOutputSchema,
+    receipt: contextLinkGraphRetrievalReceiptSchema,
+  }).strict(),
   ContextOutcomeSubmission: contextOutcomeSubmissionSchema,
   ContextOutcomeReceipt: contextOutcomeReceiptSchema,
   ContextOutcomeListResult: contextOutcomeListOutputSchema,

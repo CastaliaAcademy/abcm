@@ -1,0 +1,23 @@
+schemaVersion: abcm.benchmark.link-graph-context/v1
+id: docker-known-data-link-graph-v1
+workspaceId: benchmark
+seedDocumentIds: [order-contract]
+expectedInitialCandidates: [order-retry, order-security]
+expandFromDocumentIds: [order-retry]
+expectedExpandedCandidates: [order-api, order-retry, order-security]
+confirmedDocumentIds: [order-api, order-retry, order-security]
+mandatoryDocumentIds: [order-contract, order-security, order-retry, order-api]
+requiredFallbackModes: [direct-search, explicit-documents, bounded-resource-read]
+repetitions: 10
+gates:
+  relevance:
+    mandatoryRecallMin: 1
+    precisionVsDirect: gte
+  fallback:
+    requireAllDeclaredModes: true
+  determinism:
+    identicalBundleRateMin: 1
+  isolation:
+    unauthorizedDisclosureMax: 0
+  contextEfficiency:
+    tokenReductionMin: 0.25
