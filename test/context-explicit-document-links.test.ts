@@ -134,6 +134,9 @@ describe("typed explicit document references", () => {
         const result = await client.callTool({ name: "context.build_task_context", arguments: request(bootstrap.bootstrapId, [{ selector: "document-id", documentId: "missing" }]) });
         expect(result.isError).toBe(true);
         expect(JSON.stringify(result.content)).toContain("CONTEXT_DOCUMENT_NOT_FOUND");
+        expect(result.structuredContent).toEqual(expect.objectContaining({
+          error_code: "CONTEXT_DOCUMENT_NOT_FOUND",
+        }));
       } finally {
         await client.close(); await server.close();
       }

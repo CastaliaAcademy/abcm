@@ -169,6 +169,13 @@ export class ScopePathResolver {
   #normalizeIntent(request: ResolveTaskPathRequest, language: EffectiveDomainLanguage): NormalizedTaskIntent {
     const domains = new Set(language.domains.map(domain => domain.id));
     const concepts = new Set(language.concepts.map(concept => concept.id));
+    const primaryTerms = new Map<string, string[]>();
+    for (const concept of language.concepts) {
+      const key = normalized(concept.term);
+      const current = primaryTerms.get(key) ?? [];
+      current.push(concept.id);
+      primaryTerms.set(key, current.sort());
+    }
     const aliases = new Map(language.aliases.map(alias => [normalized(alias.term), alias.canonicalTerm]));
     const homonyms = new Map(language.homonyms.map(homonym => [normalized(homonym.term), homonym.canonicalTerms]));
     const canonicalDomains = unique(request.canonicalDomains);
@@ -181,11 +188,15 @@ export class ScopePathResolver {
     const canonicalTerms = [...new Set([...explicitTerms, ...inferredTerms])].sort().map(term => {
       if (concepts.has(term)) return term;
       const key = normalized(term);
+      const primaryCandidates = primaryTerms.get(key) ?? [];
       const homonym = homonyms.get(key);
       if (homonym !== undefined && homonym.length > 1) {
         throw new AbcmError("AMBIGUOUS_DOMAIN_TERM", `Domain term '${term}' is ambiguous.`, { term, candidates: homonym });
       }
-      const resolved = aliases.get(key) ?? homonym?.[0];
+      if (homonym === undefined && primaryCandidates.length > 1) {
+        throw new AbcmError("AMBIGUOUS_DOMAIN_TERM", `Domain term '${term}' is ambiguous.`, { term, candidates: primaryCandidates });
+      }
+      const resolved = aliases.get(key) ?? homonym?.[0] ?? primaryCandidates[0];
       if (resolved === undefined || !concepts.has(resolved)) {
         throw new AbcmError("UNKNOWN_DOMAIN_TERM", `Unknown canonical domain term '${term}'.`, { term });
       }

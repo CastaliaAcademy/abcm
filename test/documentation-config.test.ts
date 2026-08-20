@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { createAbcmRuntime } from "../src/app/create-runtime.js";
 import { parseDocumentationSources } from "../src/documentation/config.js";
@@ -45,5 +48,47 @@ describe("documentation source configuration", () => {
         },
       ),
     ).toThrow("documentationSources require sqliteDerivedStoreEnabled=true");
+  });
+
+  test("requires an operator-selected source directory outside the canonical workspace", async () => {
+    const container = await mkdtemp(join(tmpdir(), "abcm-documentation-boundary-"));
+    const workspaceRoot = join(container, "workspace");
+    const separateSourceRoot = join(container, "selected-source");
+    await mkdir(workspaceRoot);
+    await mkdir(separateSourceRoot);
+    const runtime = createAbcmRuntime(
+      { id: "castalia-public", root: workspaceRoot },
+      {
+        sqliteDerivedStoreEnabled: true,
+        documentationSources: [{ id: "obsidian", workspaceId: "castalia-public", root: separateSourceRoot, targetBasePath: "artifacts/notes" }],
+      },
+    );
+    try {
+      await runtime.ready;
+      expect(runtime.documentation).toBeDefined();
+    } finally {
+      await runtime.close();
+      await rm(container, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects equal, nested, and ancestor source directories", async () => {
+    const container = await mkdtemp(join(tmpdir(), "abcm-documentation-overlap-"));
+    const workspaceRoot = join(container, "workspace");
+    const nestedSourceRoot = join(workspaceRoot, "external-notes");
+    await mkdir(nestedSourceRoot, { recursive: true });
+    try {
+      for (const root of [workspaceRoot, nestedSourceRoot, container]) {
+        expect(() => createAbcmRuntime(
+          { id: "castalia-public", root: workspaceRoot },
+          {
+            sqliteDerivedStoreEnabled: true,
+            documentationSources: [{ id: "obsidian", workspaceId: "castalia-public", root, targetBasePath: "artifacts/notes" }],
+          },
+        )).toThrow("must not overlap canonical workspace");
+      }
+    } finally {
+      await rm(container, { recursive: true, force: true });
+    }
   });
 });

@@ -17,3 +17,18 @@ For Obsidian, open the managed project directory as a vault:
 ```text
 C:\Users\egor\Documents\Qualia\castalia\документация\Castalia\public\abcm
 ```
+
+To import an independently managed Obsidian vault, select a separate source directory and enable the documentation overlay:
+
+```bash
+ABCM_DOCUMENTATION_SOURCE_PATH=/absolute/path/to/selected-vault \
+docker compose \
+  -f deploy/compose.config.yaml \
+  -f deploy/compose.service.yaml \
+  -f deploy/compose.obsidian.yaml \
+  up -d
+```
+
+The selected directory is mounted read-only. It must not equal, contain, or be contained by the canonical workspace directory, including after symbolic links are resolved. Agents cannot provide or change this absolute path through REST or MCP; they operate only on the configured `sourceId`.
+
+With the default durable store enabled, outcome and feedback tools are available. Business-evaluation tools require an operator-owned profile; task-success additionally requires a separate worker token and state root. Documentation lifecycle tools appear only when the directory overlay is configured.

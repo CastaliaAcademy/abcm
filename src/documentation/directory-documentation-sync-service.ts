@@ -54,6 +54,10 @@ function isWithinRoot(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(`${root}${sep}`);
 }
 
+function pathsOverlap(left: string, right: string): boolean {
+  return isWithinRoot(resolve(left), resolve(right)) || isWithinRoot(resolve(right), resolve(left));
+}
+
 function validateSourceId(id: string): void {
   if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(id)) {
     throw new Error(`Documentation source id '${id}' is invalid.`);
@@ -138,9 +142,13 @@ export class DirectoryDocumentationSyncService {
         validateGlob(rule.match);
         validateTargetBasePath(rule.target.endsWith("/") ? rule.target.slice(0, -1) : rule.target);
       }
-      this.#registry.get(source.workspaceId);
+      const workspace = this.#registry.get(source.workspaceId);
+      const sourceRoot = resolve(source.root);
+      if (pathsOverlap(sourceRoot, workspace.root)) {
+        throw new Error(`Documentation source '${source.id}' root must not overlap canonical workspace '${source.workspaceId}'.`);
+      }
       if (this.#sources.has(source.id)) throw new Error(`Documentation source '${source.id}' is duplicated.`);
-      this.#sources.set(source.id, { ...source, root: resolve(source.root) });
+      this.#sources.set(source.id, { ...source, root: sourceRoot });
     }
   }
 
@@ -688,9 +696,11 @@ export class DirectoryDocumentationSyncService {
     const configured = this.#sources.get(sourceId);
     if (configured === undefined) throw new AbcmError("SOURCE_CONNECTOR_UNAVAILABLE", `Documentation source '${sourceId}' is unavailable.`);
     let root: string;
+    let workspaceRoot: string;
     let metadata: Awaited<ReturnType<typeof stat>>;
     try {
       root = await realpath(configured.root);
+      workspaceRoot = await realpath(this.#registry.get(configured.workspaceId).root);
       metadata = await stat(root);
       throwIfAborted(signal);
     } catch (error) {
@@ -700,6 +710,11 @@ export class DirectoryDocumentationSyncService {
       });
     }
     if (!metadata.isDirectory()) throw new AbcmError("SOURCE_CONNECTOR_UNAVAILABLE", "Documentation source is not a directory.");
+    if (pathsOverlap(root, workspaceRoot)) {
+      throw new AbcmError("SOURCE_CONNECTOR_UNAVAILABLE", `Documentation source '${sourceId}' must not overlap canonical workspace.`, {
+        workspaceId: configured.workspaceId,
+      });
+    }
     return { ...configured, root };
   }
 

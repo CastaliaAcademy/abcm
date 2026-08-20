@@ -17,10 +17,18 @@ async function fixture() {
   const source = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-source-"));
   const workspaceStore = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-workspaces-"));
   const fileOperationState = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-file-ops-"));
-  roots.push(root, source, workspaceStore, fileOperationState);
+  const taskStateRoot = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-task-state-"));
+  roots.push(root, source, workspaceStore, fileOperationState, taskStateRoot);
   await writeFile(join(root, "scope.yaml"), "apiVersion: abcm/v1\nkind: workflow\nid: test\nname: Test\n");
   await mkdir(join(root, "domain-language"));
   await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
+  await mkdir(join(root, "project/config"), { recursive: true });
+  await mkdir(join(root, "project/domain-language"), { recursive: true });
+  await mkdir(join(root, "project/artifacts"), { recursive: true });
+  await writeFile(join(root, "project/scope.yaml"), "apiVersion: abcm/v1\nkind: project\nid: project\nname: Project\n");
+  await writeFile(join(root, "project/config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n");
+  await writeFile(join(root, "project/domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
+  await writeFile(join(root, "project/artifacts/required.md"), "---\nid: required\nkind: convention\ntitle: Required\nrequired: true\n---\nMandatory context that exceeds one token.\n");
   await writeFile(join(source, "guide.md"), "guide\n");
   const access = {
     workspacePermissions: ["scope.discover", "scope.read_metadata", "scope_map.read_full", "context.build", "document.read"] as const,
@@ -31,16 +39,25 @@ async function fixture() {
       sqliteDerivedStoreEnabled: true,
       contextPrincipal: { principalId: "tool-contract", access },
       scopeMapAccess: access,
+      context: { budgetProfiles: { impossible: { softLimitTokens: 1, hardLimitTokens: 1 } } },
       documentationSources: [{ id: "docs", workspaceId: "test", root: source, targetBasePath: "artifacts/mirror" }],
       workspaceStoreRoot: workspaceStore,
       fileOperations: { stateRoot: fileOperationState },
+      businessEvaluationWorkerToken: "worker-token-123456789",
+      businessEvaluationTaskStateRoot: taskStateRoot,
       businessEvaluationProfiles: [{
         schemaVersion: "abcm.eval.execution-profile/v1",
         id: "tool-contract-profile",
         version: "1.0.0",
         status: "approved",
         workspaceId: "test",
-        phase: "retrieval",
+        phase: "task-success",
+        taskSuccess: {
+          workerPoolId: "tool-contract-workers",
+          modelIdentityDigest: `sha256:${"5".repeat(64)}`,
+          judgeRubricDigest: `sha256:${"6".repeat(64)}`,
+          judgeIdentityClass: "blind-programmatic",
+        },
         dataset: {
           schemaVersion: "abcm.eval.business.v1", id: "tool-contract-dataset", title: "Tool contract", status: "approved", language: "ru", ownerScope: "test",
           sourceBaseline: { path: "baseline.md", sourceCommit: "a".repeat(40), sourceChecksum: `sha256:${"0".repeat(64)}` },
@@ -87,11 +104,11 @@ describe("MCP tool contract", () => {
       const listed = await client.listTools();
       expect(client.getNegotiatedProtocolVersion()).toBe("2025-11-25");
       expect(client.getServerCapabilities()?.experimental?.["abcm.dev/contract"]).toEqual({
-        contractVersion: "0.4.0",
+        contractVersion: "0.5.1",
         specificationVersion: "0.5.0",
         supportedProtocolVersions: ["2025-11-25"],
         operationTimeoutMs: 30000,
-        toolErrors: { encoding: "isError-json", version: "1" },
+        toolErrors: { encoding: "isError-json+structured", version: "2", structuredField: "error_code" },
       });
       expect(listed.tools.map(tool => tool.name)).toEqual([
         "agent_instructions.get",
@@ -125,6 +142,8 @@ describe("MCP tool contract", () => {
         "context.list_business_evaluation_profiles",
         "context.run_business_evaluation",
         "context.list_business_evaluations",
+        "context.start_task_success_evaluation",
+        "context.get_task_success_evaluation",
         "documentation_source.preview",
         "documentation_source.apply",
         "documentation_source.sync",
@@ -132,7 +151,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.16.0",
+        version: "1.17.1",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
@@ -141,12 +160,22 @@ describe("MCP tool contract", () => {
       expect((instructions.structuredContent as { content: string }).content).toContain("Недоступный explicit scope");
       for (const tool of listed.tools) {
         expect(tool.inputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));
-        expect(tool.outputSchema).toEqual(expect.objectContaining({ type: "object", additionalProperties: false }));
+        const alternatives = (tool.outputSchema as { anyOf?: Array<Record<string, unknown>> }).anyOf;
+        expect(alternatives).toHaveLength(2);
+        expect(alternatives).toContainEqual(expect.objectContaining({
+          type: "object",
+          additionalProperties: false,
+          required: ["error_code", "message"],
+          properties: expect.objectContaining({
+            error_code: expect.objectContaining({ type: "string" }),
+            message: expect.objectContaining({ type: "string" }),
+          }),
+        }));
         expect(tool.annotations?.openWorldHint).toBe(false);
       }
       const contextTool = listed.tools.find(tool => tool.name === "context.build_task_context") as unknown as {
         inputSchema: { properties: { targetHints: { anyOf: Array<{ properties?: { scopeIds?: { minItems?: number; maxItems?: number; items?: unknown } } }> } } };
-        outputSchema: { required?: string[]; properties: Record<string, unknown> };
+        outputSchema: { anyOf: Array<{ required?: string[]; properties?: Record<string, unknown> }> };
       };
       const structuredHints = contextTool.inputSchema.properties.targetHints.anyOf.find(option => option.properties?.scopeIds !== undefined);
       expect(structuredHints?.properties?.scopeIds).toEqual(expect.objectContaining({
@@ -154,13 +183,14 @@ describe("MCP tool contract", () => {
         maxItems: 8,
         items: expect.objectContaining({ anyOf: expect.any(Array) }),
       }));
-      expect(contextTool.outputSchema.required).toEqual(expect.arrayContaining([
+      const contextSuccessSchema = contextTool.outputSchema.anyOf.find(option => option.properties?.bundleDigest !== undefined);
+      expect(contextSuccessSchema?.required).toEqual(expect.arrayContaining([
         "multiScopePolicyDigest",
         "affectedScopeDetails",
         "budgetAllocation",
         "cache",
       ]));
-      expect(contextTool.outputSchema.properties).toEqual(expect.objectContaining({
+      expect(contextSuccessSchema?.properties).toEqual(expect.objectContaining({
         multiScopePolicyDigest: expect.any(Object),
         affectedScopeDetails: expect.any(Object),
         budgetAllocation: expect.any(Object),
@@ -189,6 +219,10 @@ describe("MCP tool contract", () => {
       expect(missing.isError).toBe(true);
       expect(JSON.parse((missing.content[0] as { text: string }).text)).toEqual(expect.objectContaining({
         code: "WORKSPACE_NOT_FOUND",
+        message: "Workspace 'missing' is not registered.",
+      }));
+      expect(missing.structuredContent).toEqual(expect.objectContaining({
+        error_code: "WORKSPACE_NOT_FOUND",
         message: "Workspace 'missing' is not registered.",
       }));
 
@@ -225,7 +259,35 @@ describe("MCP tool contract", () => {
         const failed = await client.callTool({ name, arguments: arguments_ });
         expect(failed.isError).toBe(true);
         expect(JSON.parse((failed.content[0] as { text: string }).text)).toEqual(expect.objectContaining({ code }));
+        expect(failed.structuredContent).toEqual(expect.objectContaining({ error_code: code }));
       }
+
+      await runtime.scopeMap.scan("test");
+      const language = await client.callTool({
+        name: "context.get_domain_language",
+        arguments: { anchor: { workspaceId: "test", projectId: "project" }, roleId: "agent" },
+      });
+      const bootstrapId = (language.structuredContent as { bootstrapId: string }).bootstrapId;
+      const baseContext = {
+        domainLanguageBootstrapId: bootstrapId,
+        roleId: "agent",
+        taskType: "test",
+        goal: "Проверить предметные ошибки",
+        targetHints: { scopeIds: ["project"] },
+        execution: { planId: "PLAN-TEST", runId: "structured-errors" },
+      };
+      const unknownTerm = await client.callTool({
+        name: "context.preview_task_context",
+        arguments: { ...baseContext, canonicalTerms: ["UnknownTerm"] },
+      });
+      expect(unknownTerm.isError).toBe(true);
+      expect(unknownTerm.structuredContent).toEqual(expect.objectContaining({ error_code: "UNKNOWN_DOMAIN_TERM" }));
+      const requiredOverflow = await client.callTool({
+        name: "context.build_task_context",
+        arguments: { ...baseContext, budgetProfile: "impossible" },
+      });
+      expect(requiredOverflow.isError).toBe(true);
+      expect(requiredOverflow.structuredContent).toEqual(expect.objectContaining({ error_code: "REQUIRED_CONTEXT_EXCEEDS_LIMIT" }));
 
       const happy = await client.callTool({
         name: "workspace.list_files",

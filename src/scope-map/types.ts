@@ -76,7 +76,11 @@ export interface MapDiagnostic {
     | "EXPLICIT_LINK_INVALID"
     | "EXPLICIT_LINK_UNRESOLVED"
     | "FILE_TOO_LARGE"
-    | "ARTIFACT_PLACEMENT_INVALID";
+    | "ARTIFACT_PLACEMENT_INVALID"
+    | "PLANTUML_ENVELOPE_INVALID"
+    | "PLANTUML_INCLUDE_INVALID"
+    | "PLANTUML_INCLUDE_UNRESOLVED"
+    | "PLANTUML_INCLUDE_CYCLE";
   severity: "branch_error" | "scope_error" | "warning";
   path: string;
   message: string;
@@ -127,6 +131,8 @@ export interface ExecutableResourceRecord {
   resourceId: string;
   scopeId: string;
   relativePath: string;
+  resourceType: "script" | "architecture-source/plantuml";
+  dependencies: readonly string[];
   language: string;
   checksum: string;
   activationStatus: "required";

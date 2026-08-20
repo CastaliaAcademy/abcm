@@ -33,6 +33,7 @@ const IGNORED_DIRECTORIES = new Set([
   "tmp",
 ]);
 const EXECUTABLE_EXTENSIONS = new Set([".js", ".mjs", ".cjs", ".ts", ".py", ".sh", ".bash", ".rb", ".pl"]);
+const PLANTUML_SOURCE_PATH = /^architecture\/plantuml\/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\/[^/]+\.puml$/i;
 const ARTIFACT_KINDS = new Set([
   "adr",
   "rfc",
@@ -68,6 +69,14 @@ const documentMetadataSchema = z
   .passthrough();
 
 type DocumentMetadata = z.infer<typeof documentMetadataSchema>;
+
+interface PlantUmlCandidate {
+  scopeId: string;
+  scopeRelativePath: string;
+  relativePath: string;
+  checksum: string;
+  content: string;
+}
 
 export interface ScopeContentIndex {
   files: FileRecord[];
@@ -142,6 +151,7 @@ function isIgnoredFile(name: string): boolean {
 }
 
 function isExecutableResource(scopeRelativePath: string): boolean {
+  if (PLANTUML_SOURCE_PATH.test(scopeRelativePath)) return true;
   const path = `/${scopeRelativePath}`;
   if (/\/agents\/skills\/[^/]+\/scripts\//.test(path)) return true;
   if (!EXECUTABLE_EXTENSIONS.has(extname(scopeRelativePath).toLowerCase())) return false;
@@ -170,6 +180,7 @@ function languageFor(path: string): string {
       ".bash": "shell",
       ".rb": "ruby",
       ".pl": "perl",
+      ".puml": "plantuml",
     } as Record<string, string>
   )[extension] ?? "unknown";
 }
@@ -200,8 +211,8 @@ function placementIssue(scopeRelativePath: string, frontmatter: Record<string, u
   if (declaredKind !== undefined && ARCHITECTURE_KINDS.has(declaredKind) && !scopeRelativePath.startsWith("architecture/")) {
     return `Architecture kind '${declaredKind}' must be stored under architecture.`;
   }
-  if (extname(scopeRelativePath).toLocaleLowerCase("en-US") === ".puml" && !scopeRelativePath.startsWith("architecture/")) {
-    return "PlantUML sources must be stored under architecture.";
+  if (extname(scopeRelativePath).toLocaleLowerCase("en-US") === ".puml" && !PLANTUML_SOURCE_PATH.test(scopeRelativePath)) {
+    return "PlantUML sources must be stored under architecture/plantuml/<category>/*.puml.";
   }
   return undefined;
 }
@@ -236,6 +247,104 @@ function documentFrom(
   };
 }
 
+function plantUmlEnvelopeValid(content: string): boolean {
+  const significant = content.split(/\r?\n/).map(line => line.trim()).filter(line => line !== "" && !line.startsWith("'"));
+  return significant[0]?.startsWith("@startuml") === true && significant.at(-1) === "@enduml";
+}
+
+function plantUmlResources(candidates: readonly PlantUmlCandidate[], diagnostics: MapDiagnostic[]): ExecutableResourceRecord[] {
+  const byPath = new Map(candidates.map(candidate => [candidate.scopeRelativePath, candidate]));
+  const dependencies = new Map<string, string[]>();
+  const invalid = new Set<string>();
+  const diagnostic = (candidate: PlantUmlCandidate, code: MapDiagnostic["code"], message: string) => {
+    invalid.add(candidate.scopeRelativePath);
+    diagnostics.push({ code, severity: "warning", path: candidate.relativePath, scopeId: candidate.scopeId, message });
+  };
+
+  for (const candidate of candidates) {
+    if (!plantUmlEnvelopeValid(candidate.content)) {
+      diagnostic(candidate, "PLANTUML_ENVELOPE_INVALID", "PlantUML source must start with @startuml and end with @enduml.");
+    }
+    const resolved: string[] = [];
+    for (const line of candidate.content.split(/\r?\n/)) {
+      if (!/^\s*!include\b/.test(line)) continue;
+      const match = /^\s*!include\s+(?:"([^"]+)"|'([^']+)'|(\S+))\s*$/.exec(line);
+      const reference = match?.[1] ?? match?.[2] ?? match?.[3];
+      if (
+        reference === undefined || reference.includes("\\") || reference.startsWith("/") ||
+        reference.startsWith("<") || /^[a-z][a-z0-9+.-]*:/i.test(reference) ||
+        reference.split("/").includes("..")
+      ) {
+        diagnostic(candidate, "PLANTUML_INCLUDE_INVALID", `PlantUML include '${reference ?? line.trim()}' is not a safe local source path.`);
+        continue;
+      }
+      const targetPath = posix.normalize(posix.join(posix.dirname(candidate.scopeRelativePath), reference));
+      if (!PLANTUML_SOURCE_PATH.test(targetPath)) {
+        diagnostic(candidate, "PLANTUML_INCLUDE_INVALID", `PlantUML include '${reference}' leaves the allowed architecture source tree.`);
+        continue;
+      }
+      if (!byPath.has(targetPath)) {
+        diagnostic(candidate, "PLANTUML_INCLUDE_UNRESOLVED", `PlantUML include '${reference}' does not resolve in the pinned ScopeMap inputs.`);
+        continue;
+      }
+      resolved.push(targetPath);
+    }
+    dependencies.set(candidate.scopeRelativePath, [...new Set(resolved)].sort());
+  }
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const stack: string[] = [];
+  const cycleReported = new Set<string>();
+  const visit = (path: string): void => {
+    if (visited.has(path)) return;
+    if (visiting.has(path)) {
+      const start = stack.indexOf(path);
+      for (const member of stack.slice(start)) {
+        if (cycleReported.has(member)) continue;
+        cycleReported.add(member);
+        const candidate = byPath.get(member)!;
+        diagnostic(candidate, "PLANTUML_INCLUDE_CYCLE", "PlantUML local include dependency cycle detected.");
+      }
+      return;
+    }
+    visiting.add(path);
+    stack.push(path);
+    for (const dependency of dependencies.get(path) ?? []) visit(dependency);
+    stack.pop();
+    visiting.delete(path);
+    visited.add(path);
+  };
+  for (const path of [...byPath.keys()].sort()) visit(path);
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const candidate of candidates) {
+      if (invalid.has(candidate.scopeRelativePath)) continue;
+      const unavailable = (dependencies.get(candidate.scopeRelativePath) ?? []).find(path => invalid.has(path));
+      if (unavailable === undefined) continue;
+      diagnostic(candidate, "PLANTUML_INCLUDE_UNRESOLVED", `PlantUML include closure contains invalid source '${unavailable}'.`);
+      changed = true;
+    }
+  }
+
+  return candidates
+    .filter(candidate => !invalid.has(candidate.scopeRelativePath))
+    .map(candidate => ({
+      resourceId: `resource:${candidate.scopeId}:${candidate.scopeRelativePath}`,
+      scopeId: candidate.scopeId,
+      relativePath: candidate.relativePath,
+      resourceType: "architecture-source/plantuml" as const,
+      dependencies: (dependencies.get(candidate.scopeRelativePath) ?? []).map(path => byPath.get(path)!.relativePath),
+      language: "plantuml",
+      checksum: candidate.checksum,
+      activationStatus: "required" as const,
+      permissionsProfile: "executable_resource.read" as const,
+    }))
+    .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
 export async function indexScopeContent(
   workspace: ResolvedWorkspace,
   scope: ScopeNode,
@@ -246,6 +355,7 @@ export async function indexScopeContent(
   const files: FileRecord[] = [];
   const documentCandidates: DocumentRecord[] = [];
   const executableResources: ExecutableResourceRecord[] = [];
+  const plantUmlCandidates: PlantUmlCandidate[] = [];
   const skills: SkillDescriptor[] = [];
   const diagnostics: MapDiagnostic[] = [];
 
@@ -295,11 +405,21 @@ export async function indexScopeContent(
     } else if (parsedMetadata !== undefined) {
       documentCandidates.push(documentFrom(scope, relativePath, fileChecksum, parsedMetadata));
     }
-    if (fileClassification === "executable_resource") {
+    if (fileClassification === "executable_resource" && PLANTUML_SOURCE_PATH.test(scopeRelativePath)) {
+      plantUmlCandidates.push({
+        scopeId: scope.scopeId,
+        scopeRelativePath,
+        relativePath,
+        checksum: fileChecksum,
+        content: new TextDecoder().decode(content),
+      });
+    } else if (fileClassification === "executable_resource") {
       executableResources.push({
         resourceId: `resource:${scope.scopeId}:${scopeRelativePath}`,
         scopeId: scope.scopeId,
         relativePath,
+        resourceType: "script",
+        dependencies: [],
         language: languageFor(relativePath),
         checksum: fileChecksum,
         activationStatus: "required",
@@ -347,6 +467,7 @@ export async function indexScopeContent(
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
+  executableResources.push(...plantUmlResources(plantUmlCandidates, diagnostics));
 
   files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   documentCandidates.sort((left, right) => left.relativePath.localeCompare(right.relativePath));

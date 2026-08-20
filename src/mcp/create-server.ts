@@ -101,6 +101,7 @@ import {
   workspaceReadFileOutputSchema,
   workspaceWriteFileInputSchema,
   workspaceWriteFileOutputSchema,
+  toolOutputSchema,
 } from "./tool-schemas.js";
 
 export interface AbcmMcpDependencies {
@@ -131,16 +132,19 @@ function success(structuredContent: Record<string, unknown>) {
 const DEFAULT_MCP_OPERATION_TIMEOUT_MS = 30_000;
 
 function toolError(error: unknown) {
-  if (error instanceof AbcmError) {
+  const result = (errorCode: string, message: string, details?: Readonly<Record<string, unknown>>) => {
+    const textPayload = { code: errorCode, message, ...(details === undefined ? {} : { details }) };
+    const structuredContent = { error_code: errorCode, message, ...(details === undefined ? {} : { details }) };
     return {
       isError: true,
-      content: [{ type: "text" as const, text: JSON.stringify({ code: error.code, message: error.message, ...(error.details === undefined ? {} : { details: error.details }) }) }],
+      content: [{ type: "text" as const, text: JSON.stringify(textPayload) }],
+      structuredContent,
     };
-  }
-  return {
-    isError: true,
-    content: [{ type: "text" as const, text: JSON.stringify({ code: "INTERNAL_ERROR", message: "An unexpected server error occurred." }) }],
   };
+  if (error instanceof AbcmError) {
+    return result(error.code, error.message, error.details);
+  }
+  return result("INTERNAL_ERROR", "An unexpected server error occurred.");
 }
 
 async function toolResult(
@@ -183,7 +187,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
           specificationVersion: ABCM_SPEC_VERSION,
           supportedProtocolVersions: [...ABCM_MCP_PROTOCOL_VERSIONS],
           operationTimeoutMs,
-          toolErrors: { encoding: "isError-json", version: "1" },
+          toolErrors: { encoding: "isError-json+structured", version: "2", structuredField: "error_code" },
         },
       },
     },
@@ -196,7 +200,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       description: "Read the complete self-contained setup and operating guide for ABCM. Call this before every other ABCM capability when the server version is unknown or changed.",
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: agentInstructionsInputSchema,
-      outputSchema: agentInstructionsOutputSchema,
+      outputSchema: toolOutputSchema(agentInstructionsOutputSchema),
     },
     async (_input, context) => toolResult(async () => getAbcmAgentInstructions(), context.mcpReq.signal, operationTimeoutMs),
   );
@@ -209,7 +213,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Create and register a server-owned workspace with an initial workflow scope, required project language configuration, and inherited domain-language convention.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
         inputSchema: workspaceCreateInputSchema,
-        outputSchema: workspaceCreateOutputSchema,
+        outputSchema: toolOutputSchema(workspaceCreateOutputSchema),
       },
       async (input, context) => toolResult(
         async signal => dependencies.workspaces!.create({
@@ -229,7 +233,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       description: "List allowed project files without exposing reserved service paths.",
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: workspaceListFilesInputSchema,
-      outputSchema: workspaceListFilesOutputSchema,
+      outputSchema: toolOutputSchema(workspaceListFilesOutputSchema),
     },
     async (input, context) => toolResult(async signal => ({ entries: await dependencies.files.list(input.workspaceId, input.path, input.recursive, signal) }), context.mcpReq.signal, operationTimeoutMs),
   );
@@ -241,7 +245,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Resolve the configured and effective file architecture policy for a workspace or one project.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: workspaceGetArchitecturePolicyInputSchema,
-        outputSchema: workspaceGetArchitecturePolicyOutputSchema,
+        outputSchema: toolOutputSchema(workspaceGetArchitecturePolicyOutputSchema),
       },
       async (input, context) => toolResult(
         async signal => ({ ...await dependencies.architecturePolicies!.resolve(input, signal) }),
@@ -256,7 +260,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Create or replace a workspace policy or an independent project override with checksum preconditions.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
         inputSchema: workspaceSetArchitecturePolicyInputSchema,
-        outputSchema: workspaceSetArchitecturePolicyOutputSchema,
+        outputSchema: toolOutputSchema(workspaceSetArchitecturePolicyOutputSchema),
       },
       async (input, context) => toolResult(
         async signal => ({ ...await dependencies.architecturePolicies!.set(
@@ -279,7 +283,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Delete a workspace policy or project override; a deleted project override falls back to its workspace policy.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
         inputSchema: workspaceDeleteArchitecturePolicyInputSchema,
-        outputSchema: workspaceDeleteArchitecturePolicyOutputSchema,
+        outputSchema: toolOutputSchema(workspaceDeleteArchitecturePolicyOutputSchema),
       },
       async (input, context) => toolResult(async signal => {
         await dependencies.architecturePolicies!.delete(
@@ -297,7 +301,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "List independently configured workspace and project file architecture policies in one workspace.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: workspaceListArchitecturePoliciesInputSchema,
-        outputSchema: workspaceListArchitecturePoliciesOutputSchema,
+        outputSchema: toolOutputSchema(workspaceListArchitecturePoliciesOutputSchema),
       },
       async (input, context) => toolResult(
         async signal => ({ policies: await dependencies.architecturePolicies!.list(input.workspaceId, signal) }),
@@ -312,7 +316,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Check a workspace or project against its effective required file architecture without returning document bodies.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: workspaceCheckArchitectureComplianceInputSchema,
-        outputSchema: workspaceCheckArchitectureComplianceOutputSchema,
+        outputSchema: toolOutputSchema(workspaceCheckArchitectureComplianceOutputSchema),
       },
       async (input, context) => toolResult(
         async signal => ({ ...await dependencies.architecturePolicies!.check(input, signal) }),
@@ -328,7 +332,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       description: "Read one allowed project file and return exact base64 bytes plus metadata.",
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: workspaceReadFileInputSchema,
-      outputSchema: workspaceReadFileOutputSchema,
+      outputSchema: toolOutputSchema(workspaceReadFileOutputSchema),
     },
     async (input, context) =>
       toolResult(async signal => {
@@ -348,7 +352,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       description: "Atomically create or replace an allowed project file with checksum preconditions.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       inputSchema: workspaceWriteFileInputSchema,
-      outputSchema: workspaceWriteFileOutputSchema,
+      outputSchema: toolOutputSchema(workspaceWriteFileOutputSchema),
     },
     async (input, context) =>
       toolResult(async signal => {
@@ -367,7 +371,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       description: "Delete one regular project file with an optional checksum precondition.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       inputSchema: workspaceDeleteFileInputSchema,
-      outputSchema: workspaceDeleteFileOutputSchema,
+      outputSchema: toolOutputSchema(workspaceDeleteFileOutputSchema),
     },
     async (input, context) =>
       toolResult(async signal => {
@@ -383,7 +387,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Start a durable checksum-bound upload before referencing its bytes from workspace.batch_apply.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
         inputSchema: workspaceUploadStartInputSchema,
-        outputSchema: workspaceUploadStartOutputSchema,
+        outputSchema: toolOutputSchema(workspaceUploadStartOutputSchema),
       },
       async (input, context) => toolResult(signal => dependencies.uploads!.start(input, signal), context.mcpReq.signal, operationTimeoutMs),
     );
@@ -394,7 +398,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Append the next base64-encoded chunk with its decoded-byte checksum; exact retries are idempotent.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: workspaceUploadChunkInputSchema,
-        outputSchema: workspaceUploadChunkOutputSchema,
+        outputSchema: toolOutputSchema(workspaceUploadChunkOutputSchema),
       },
       async (input, context) => toolResult(
         signal => dependencies.uploads!.append(input, decodeToolContent(input.content, input.encoding), signal),
@@ -409,7 +413,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Verify declared size and checksum, then make the upload immutable and usable by workspace.batch_apply.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: workspaceUploadCompleteInputSchema,
-        outputSchema: workspaceUploadCompleteOutputSchema,
+        outputSchema: toolOutputSchema(workspaceUploadCompleteOutputSchema),
       },
       async (input, context) => toolResult(
         signal => dependencies.uploads!.complete(input.workspaceId, input.uploadId, signal),
@@ -424,7 +428,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Delete one upload session and its staged bytes.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
         inputSchema: workspaceUploadAbortInputSchema,
-        outputSchema: workspaceUploadAbortOutputSchema,
+        outputSchema: toolOutputSchema(workspaceUploadAbortOutputSchema),
       },
       async (input, context) => toolResult(async signal => {
         await dependencies.uploads!.abort(input.workspaceId, input.uploadId, signal);
@@ -440,7 +444,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Validate and atomically apply 1-100 mixed create, update, delete, and move operations using completed upload references.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
         inputSchema: workspaceBatchApplyInputSchema,
-        outputSchema: workspaceBatchApplyOutputSchema,
+        outputSchema: toolOutputSchema(workspaceBatchApplyOutputSchema),
       },
       async (input, context) => toolResult(signal => dependencies.batches!.apply(input, signal), context.mcpReq.signal, operationTimeoutMs),
     );
@@ -452,7 +456,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       description: "Move one regular project file without overwriting by default.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       inputSchema: workspaceMoveFileInputSchema,
-      outputSchema: workspaceMoveFileOutputSchema,
+      outputSchema: toolOutputSchema(workspaceMoveFileOutputSchema),
     },
     async (input, context) =>
       toolResult(async signal => ({
@@ -469,7 +473,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       description: "Create an allowed project directory and missing parent directories.",
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
       inputSchema: workspaceCreateDirectoryInputSchema,
-      outputSchema: workspaceCreateDirectoryOutputSchema,
+      outputSchema: toolOutputSchema(workspaceCreateDirectoryOutputSchema),
     },
     async (input, context) => toolResult(async signal => ({ entry: await dependencies.files.createDirectory(input.workspaceId, input.path, signal) }), context.mcpReq.signal, operationTimeoutMs),
   );
@@ -480,7 +484,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       description: "Move one allowed project directory and all regular-file descendants without overwriting the target.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       inputSchema: workspaceMoveDirectoryInputSchema,
-      outputSchema: workspaceMoveDirectoryOutputSchema,
+      outputSchema: toolOutputSchema(workspaceMoveDirectoryOutputSchema),
     },
     async (input, context) => toolResult(async signal => ({
       entry: await dependencies.files.moveDirectory(input.workspaceId, input.from, input.to, signal),
@@ -493,7 +497,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       description: "Recursively delete one allowed project directory after explicit recursive=true confirmation.",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       inputSchema: workspaceDeleteDirectoryInputSchema,
-      outputSchema: workspaceDeleteDirectoryOutputSchema,
+      outputSchema: toolOutputSchema(workspaceDeleteDirectoryOutputSchema),
     },
     async (input, context) => toolResult(async signal => {
       await dependencies.files.deleteDirectory(input.workspaceId, input.path, { recursive: input.recursive }, signal);
@@ -507,7 +511,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       description: "Build an immutable in-memory ScopeMap revision from the registered workspace.",
       annotations: { readOnlyHint: true, openWorldHint: false },
       inputSchema: scopeMapScanInputSchema,
-      outputSchema: scopeMapScanOutputSchema,
+      outputSchema: toolOutputSchema(scopeMapScanOutputSchema),
     },
     async (input, context) =>
       toolResult(async signal => ({ revision: dependencies.scopeMap.summarize(await dependencies.scopeMap.scan(input.workspaceId, signal)) }), context.mcpReq.signal, operationTimeoutMs),
@@ -520,7 +524,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Build a principal-bound workflow-plus-project domain-language bootstrap before path resolution.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: domainLanguageInputSchema,
-        outputSchema: domainLanguageOutputSchema,
+        outputSchema: toolOutputSchema(domainLanguageOutputSchema),
       },
       async (input, context) => toolResult(async signal => ({ ...(await dependencies.domainLanguage!.createBootstrap({
         anchor: input.anchor,
@@ -537,7 +541,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Explain the deterministic document selection, projections, omissions, budget, and fallback modes without persisting a fingerprint or returning document bodies.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: contextBuildInputSchema,
-        outputSchema: contextPreviewOutputSchema,
+        outputSchema: toolOutputSchema(contextPreviewOutputSchema),
       },
       async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextBuilder!.preview(
         normalizeBuildTaskContextInput(input),
@@ -552,7 +556,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Resolve a task path and return one immutable, bounded, reproducible context bundle.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: contextBuildInputSchema,
-        outputSchema: contextBuildOutputSchema,
+        outputSchema: toolOutputSchema(contextBuildOutputSchema),
       },
       async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextBuilder!.build(
         normalizeBuildTaskContextInput(input),
@@ -569,7 +573,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Bind one body-free task outcome, usage, and cost receipt to a principal-owned ContextFingerprint repeat.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: contextOutcomeSubmissionSchema,
-        outputSchema: contextOutcomeReceiptSchema,
+        outputSchema: toolOutputSchema(contextOutcomeReceiptSchema),
       },
       async (input, context) => toolResult(async () => ({ ...dependencies.contextOutcomes!.record(input) }), context.mcpReq.signal, operationTimeoutMs),
     );
@@ -580,7 +584,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "List body-free immutable outcome receipts for one principal-owned ContextFingerprint.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: contextOutcomeListInputSchema,
-        outputSchema: contextOutcomeListOutputSchema,
+        outputSchema: toolOutputSchema(contextOutcomeListOutputSchema),
       },
       async (input, context) => toolResult(async () => ({ outcomes: dependencies.contextOutcomes!.list(input.workspaceId, input.fingerprintId) }), context.mcpReq.signal, operationTimeoutMs),
     );
@@ -593,7 +597,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Create an immutable body-free ranking-policy or dataset proposal without changing active selection.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: contextFeedbackSubmissionSchema,
-        outputSchema: contextFeedbackProposalSchema,
+        outputSchema: toolOutputSchema(contextFeedbackProposalSchema),
       },
       async (input, context) => toolResult(async () => ({ ...dependencies.contextFeedback!.propose(input) }), context.mcpReq.signal, operationTimeoutMs),
     );
@@ -604,7 +608,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "List immutable body-free proposals for one principal-owned ContextFingerprint.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: contextFeedbackListInputSchema,
-        outputSchema: contextFeedbackListOutputSchema,
+        outputSchema: toolOutputSchema(contextFeedbackListOutputSchema),
       },
       async (input, context) => toolResult(async () => ({ proposals: dependencies.contextFeedback!.list(input.workspaceId, input.fingerprintId) }), context.mcpReq.signal, operationTimeoutMs),
     );
@@ -617,7 +621,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "List server-owned, versioned V0-V5 execution profiles available to this runtime.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: businessEvaluationProfileListInputSchema,
-        outputSchema: businessEvaluationProfileListOutputSchema,
+        outputSchema: toolOutputSchema(businessEvaluationProfileListOutputSchema),
       },
       async (_input, context) => toolResult(
         async () => ({ profiles: dependencies.contextBusinessEvaluations!.listProfiles() }),
@@ -632,7 +636,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Run one registered server-owned V0-V5 profile and persist an immutable body-free receipt.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: businessEvaluationRunRequestSchema,
-        outputSchema: businessEvaluationReceiptSchema,
+        outputSchema: toolOutputSchema(businessEvaluationReceiptSchema),
       },
       async (input, context) => toolResult(
         async signal => ({ ...(await dependencies.contextBusinessEvaluations!.run(input, signal)) }),
@@ -647,7 +651,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "List immutable body-free evaluation receipts for one workspace and dataset.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: businessEvaluationListRequestSchema,
-        outputSchema: businessEvaluationListOutputSchema,
+        outputSchema: toolOutputSchema(businessEvaluationListOutputSchema),
       },
       async (input, context) => toolResult(
         async () => ({ evaluations: dependencies.contextBusinessEvaluations!.list(input.workspaceId, input.datasetId) }),
@@ -664,7 +668,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Prepare blind jobs from one server-owned profile for an independently authenticated external model worker.",
         annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
         inputSchema: taskSuccessEvaluationStartInputSchema,
-        outputSchema: taskSuccessEvaluationSessionOutputSchema,
+        outputSchema: toolOutputSchema(taskSuccessEvaluationSessionOutputSchema),
       },
       async (input, context) => toolResult(async signal => ({ ...(await dependencies.taskSuccessEvaluations!.start(input, signal)) }), context.mcpReq.signal, operationTimeoutMs),
     );
@@ -675,7 +679,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Read body-free progress and final receipt identity for one task-success session.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: taskSuccessEvaluationGetInputSchema,
-        outputSchema: taskSuccessEvaluationSessionOutputSchema,
+        outputSchema: toolOutputSchema(taskSuccessEvaluationSessionOutputSchema),
       },
       async (input, context) => toolResult(async () => {
         const session = dependencies.taskSuccessEvaluations!.get(input.sessionId);
@@ -692,7 +696,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Compare one server-configured documentation directory with its read-only workspace mirror.",
         annotations: { readOnlyHint: true, openWorldHint: false },
         inputSchema: documentationPreviewInputSchema,
-        outputSchema: documentationPreviewOutputSchema,
+        outputSchema: toolOutputSchema(documentationPreviewOutputSchema),
       },
       async (input, context) => toolResult(async signal => ({ ...(await dependencies.documentation!.preview(input.workspaceId, input.sourceId, signal)) }), context.mcpReq.signal, operationTimeoutMs),
     );
@@ -703,7 +707,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Apply a checksum-pinned preview to the workspace mirror and rebuild ScopeMap.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
         inputSchema: documentationApplyInputSchema,
-        outputSchema: documentationSyncOutputSchema,
+        outputSchema: toolOutputSchema(documentationSyncOutputSchema),
       },
       async (input, context) => toolResult(async signal => ({ ...(await dependencies.documentation!.apply(input.importId, signal)) }), context.mcpReq.signal, operationTimeoutMs),
     );
@@ -714,7 +718,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Preview and immediately apply one server-configured documentation directory.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
         inputSchema: documentationSyncInputSchema,
-        outputSchema: documentationSyncOutputSchema,
+        outputSchema: toolOutputSchema(documentationSyncOutputSchema),
       },
       async (input, context) => toolResult(async signal => ({ ...(await dependencies.documentation!.sync(input.sourceId, signal)) }), context.mcpReq.signal, operationTimeoutMs),
     );
@@ -725,7 +729,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         description: "Run a final sync and atomically disable mirror ownership after operator-approved checksum validation.",
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
         inputSchema: documentationCutoverInputSchema,
-        outputSchema: documentationCutoverOutputSchema,
+        outputSchema: toolOutputSchema(documentationCutoverOutputSchema),
       },
       async (input, context) => toolResult(async signal => ({ ...(await dependencies.documentation!.cutover(
         input.sourceId,

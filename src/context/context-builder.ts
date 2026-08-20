@@ -490,25 +490,32 @@ export class ContextBuilder {
       omissions: orderedOmissions,
       tokenEstimate,
     } satisfies Omit<ContextBundle, "cache" | "contextFingerprintLocation">;
-    if (bundle.connectedSkills.length === 0) {
-      this.#cache.putContextBuildCache({
-        identity: cacheIdentity,
-        bundle: {
-          ...bundle,
-          connectedSkills: [],
-          selectedDocuments: bundle.selectedDocuments.map(document => ({
-            ...document,
-            projection: {
-              mode: document.projection.mode,
-              authoritative: document.projection.authoritative,
-              sourceDocumentId: document.projection.sourceDocumentId,
-              sourceChecksum: document.projection.sourceChecksum,
-            },
-          })),
-        },
-        fingerprint,
-      });
-    }
+    this.#cache.putContextBuildCache({
+      identity: cacheIdentity,
+      bundle: {
+        ...bundle,
+        connectedSkills: bundle.connectedSkills.map(skill => {
+          const descriptor = revision.skills.find(candidate =>
+            candidate.skillId === skill.skillId && candidate.sourceScopeId === skill.sourceScopeId,
+          );
+          if (descriptor === undefined || descriptor.checksum !== skill.skillDigest) {
+            throw new AbcmError("DERIVED_STORE_CORRUPT", `Connected skill '${skill.skillId}' is absent from the pinned ScopeMap revision.`);
+          }
+          const { body: _body, ...metadata } = skill;
+          return { ...metadata, relativePath: descriptor.relativePath };
+        }),
+        selectedDocuments: bundle.selectedDocuments.map(document => ({
+          ...document,
+          projection: {
+            mode: document.projection.mode,
+            authoritative: document.projection.authoritative,
+            sourceDocumentId: document.projection.sourceDocumentId,
+            sourceChecksum: document.projection.sourceChecksum,
+          },
+        })),
+      },
+      fingerprint,
+    });
     throwIfAborted(signal);
     const contextFingerprintLocation = persistFingerprint
       ? await this.#dependencies.fingerprintStore.write(bootstrap.anchor.workspaceId, request.execution, fingerprint)
@@ -521,6 +528,19 @@ export class ContextBuilder {
   }
 
   async #materializeCachedBundle(bundle: ContextBuildCacheBundle, workspaceId: string, signal?: AbortSignal): Promise<Omit<ContextBundle, "cache" | "contextFingerprintLocation">> {
+    const connectedSkills = [];
+    for (const skill of bundle.connectedSkills) {
+      throwIfAborted(signal);
+      const source = await this.#dependencies.files.read(workspaceId, skill.relativePath, signal);
+      if (source.entry.checksum !== skill.skillDigest) {
+        throw new AbcmError("DOMAIN_LANGUAGE_BOOTSTRAP_STALE", `Skill '${skill.skillId}' changed after cache publication.`);
+      }
+      const { relativePath: _relativePath, ...metadata } = skill;
+      connectedSkills.push({
+        ...metadata,
+        body: new TextDecoder().decode(source.content),
+      });
+    }
     const selectedDocuments: SelectedContextDocument[] = [];
     for (const document of bundle.selectedDocuments) {
       throwIfAborted(signal);
@@ -535,7 +555,7 @@ export class ContextBuilder {
       }
       selectedDocuments.push({ ...document, projection });
     }
-    return { ...bundle, selectedDocuments, connectedSkills: [] };
+    return { ...bundle, selectedDocuments, connectedSkills };
   }
 
   #collect(
