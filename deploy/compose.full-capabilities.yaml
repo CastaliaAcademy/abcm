@@ -1,0 +1,27 @@
+name: abcm
+
+# Operator-selected inputs. Both host paths must already exist. The documentation
+# source must be separate from every managed workspace and is mounted read-only.
+
+services:
+  rest:
+    environment:
+      ABCM_CONTEXT_LINK_GRAPH_STATE_ROOT: /state/link-graph
+      ABCM_BUSINESS_EVALUATION_PROFILES: /config/business-evaluation-profiles.yaml
+      ABCM_BUSINESS_EVALUATION_WORKER_TOKEN: ${ABCM_BUSINESS_EVALUATION_WORKER_TOKEN:?required}
+      ABCM_BUSINESS_EVALUATION_TASK_STATE_ROOT: /state/task-success
+      ABCM_DOCUMENTATION_SOURCES: >-
+        [{"id":"${ABCM_DOCUMENTATION_SOURCE_ID:-operator-selected}","workspaceId":"${ABCM_DOCUMENTATION_WORKSPACE_ID:-castalia-public}","root":"/documentation-sources/operator-selected","targetBasePath":"${ABCM_DOCUMENTATION_TARGET_BASE_PATH:-abcm/artifacts/imports/operator-selected}"}]
+    volumes:
+      - type: bind
+        source: ${ABCM_BUSINESS_EVALUATION_PROFILES_PATH:?required}
+        target: /config/business-evaluation-profiles.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ABCM_DOCUMENTATION_SOURCE_PATH:?required}
+        target: /documentation-sources/operator-selected
+        read_only: true
+        bind:
+          create_host_path: false

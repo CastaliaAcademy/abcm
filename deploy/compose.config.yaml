@@ -2,7 +2,7 @@ name: abcm
 
 services:
   state-init:
-    image: abcm-mcp-server:0.1.0
+    image: abcm-mcp-server:0.1.1
     user: "0:0"
     command: [chown, -R, bun:bun, /state]
     volumes:

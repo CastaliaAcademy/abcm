@@ -194,6 +194,7 @@ export { AbcmError } from "./core/errors.js";
 export {
   ABCM_MCP_CONTRACT_VERSION,
   ABCM_MCP_PROTOCOL_VERSIONS,
+  ABCM_RUNTIME_VERSION,
   ABCM_SERVER_INFO,
   ABCM_SPEC_VERSION,
 } from "./core/server-info.js";

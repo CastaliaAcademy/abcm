@@ -1,0 +1,173 @@
+profiles:
+  - schemaVersion: abcm.eval.execution-profile/v1
+    id: castalia-public-link-graph-retrieval-v1
+    version: 1.0.0
+    status: qualification
+    workspaceId: castalia-public
+    phase: retrieval
+    dataset:
+      schemaVersion: abcm.eval.business.v1
+      id: castalia-public-link-graph-dataset-v1
+      title: Castalia public link graph retrieval qualification
+      status: qualification
+      language: ru
+      ownerScope: abcm
+      sourceBaseline:
+        path: abcm/artifacts/plans/PLAN-0033/plan.md
+        sourceCommit: e67d9e31164e343ce5ad11cac2ecd0e791df0e66
+        sourceChecksum: sha256:26925d10ebbf596dfce692131fd12098a93541c44cbcaef75509b8de938d88c3
+      metrics:
+        mandatoryRecall: known gold
+        precision: known gold
+        tokenReduction: relative to V0
+      proposedGates:
+        source: PLAN-0031
+      scenarios:
+        - id: BIZ-PUBLISH-001
+          title: Найти нормативный план типизированного графа ссылок
+          fixture: castalia-public-abcm
+          when: Агенту нужен контракт link graph и интерактивной сборки контекста
+          then: [Выбран PLAN-0033]
+    fixtures:
+      schemaVersion: abcm.eval.fixtures.v1
+      id: castalia-public-link-graph-fixtures-v1
+      title: Canonical Castalia public ABCM workspace
+      status: qualification
+      language: ru
+      ownerScope: abcm
+      reproducibility:
+        pin: [workspace snapshot, profile version, runtime version]
+        rawEvidence: [body-free receipt]
+      real:
+        - id: castalia-public-abcm
+          title: Canonical ABCM project
+          sourceCommit: e67d9e31164e343ce5ad11cac2ecd0e791df0e66
+          goldCount: 1
+      synthetic: []
+      adversarial: []
+    repetitions: 2
+    blindSeedDigest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+    baselineIdentityDigest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+    executionEnvironmentDigest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+    measurementWindowDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    gatePolicy:
+      mandatoryRecallMin: 1
+      precisionMin: 0.8
+      relevantTokenRatioMin: 0.7
+      taskSuccessRateMaxDegradationVsV0: 0.02
+      deterministicBundleRateMin: 1
+      stableErrorClassificationRateMin: 1
+      unauthorizedLeakageMax: 0
+      tokenReductionMin: 0.25
+      costPerSuccessfulTaskReductionMin: 0.2
+      requiredFallbackModes: [direct-search, explicit-documents, bounded-resource-read, explainable-preview]
+    scenarios:
+      - scenarioId: BIZ-PUBLISH-001
+        directSearch:
+          queryTerms: [PLAN-0033, link, graph, контекст]
+          allowedPathPrefixes: [abcm/artifacts/plans/PLAN-0033]
+          includeExtensions: [.md]
+        context:
+          projectId: abcm
+          roleId: verification-agent
+          taskType: audit
+          goal: Найти нормативный контракт типизированного графа ссылок и интерактивной сборки контекста.
+          keywords: [link, graph, контекст]
+          exactScopeIds: [abcm]
+          budgetProfile: expanded
+        goldDocumentIds: [PLAN-0033]
+        mandatoryDocumentIds: [PLAN-0033]
+        goldClaims:
+          - id: typed-link-graph
+            allTerms: [типизированный, link graph]
+          - id: context-builder-finalization
+            allTerms: [ContextBuilder]
+        forbiddenMarkers: [FOREIGN_SECRET_MARKER]
+
+  - schemaVersion: abcm.eval.execution-profile/v1
+    id: castalia-public-link-graph-task-success-v1
+    version: 1.0.0
+    status: qualification
+    workspaceId: castalia-public
+    phase: task-success
+    taskSuccess:
+      workerPoolId: castalia-public-dev-workers
+      modelIdentityDigest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+      judgeRubricDigest: sha256:6666666666666666666666666666666666666666666666666666666666666666
+      judgeIdentityClass: blind-programmatic
+    dataset:
+      schemaVersion: abcm.eval.business.v1
+      id: castalia-public-link-graph-task-success-dataset-v1
+      title: Castalia public link graph task-success qualification
+      status: qualification
+      language: ru
+      ownerScope: abcm
+      sourceBaseline:
+        path: abcm/artifacts/plans/PLAN-0033/plan.md
+        sourceCommit: e67d9e31164e343ce5ad11cac2ecd0e791df0e66
+        sourceChecksum: sha256:26925d10ebbf596dfce692131fd12098a93541c44cbcaef75509b8de938d88c3
+      metrics:
+        taskSuccess: blind worker verdict
+      proposedGates:
+        source: PLAN-0031
+      scenarios:
+        - id: BIZ-PUBLISH-TS-001
+          title: Проверить пригодность контекста PLAN-0033 для ответа агента
+          fixture: castalia-public-abcm
+          when: Внешний worker получает слепое задание
+          then: [Возвращён body-free verdict]
+    fixtures:
+      schemaVersion: abcm.eval.fixtures.v1
+      id: castalia-public-link-graph-task-success-fixtures-v1
+      title: Canonical Castalia public ABCM workspace
+      status: qualification
+      language: ru
+      ownerScope: abcm
+      reproducibility:
+        pin: [workspace snapshot, profile version, runtime version]
+        rawEvidence: [body-free receipt]
+      real:
+        - id: castalia-public-abcm
+          title: Canonical ABCM project
+          sourceCommit: e67d9e31164e343ce5ad11cac2ecd0e791df0e66
+          goldCount: 1
+      synthetic: []
+      adversarial: []
+    repetitions: 1
+    blindSeedDigest: sha256:7777777777777777777777777777777777777777777777777777777777777777
+    baselineIdentityDigest: sha256:8888888888888888888888888888888888888888888888888888888888888888
+    executionEnvironmentDigest: sha256:9999999999999999999999999999999999999999999999999999999999999999
+    measurementWindowDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    gatePolicy:
+      mandatoryRecallMin: 1
+      precisionMin: 0.8
+      relevantTokenRatioMin: 0.7
+      taskSuccessRateMaxDegradationVsV0: 0.02
+      deterministicBundleRateMin: 1
+      stableErrorClassificationRateMin: 1
+      unauthorizedLeakageMax: 0
+      tokenReductionMin: 0.25
+      costPerSuccessfulTaskReductionMin: 0.2
+      requiredFallbackModes: [direct-search, explicit-documents, bounded-resource-read, explainable-preview]
+    scenarios:
+      - scenarioId: BIZ-PUBLISH-TS-001
+        directSearch:
+          queryTerms: [PLAN-0033, link, graph, контекст]
+          allowedPathPrefixes: [abcm/artifacts/plans/PLAN-0033]
+          includeExtensions: [.md]
+        context:
+          projectId: abcm
+          roleId: verification-agent
+          taskType: audit
+          goal: Объяснить контракт типизированного графа ссылок и границы его безопасной эксплуатации.
+          keywords: [link, graph, контекст]
+          exactScopeIds: [abcm]
+          budgetProfile: expanded
+        goldDocumentIds: [PLAN-0033]
+        mandatoryDocumentIds: [PLAN-0033]
+        goldClaims:
+          - id: typed-link-graph
+            allTerms: [типизированный, link graph]
+          - id: context-builder-finalization
+            allTerms: [ContextBuilder]
+        forbiddenMarkers: [FOREIGN_SECRET_MARKER]
