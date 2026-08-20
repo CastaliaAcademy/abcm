@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { CANONICAL_PLAN_0033_PATHS, CANONICAL_REMOTE_EVIDENCE_PATHS } from "../scripts/documentation-contract-paths.js";
+import { CANONICAL_PLAN_0033_PATHS, CANONICAL_PLAN_0034_PATHS, CANONICAL_PLAN_0035_PATHS, CANONICAL_REMOTE_EVIDENCE_PATHS } from "../scripts/documentation-contract-paths.js";
 
 describe("canonical remote documentation evidence", () => {
   test("business dataset, fixtures, baseline, protocol and recommendations remain in the pinned export", () => {
@@ -15,6 +15,17 @@ describe("canonical remote documentation evidence", () => {
     expect(new Set(CANONICAL_REMOTE_EVIDENCE_PATHS).size).toBe(CANONICAL_REMOTE_EVIDENCE_PATHS.length);
   });
 
+  test("PLAN-0034 specification, plan, verification, traceability and evidence stay in the pinned export", () => {
+    expect(CANONICAL_PLAN_0034_PATHS).toEqual([
+      "docs/spec/extensions/link-packages-artifact-amendments-v0.1.yaml",
+      "artifacts/plans/PLAN-0034/plan.md",
+      "artifacts/plans/PLAN-0034/verification-plan.md",
+      "artifacts/plans/PLAN-0034/traceability.yaml",
+      "artifacts/plans/PLAN-0034/evidence/implementation.md",
+    ]);
+    expect(new Set(CANONICAL_PLAN_0034_PATHS).size).toBe(CANONICAL_PLAN_0034_PATHS.length);
+  });
+
   test("PLAN-0033 specification, plan, verification, traceability and evidence stay in the pinned export", () => {
     expect(CANONICAL_PLAN_0033_PATHS).toEqual([
       "docs/spec/extensions/interactive-link-graph-context-v0.1.yaml",
@@ -24,6 +35,17 @@ describe("canonical remote documentation evidence", () => {
       "artifacts/plans/PLAN-0033/evidence/implementation.md",
     ]);
     expect(new Set(CANONICAL_PLAN_0033_PATHS).size).toBe(CANONICAL_PLAN_0033_PATHS.length);
+  });
+
+  test("PLAN-0035 specification, plan, verification, traceability and evidence stay in the pinned export", () => {
+    expect(CANONICAL_PLAN_0035_PATHS).toEqual([
+      "docs/spec/extensions/tag-derived-link-packages-and-operator-amendments-v0.1.yaml",
+      "artifacts/plans/PLAN-0035/plan.md",
+      "artifacts/plans/PLAN-0035/verification-plan.md",
+      "artifacts/plans/PLAN-0035/traceability.yaml",
+      "artifacts/plans/PLAN-0035/evidence/implementation.md",
+    ]);
+    expect(new Set(CANONICAL_PLAN_0035_PATHS).size).toBe(CANONICAL_PLAN_0035_PATHS.length);
   });
 
   test("sync tooling keeps normative plan evidence and threat controls in the canonical layout", async () => {
@@ -47,6 +69,8 @@ describe("canonical remote documentation evidence", () => {
       expect(source).toContain(`[\"${path}\"`);
     }
     expect(source).toContain("CANONICAL_PLAN_0033_PATHS");
+    expect(source).toContain("CANONICAL_PLAN_0034_PATHS");
+    expect(source).toContain("CANONICAL_PLAN_0035_PATHS");
     expect(source).toContain('["docs/security/threat-model.md"');
   });
 });

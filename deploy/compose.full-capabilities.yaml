@@ -1,27 +1,25 @@
 name: abcm
 
-# Operator-selected inputs. Both host paths must already exist. The documentation
-# source must be separate from every managed workspace and is mounted read-only.
+# Operator-selected documentation directories for public and private workspaces.
 
 services:
   rest:
     environment:
       ABCM_CONTEXT_LINK_GRAPH_STATE_ROOT: /state/link-graph
-      ABCM_BUSINESS_EVALUATION_PROFILES: /config/business-evaluation-profiles.yaml
-      ABCM_BUSINESS_EVALUATION_WORKER_TOKEN: ${ABCM_BUSINESS_EVALUATION_WORKER_TOKEN:?required}
-      ABCM_BUSINESS_EVALUATION_TASK_STATE_ROOT: /state/task-success
       ABCM_DOCUMENTATION_SOURCES: >-
-        [{"id":"${ABCM_DOCUMENTATION_SOURCE_ID:-operator-selected}","workspaceId":"${ABCM_DOCUMENTATION_WORKSPACE_ID:-castalia-public}","root":"/documentation-sources/operator-selected","targetBasePath":"${ABCM_DOCUMENTATION_TARGET_BASE_PATH:-abcm/artifacts/imports/operator-selected}"}]
+        [{"id":"castalia-public-import","workspaceId":"castalia-public","root":"/documentation-sources/public","targetBasePath":"abcm/artifacts/imports/operator-selected"},{"id":"castalia-private-backend-docs","workspaceId":"castalia-private-backend","root":"/documentation-sources/private-backend","targetBasePath":"artifacts/imports/operator-selected"}]
+      ABCM_ARTIFACT_AMENDMENT_OPERATOR_TOKEN: ${ABCM_ARTIFACT_AMENDMENT_OPERATOR_TOKEN:?required}
+      ABCM_ARTIFACT_AMENDMENT_OPERATOR_IDENTITY: ${ABCM_ARTIFACT_AMENDMENT_OPERATOR_IDENTITY:-release-operator}
     volumes:
       - type: bind
-        source: ${ABCM_BUSINESS_EVALUATION_PROFILES_PATH:?required}
-        target: /config/business-evaluation-profiles.yaml
+        source: ${ABCM_DOCUMENTATION_PUBLIC_SOURCE_PATH:?required}
+        target: /documentation-sources/public
         read_only: true
         bind:
           create_host_path: false
       - type: bind
-        source: ${ABCM_DOCUMENTATION_SOURCE_PATH:?required}
-        target: /documentation-sources/operator-selected
+        source: ${ABCM_DOCUMENTATION_PRIVATE_SOURCE_PATH:?required}
+        target: /documentation-sources/private-backend
         read_only: true
         bind:
           create_host_path: false

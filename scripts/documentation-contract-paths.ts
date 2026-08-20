@@ -14,3 +14,19 @@ export const CANONICAL_PLAN_0033_PATHS = Object.freeze([
   "artifacts/plans/PLAN-0033/traceability.yaml",
   "artifacts/plans/PLAN-0033/evidence/implementation.md",
 ] as const);
+
+export const CANONICAL_PLAN_0034_PATHS = Object.freeze([
+  "docs/spec/extensions/link-packages-artifact-amendments-v0.1.yaml",
+  "artifacts/plans/PLAN-0034/plan.md",
+  "artifacts/plans/PLAN-0034/verification-plan.md",
+  "artifacts/plans/PLAN-0034/traceability.yaml",
+  "artifacts/plans/PLAN-0034/evidence/implementation.md",
+] as const);
+
+export const CANONICAL_PLAN_0035_PATHS = Object.freeze([
+  "docs/spec/extensions/tag-derived-link-packages-and-operator-amendments-v0.1.yaml",
+  "artifacts/plans/PLAN-0035/plan.md",
+  "artifacts/plans/PLAN-0035/verification-plan.md",
+  "artifacts/plans/PLAN-0035/traceability.yaml",
+  "artifacts/plans/PLAN-0035/evidence/implementation.md",
+] as const);

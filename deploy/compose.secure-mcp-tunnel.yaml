@@ -1,0 +1,19 @@
+name: abcm
+
+# Optional local Secure MCP Tunnel integration. Create the external network once
+# with `docker network create abcm-runtime`, then include this overlay whenever
+# the REST service is created or replaced.
+
+services:
+  rest:
+    environment:
+      ABCM_MCP_ALLOWED_HOSTNAMES: ${ABCM_MCP_ALLOWED_HOSTNAMES:-localhost,127.0.0.1,[::1],abcm-local}
+    networks:
+      default: {}
+      tunnel:
+        aliases: [abcm-local]
+
+networks:
+  tunnel:
+    external: true
+    name: ${ABCM_TUNNEL_NETWORK_NAME:-abcm-runtime}

@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, readdir, realpath, rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { stringify } from "yaml";
 
@@ -130,14 +130,29 @@ export class WorkspaceProvisioningService {
   }
 }
 
-export async function discoverManagedWorkspaces(storeRootInput: string): Promise<WorkspaceDefinition[]> {
+async function canonicalRoot(path: string): Promise<string> {
+  const resolved = resolve(path);
+  try {
+    return await realpath(resolved);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return resolved;
+    throw error;
+  }
+}
+
+export async function discoverManagedWorkspaces(
+  storeRootInput: string,
+  excludedWorkspaceRoots: readonly string[] = [],
+): Promise<WorkspaceDefinition[]> {
   const storeRoot = resolve(storeRootInput);
+  const excludedRoots = new Set(await Promise.all(excludedWorkspaceRoots.map(canonicalRoot)));
   await mkdir(storeRoot, { recursive: true });
   const entries = await readdir(storeRoot, { withFileTypes: true });
   const definitions: WorkspaceDefinition[] = [];
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (!entry.isDirectory() || !WORKSPACE_ID.test(entry.name)) continue;
     const root = resolve(storeRoot, entry.name);
+    if (excludedRoots.has(await canonicalRoot(root))) continue;
     try {
       if (!(await stat(resolve(root, "scope.yaml"))).isFile()) continue;
     } catch (error) {

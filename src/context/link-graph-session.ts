@@ -549,6 +549,14 @@ export class ContextLinkGraphSessionService {
       ) continue;
       candidates.add(edge.toDocumentId);
     }
+    if (allowedTypes === undefined || allowedTypes.has("tag")) {
+      for (const tagPackage of revision.linkGraph.tagPackages ?? []) {
+        if (!tagPackage.documentIds.some(documentId => from.has(documentId))) continue;
+        for (const documentId of tagPackage.documentIds) {
+          if (!from.has(documentId) && accessible.has(documentId)) candidates.add(documentId);
+        }
+      }
+    }
     return new Set(sorted(candidates).slice(0, this.#maxCandidates));
   }
 
@@ -572,7 +580,7 @@ export class ContextLinkGraphSessionService {
     const candidates = sorted(session.candidates).map(documentId => {
       const document = revision.documents.find(candidate => candidate.documentId === documentId)!;
       const file = revision.files.find(candidate => candidate.relativePath === document.relativePath);
-      const via = revision.linkGraph.edges
+      const edgeVia = revision.linkGraph.edges
         .filter(edge => edge.status === "resolved" && edge.toDocumentId === documentId && (
           session.seedDocumentIds.includes(edge.fromDocumentId) ||
           session.candidates.has(edge.fromDocumentId) ||
@@ -580,6 +588,17 @@ export class ContextLinkGraphSessionService {
         ))
         .map(edge => ({ edgeId: edge.edgeId, edgeType: edge.type, fromDocumentId: edge.fromDocumentId }))
         .sort((left, right) => left.edgeId.localeCompare(right.edgeId));
+      const visible = new Set([...session.seedDocumentIds, ...session.candidates, ...session.confirmed]);
+      const tagVia = (revision.linkGraph.tagPackages ?? []).flatMap(tagPackage => {
+        if (!tagPackage.documentIds.includes(documentId)) return [];
+        const fromDocumentId = tagPackage.documentIds.find(candidate => candidate !== documentId && visible.has(candidate));
+        return fromDocumentId === undefined ? [] : [{
+          edgeId: `tag:${tagPackage.packageId}:${fromDocumentId}:${documentId}`,
+          edgeType: "tag" as const,
+          fromDocumentId,
+        }];
+      });
+      const via = [...edgeVia, ...tagVia].sort((left, right) => left.edgeId.localeCompare(right.edgeId));
       return {
         documentId: document.documentId,
         kind: document.kind,

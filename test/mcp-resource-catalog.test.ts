@@ -42,6 +42,15 @@ async function fixture(access?: ScopeMapAccess) {
   await addDocument(root, "commerce/catalog/architecture/catalog.md", "catalog-architecture", "architecture", "architecture body");
   await addDocument(root, "commerce/catalog/search/artifacts/search.md", "search-guide", "guide", "search guide body");
   await addDocument(root, "commerce/billing/artifacts/secret.md", "billing-secret", "guide", "must stay hidden");
+  await mkdir(join(root, "commerce/catalog/artifacts/adr"), { recursive: true });
+  await writeFile(
+    join(root, "commerce/catalog/artifacts/adr/ADR-CATALOG-V1.md"),
+    "---\nid: ADR-CATALOG-V1\nkind: adr\ntitle: Catalog decision v1\nstatus: accepted\nlineageId: catalog-decision\n---\nimmutable v1 body\n",
+  );
+  await writeFile(
+    join(root, "commerce/catalog/artifacts/adr/ADR-CATALOG-V2.md"),
+    "---\nid: ADR-CATALOG-V2\nkind: adr\ntitle: Catalog decision v2\nstatus: accepted\nlineageId: catalog-decision\nsupersedes: ADR-CATALOG-V1\n---\ncurrent v2 body\n",
+  );
   await mkdir(join(root, "commerce/catalog/agents/skills/catalog-helper"), { recursive: true });
   await writeFile(
     join(root, "commerce/catalog/agents/skills/catalog-helper/SKILL.md"),
@@ -97,7 +106,10 @@ describe("MCP resource catalog", () => {
       expect(listed.nextCursor).toBeUndefined();
       expect(listed.resources.map(resource => resource.uri)).toEqual([
         "abcm://architecture/catalog-architecture",
+        "abcm://artifact/ADR-CATALOG-V1",
+        "abcm://artifact/ADR-CATALOG-V2",
         "abcm://artifact/search-guide",
+        "abcm://lineage/catalog-decision",
         "abcm://map",
         "abcm://map/catalog",
         "abcm://map/commerce",
@@ -114,6 +126,7 @@ describe("MCP resource catalog", () => {
       expect(templates.resourceTemplates.map(template => template.uriTemplate)).toEqual([
         "abcm://architecture/{documentId}",
         "abcm://artifact/{documentId}",
+        "abcm://lineage/{lineageId}",
         "abcm://map/{scopeId}",
         "abcm://plan/{documentId}",
         "abcm://skill/{skillId}",
@@ -132,6 +145,9 @@ describe("MCP resource catalog", () => {
         ["abcm://plan/catalog-plan", "catalog plan body"],
         ["abcm://architecture/catalog-architecture", "architecture body"],
         ["abcm://artifact/search-guide", "search guide body"],
+        ["abcm://artifact/ADR-CATALOG-V1", "immutable v1 body"],
+        ["abcm://artifact/ADR-CATALOG-V2", "current v2 body"],
+        ["abcm://lineage/catalog-decision", "current v2 body"],
         ["abcm://skill/catalog-helper", "# Catalog helper"],
       ] as const) {
         const result = await client.readResource({ uri });

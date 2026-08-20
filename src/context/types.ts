@@ -10,6 +10,7 @@ export type SelectionReason =
   | "path_exact"
   | "path_prefix"
   | "skill_required"
+  | "link_package_optional"
   | "target_scope"
   | "related_scope"
   | "domain_or_entity_match"
@@ -53,6 +54,8 @@ export interface BuildTaskContextRequest {
   requestedSkillIds?: readonly string[];
   explicitDocumentLinks?: readonly string[];
   explicitDocuments?: readonly ExplicitDocumentReference[];
+  /** Internal consumer-side binding supplied only after a tag-derived LinkPackage has been validated. */
+  linkPackageDocuments?: readonly { documentId: string; mandatory: boolean }[];
   approvalId?: string;
   execution?: ContextExecutionBinding;
 }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.18.2" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.20.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
@@ -39,10 +39,11 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 - Типизированный граф ссылок (Typed link graph): body-free индекс wiki links, embeds, ссылок на заголовки и блоки, frontmatter-связей и backlinks. Узлы закреплены за documentId; неоднозначные, битые и циклические связи диагностируются детерминированно.
 - PlantUML source: инертный типизированный исполняемый ресурс из architecture/plantuml/<category>/*.puml. ABCM проверяет envelope и безопасные локальные include, фиксирует dependency closure, но не исполняет и не рендерит диаграмму.
 - Контекстный пакет (Context bundle): неизменяемая ограниченная бюджетом выборка для одной задачи, роли, цели и ревизии карты.
+- Пакет ссылок (LinkPackage): виртуальная проекция текущей ScopeMap для одного нормализованного тега. Теги берутся из Markdown frontmatter tags и явных inline-тегов #tag; создание, изменение, перемещение и удаление файлов автоматически меняет пакет при следующей индексации. packageId стабилен для workspace и тега, а packageDigest фиксирует текущий упорядоченный набор documentId. Пакет не является отдельной записью, не публикуется и не передаёт права: при каждом build сервер проверяет workspace запроса и повторно авторизует каждый документ для текущего principal. Cross-workspace ссылки запрещены.
+- Lineage нормативного артефакта: artifactId обозначает точную неизменяемую редакцию ADR/RFC, lineageId — цепочку редакций. abcm://artifact/<artifactId> никогда не переопределяется, включая superseded revision; abcm://lineage/<lineageId> разрешается в единственную current accepted head только внутри активной MapRevision.
+- Amendment: единственный путь изменить нормативный смысл или relations принятого ADR/RFC. Draft объявляет lineageId, amends, baseArtifactId, baseChecksum и expectedLineageHead. Preview связывает draft checksum, base checksum, head и MapRevision. Затем отдельная operator identity через защищённый REST-маршрут выпускает короткоживущий одноразовый approvalReceiptId; агент не может сам сформировать receipt. Acceptance атомарно резервирует receipt, создаёт новую accepted revision с supersedes и не изменяет байты предыдущего файла. Два конкурирующих amendment не могут одновременно стать head.
 - Cache контекста: производное versioned-представление, ключ которого включает principal/access digest, MapRevision, проект, запрос, budget и версии selection/projection policy. Состояние hit, miss или stale является наблюдаемым и не меняет bundleDigest.
-- Business-eval profile: версионированный операторский профиль на сервере, который связывает workspace, запросы, fixtures, gold-набор, V0–V5 и пороги. Агент может выбрать только зарегистрированный profileId и не может передать серверу manifest, абсолютный путь или исполняемый код.
-- Business-eval run: серверное исполнение зарегистрированного профиля для вариантов V0–V5. Оно сохраняет неизменяемый receipt без тел документов, но само по себе не доказывает качество продукта без пройденных relevance, fallback, determinism, isolation и task-success gates.
-- Task-success worker: отдельный процесс, который получает слепое задание и уже собранный ABCM контекст, вызывает закреплённую языковую модель и возвращает только контрольные суммы, вердикт и числовые показатели. Ключ модели, полный ответ и номер варианта не хранятся в ABCM receipt; после перезапуска восстанавливаются только безтекстовые завершённые результаты, а контекст формируется заново из закреплённого снимка.
+- Автономная оценка качества: репозиторий ABCM может содержать тестовые datasets, fixtures и локальные/Docker benchmark runners для разработки самого фреймворка. Они не являются возможностями рабочего сервера, не принимают пользовательскую обратную связь через MCP/REST и не сохраняют централизованные оценки агентов или пакетов.
 - Навык (Skill): повторно используемая процедура с объявленными требованиями к контексту. Навык дополняет рабочий процесс, но не может отменять инструкции рабочего пространства или границы доступа.
 - План (Plan): контракт разработки с трассировкой требований. Планы фич, планы проверки, доказательства и записи трассировки хранятся вместе с ним.
 - Источник документации (Documentation source): внешний каталог, например хранилище Obsidian, который можно предварительно сравнить, синхронизировать и явно перевести под управление ABCM.
@@ -337,16 +338,7 @@ REST использует POST /v1/context/link-graph/sessions, GET состоя
 11. Проверьте status, replayed, каждый элемент results, warnings, mapRevisionBefore и mapRevisionAfter. Ошибка валидации или commit откатывает весь пакет.
 12. Для одиночной мутации выполните повторное сканирование либо дождитесь фонового reconcile. Успешный batch_apply выполняет один reconcile сам; ревизия может остаться прежней, если изменённый файл не влияет на входы ScopeMap.
 13. Выполните план проверки фичи и сохраните доказательства. Запрещено заявлять о проверках, которые не выполнялись.
-14. Если сервер предоставляет outcome API, после фактической проверки зарегистрируйте отдельный context.record_outcome для каждого repeat. Укажите fingerprintId, тот же runId, rubric/model/evidence digests, usage и стоимость; не помещайте в receipt тела документов или полный output задачи.
-15. Если выбранный документ оказался полезным, шумным или обязательным, можно создать context.propose_feedback. Указывайте только documentId из собственного ContextFingerprint и rationaleDigest. Ответ всегда имеет status=proposed: он не меняет active ranking или dataset без regression gates и отдельного решения оператора.
-16. Если сервер предоставляет business-eval API, сначала вызовите context.list_business_evaluation_profiles, затем передайте в context.run_business_evaluation только profileId. Dataset, fixtures, gold, workspace snapshot, access, request set, baseline, selection/cache/projection policies, budget и measurement window закрепляет сервер. V0 является baseline; V3 обязан фиксировать cold cache, V4 — warm cache. Проверяйте variantAggregates: V1/V2 являются диагностическими сравнениями, а эффективность V3–V5 вычисляется только после correctness, quality и fallback gates. Получайте историю через context.list_business_evaluations.
-17. Для task-success профиля вызовите context.start_task_success_evaluation и проверяйте состояние через context.get_task_success_evaluation. Внешний worker использует отдельный ключ и REST claim/submit; агенту запрещено запрашивать или передавать этот ключ. Worker не должен видеть variant или gold и не может отправлять в ABCM полный model output. Повторный запуск той же закреплённой identity идемпотентен.
-
-Правильный запуск retrieval-оценки:
-
-    context.run_business_evaluation({ profileId: "docker-known-data-server-owned-v1" })
-
-Контрпример: передать dataset, fixtures, абсолютный путь к corpus или команду запуска. Общая схема обязана отклонить такой запрос; сервер исполняет только заранее зарегистрированные профили.
+14. Не отправляйте в ABCM субъективные оценки полезности, ответы модели или централизованную обратную связь по пакету: сервер не предоставляет таких MCP/REST-операций и не хранит эти данные. Проверку качества фреймворка разработчики запускают отдельно на версионированных fixtures.
 
 Правильная замена через MCP:
 
@@ -505,8 +497,8 @@ REST-эквиваленты:
 - POST /v1/context/build-task-context: неизменяемый контекст задачи.
 - Маршруты /v1/context/link-graph/sessions: body-free интерактивный отбор, sequenced steps, новый одноразовый WebSocket ticket и финализация через ContextBuilder.
 - WebSocket /v1/context/link-graph/ws: только step-транспорт; bearer не передаётся в URL, авторизация соединения выполняется одноразовыми subprotocol tickets.
-- POST и GET /v1/context/outcomes: регистрация и чтение неизменяемых body-free outcome receipts, связанных с ContextFingerprint.
-- POST и GET /v1/context/feedback: создание и чтение body-free proposal для ranking-policy или dataset; active policy не изменяется.
+- GET /v1/context/link-packages: список или чтение виртуальных tag-derived LinkPackage; POST /v1/context/link-packages/build: построение контекста с повторной авторизацией.
+- POST /v1/operator/artifact-amendment-approvals: отдельный операторский маршрут выдачи одноразового approval receipt; обычный agent bearer к нему не подходит.
 - Маршруты preview, apply, sync и cutover документации: управляемый жизненный цикл внешних документов.
 - GET /openapi.json: точный машиночитаемый контракт.
 
@@ -527,12 +519,19 @@ REST-эквиваленты:
 - context.start_link_graph_session, get_link_graph_session, step_link_graph_session: body-free интерактивный frontier с pinned revision, sequence и state digest.
 - context.issue_link_graph_ticket: новый короткоживущий одноразовый ticket для WebSocket reconnect; предыдущий ticket становится недействительным.
 - context.finalize_link_graph_session: финализация подтверждённых документов только через стандартный ContextBuilder.
-- context.record_outcome, context.list_outcomes: неизменяемые repeat verdict, usage и cost для собственного ContextFingerprint; повтор repeatId с другим verdict является конфликтом.
-- context.propose_feedback, context.list_feedback: immutable proposal для useful/noise/required документа из собственного ContextFingerprint; операция не активирует новую ranking policy.
-- context.list_business_evaluation_profiles, context.run_business_evaluation, context.list_business_evaluations: server-owned retrieval benchmark без передачи dataset или corpus агентом.
-- context.start_task_success_evaluation, context.get_task_success_evaluation: запуск и чтение body-free task-success с отдельным внешним worker.
+- context.list_link_packages, context.get_link_package: перечислить или прочитать виртуальные пакеты текущей ScopeMap, автоматически сформированные из тегов документов.
+- context.build_from_link_package: проверить workspace пакета, повторно авторизовать consumer principal и построить ContextBundle через стандартный ContextBuilder.
+- artifact.preview_amendment, artifact.accept_amendment, artifact.get_lineage: проверить и принять новую immutable revision ADR/RFC либо прочитать current head и всю цепочку.
 - documentation_source.preview, apply, sync, cutover: импорт документации и передача владения, если эти операции настроены.
-- Ресурсы MCP предоставляют ограниченную карту и содержимое проекта; сначала обнаруживайте ресурсы, а не угадывайте URI.
+- Ресурсы MCP предоставляют ограниченную карту и содержимое проекта; сначала обнаруживайте ресурсы, а не угадывайте URI. Для нормативных решений различайте точный abcm://artifact/<artifactId> и revision-bound abcm://lineage/<lineageId>.
+
+Правильно: добавить одинаковый тег в frontmatter или текст связанных Markdown-файлов, дождаться новой ScopeMap, получить текущий LinkPackage по tag/packageId и построить контекст под собственными правами.
+
+Контрпример: пытаться создать или опубликовать LinkPackage как независимую сущность либо ожидать, что packageId откроет документы другого workspace. Пакет только отражает теги текущей карты и не предоставляет доступ.
+
+Правильно: создать новый draft ADR с baseChecksum и expectedLineageHead, получить amendment preview, попросить оператора выпустить одноразовый approvalReceiptId через отдельный REST boundary и затем принять новую редакцию.
+
+Контрпример: переписать принятый ADR на месте или направить abcm://artifact/старый-id на новую редакцию. Первое запрещено immutable guard, второе разрушает воспроизводимость.
 
 ## Obsidian и сетевые папки
 
@@ -557,7 +556,8 @@ REST-эквиваленты:
 - Стабильные ошибки ABCM являются данными контракта. Сообщите код, устраните причину и сохраните диагностические подробности.
 - Для MCP-ошибки используйте structuredContent.error_code как машиночитаемый код; JSON в текстовой части обязан содержать тот же code. Значения CONTEXT_DOCUMENT_NOT_FOUND, REQUIRED_CONTEXT_EXCEEDS_LIMIT и UNKNOWN_DOMAIN_TERM не должны заменяться общим INVALID_ARGUMENT.
 - Ошибка валидации означает неверную форму запроса. Ошибка доступа означает отсутствие разрешения. Ошибка готовности карты означает, что контекст запрещено выдумывать.
-- MCP initialize.serverInfo.version — версия пакета/сервера, а версия этой инструкции — версия эксплуатационного контракта. После изменения любой из них или серверной конфигурации переподключите connector/tunnel, заново получите tools/list и не используйте закэшированный manifest. Полный настроенный контур сервера 0.1.1 с инструкцией 1.18.2 содержит 42 операции; отсутствие условных business-evaluation, task-success или documentation-source операций означает, что оператор не включил соответствующую конфигурацию.
+- MCP initialize.serverInfo.version — версия пакета/сервера, а версия этой инструкции — версия эксплуатационного контракта. После изменения любой из них или серверной конфигурации переподключите connector/tunnel, заново получите tools/list и не используйте закэшированный manifest. Полный настроенный контур сервера 0.1.3 с инструкцией 1.20.0 содержит 39 операций; четыре documentation-source операции присутствуют только при настроенных оператором каталогах. Централизованные outcome, feedback, business-evaluation и task-success операции намеренно отсутствуют.
+- Текущий локальный dev-контур является single-version и не является production. После того как новый ABCM-контейнер получил healthy, прошёл runtime inspector и connector/tunnel был переподключён, агент ОБЯЗАН (MUST) удалить остановленные контейнеры предыдущей версии и её versioned image. Не удаляйте текущий контейнер/image, \`abcm-state\`, tunnel и отдельный benchmark image. Хранить предыдущий Docker runtime для rollback разрешено только после явного введения parallel-version или production deployment policy.
 - Запрещено заявлять об успешном развёртывании, синхронизации, миграции, тестировании или паритете документации без доказательств.
 - Итоговый отчёт ОБЯЗАН (MUST) разделять завершённую работу, выполненные проверки, пропущенные проверки, блокеры и невыполненные внешние действия.
 

@@ -33,10 +33,10 @@ const relationsConfigurationSchema = z
     }
   });
 
-type SupportedNamespace = "scope" | "artifact" | "plan" | "architecture";
+type SupportedNamespace = "scope" | "artifact" | "plan" | "architecture" | "lineage";
 type ParsedStableUri = { namespace: SupportedNamespace; stableId: string };
 
-const supportedUri = /^abcm:\/\/(scope|artifact|plan|architecture)\/([^/?#]+)$/;
+const supportedUri = /^abcm:\/\/(scope|artifact|plan|architecture|lineage)\/([^/?#]+)$/;
 const deferredUri = /^abcm:\/\/(role|skill)\/([^/?#]+)$/;
 
 function parseStableUri(value: string): ParsedStableUri | "deferred" | "invalid" {
@@ -46,7 +46,7 @@ function parseStableUri(value: string): ParsedStableUri | "deferred" | "invalid"
   return "invalid";
 }
 
-function documentMatchesNamespace(document: DocumentRecord, namespace: Exclude<SupportedNamespace, "scope">): boolean {
+function documentMatchesNamespace(document: DocumentRecord, namespace: Exclude<SupportedNamespace, "scope" | "lineage">): boolean {
   if (namespace === "plan") return document.kind === "plan";
   if (namespace === "architecture") return document.kind === "architecture";
   return document.kind !== "plan" && document.kind !== "architecture";
@@ -98,7 +98,15 @@ export async function indexExplicitRelations(
     const resolved =
       parsed.namespace === "scope"
         ? scopeIds.get(parsed.stableId)
-        : (() => {
+        : parsed.namespace === "lineage"
+          ? (() => {
+              const heads = documents.filter(document =>
+                document.lineageId === parsed.stableId &&
+                document.lifecycle.toLocaleLowerCase("en-US") === "accepted"
+              );
+              return heads.length === 1 ? heads[0]!.documentId : undefined;
+            })()
+          : (() => {
             const document = documentsById.get(parsed.stableId);
             return document !== undefined && documentMatchesNamespace(document, parsed.namespace) ? document.documentId : undefined;
           })();

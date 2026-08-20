@@ -17,6 +17,7 @@ import {
   resolveDocumentCandidates,
   type ScopeContentIndex,
 } from "./content-indexer.js";
+import { resolveArtifactLineages } from "./artifact-lineage.js";
 import { indexExplicitRelations } from "./explicit-relations.js";
 import {
   buildTypedLinkGraph,
@@ -94,9 +95,10 @@ function normalizedDigest(
   executableResources: readonly ExecutableResourceRecord[],
   skills: readonly SkillDescriptor[],
   linkGraph: TypedLinkGraph,
+  artifactLineages: NonNullable<MapRevision["artifactLineages"]>,
   diagnostics: readonly MapDiagnostic[],
 ): string {
-  const normalized = JSON.stringify({ nodes, relations, files, documents, executableResources, skills, linkGraph, diagnostics });
+  const normalized = JSON.stringify({ nodes, relations, files, documents, executableResources, skills, linkGraph, artifactLineages, diagnostics });
   return `sha256:${createHash("sha256").update(normalized).digest("hex")}`;
 }
 
@@ -319,7 +321,9 @@ export class ScopeMapService {
     files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     skills.sort((left, right) => `${left.skillId}/${left.sourceScopeId}`.localeCompare(`${right.skillId}/${right.sourceScopeId}`));
-    const documents = resolveDocumentCandidates(documentCandidates, diagnostics);
+    const resolvedDocuments = resolveDocumentCandidates(documentCandidates, diagnostics);
+    const lineage = resolveArtifactLineages(resolvedDocuments, diagnostics);
+    const documents = lineage.documents;
     const linkGraph = buildTypedLinkGraph(linkSources, documents, diagnostics);
     throwIfAborted(signal);
     const explicit = await indexExplicitRelations(workspace, nodes, documents, diagnostics);
@@ -335,7 +339,7 @@ export class ScopeMapService {
       ),
     );
     diagnostics.sort((left, right) => `${left.path}/${left.code}`.localeCompare(`${right.path}/${right.code}`));
-    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, skills, linkGraph, diagnostics);
+    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, skills, linkGraph, lineage.lineages, diagnostics);
     const revision: MapRevision = {
       revision: digest,
       digest,
@@ -347,6 +351,7 @@ export class ScopeMapService {
       executableResources,
       skills,
       linkGraph,
+      artifactLineages: lineage.lineages,
       diagnostics,
     };
     return revision;
@@ -467,7 +472,9 @@ export class ScopeMapService {
     files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     executableResources.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
     skills.sort((left, right) => `${left.skillId}/${left.sourceScopeId}`.localeCompare(`${right.skillId}/${right.sourceScopeId}`));
-    const documents = resolveDocumentCandidates(documentCandidates, diagnostics);
+    const resolvedDocuments = resolveDocumentCandidates(documentCandidates, diagnostics);
+    const lineage = resolveArtifactLineages(resolvedDocuments, diagnostics);
+    const documents = lineage.documents;
     const linkGraph = buildTypedLinkGraph(linkSources, documents, diagnostics);
 
     const relations = previous.relations.filter(
@@ -486,7 +493,7 @@ export class ScopeMapService {
       ),
     );
     diagnostics.sort((left, right) => `${left.path}/${left.code}`.localeCompare(`${right.path}/${right.code}`));
-    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, skills, linkGraph, diagnostics);
+    const digest = normalizedDigest(nodes, relations, files, documents, executableResources, skills, linkGraph, lineage.lineages, diagnostics);
     return {
       revision: digest,
       digest,
@@ -498,6 +505,7 @@ export class ScopeMapService {
       executableResources,
       skills,
       linkGraph,
+      artifactLineages: lineage.lineages,
       diagnostics,
     };
   }

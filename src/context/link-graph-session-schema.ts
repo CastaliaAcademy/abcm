@@ -6,7 +6,7 @@ const checksum = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 const sessionId = z.string().regex(/^graph-session-[a-f0-9]{24}$/);
 const documentId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/);
 const documentIds = z.array(documentId).max(256);
-const edgeType = z.enum(["wiki-link", "embed", "heading-reference", "block-reference", "domain-relation", "backlink"]);
+const edgeType = z.enum(["wiki-link", "embed", "heading-reference", "block-reference", "domain-relation", "tag", "backlink"]);
 const selectionReason = z.enum([
   "required_applicable",
   "operator_controlled_applicable",
@@ -16,6 +16,7 @@ const selectionReason = z.enum([
   "path_exact",
   "path_prefix",
   "skill_required",
+  "link_package_optional",
   "target_scope",
   "related_scope",
   "domain_or_entity_match",

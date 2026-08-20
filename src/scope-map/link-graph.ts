@@ -8,12 +8,13 @@ import type {
   LinkGraphHeading,
   LinkGraphNode,
   LinkGraphReference,
+  LinkGraphTagPackage,
   MapDiagnostic,
   TypedLinkGraph,
 } from "./types.js";
 
 export interface DocumentLinkDeclaration {
-  type: Exclude<LinkGraphEdgeType, "backlink">;
+  type: Exclude<LinkGraphEdgeType, "backlink" | "tag">;
   rawTarget: string;
   sourceLine: number;
   sourceKind: "body" | "frontmatter";
@@ -37,6 +38,29 @@ function sha256(value: unknown): string {
 
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values.map(value => value.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+}
+
+export function normalizeDocumentTag(value: string): string {
+  return value.normalize("NFKC").trim().replace(/^#+/, "").toLocaleLowerCase("en-US");
+}
+
+function tagPackages(documents: readonly DocumentRecord[]): LinkGraphTagPackage[] {
+  const members = new Map<string, Set<string>>();
+  for (const document of documents) {
+    for (const rawTag of document.tags ?? []) {
+      const tag = normalizeDocumentTag(rawTag);
+      if (tag === "") continue;
+      const current = members.get(tag) ?? new Set<string>();
+      current.add(document.documentId);
+      members.set(tag, current);
+    }
+  }
+  return [...members.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([tag, ids]) => {
+    const documentIds = [...ids].sort((left, right) => left.localeCompare(right));
+    const body = { tag, documentIds };
+    const digest = sha256(body);
+    return { packageId: `tag-package-${sha256({ tag }).slice(7, 31)}`, ...body, digest };
+  });
 }
 
 function headingAnchor(value: string): string {
@@ -313,7 +337,13 @@ export function buildTypedLinkGraph(
       message: `Document '${documentId}' participates in a resolved link cycle.`,
     });
   }
-  const normalized = { apiVersion: "abcm/link-graph/v1" as const, policyVersion: "v1" as const, nodes, edges };
+  const normalized = {
+    apiVersion: "abcm/link-graph/v1" as const,
+    policyVersion: "v1" as const,
+    nodes,
+    edges,
+    tagPackages: tagPackages(documents),
+  };
   return { ...normalized, digest: sha256(normalized) };
 }
 
@@ -331,7 +361,7 @@ export function linkSourcesFromGraph(graph: TypedLinkGraph | undefined): Documen
     declarations: graph.edges
       .filter(edge => edge.type !== "backlink" && edge.fromDocumentId === node.documentId)
       .map(edge => ({
-        type: edge.type as Exclude<LinkGraphEdgeType, "backlink">,
+        type: edge.type as Exclude<LinkGraphEdgeType, "backlink" | "tag">,
         rawTarget: edge.reference.rawTarget,
         sourceLine: edge.sourceLine,
         sourceKind: edge.sourceKind === "frontmatter" ? "frontmatter" as const : "body" as const,

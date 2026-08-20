@@ -33,9 +33,9 @@ docker compose \
 
 The selected directory is mounted read-only. It must not equal, contain, or be contained by the canonical workspace directory, including after symbolic links are resolved. Agents cannot provide or change this absolute path through REST or MCP; they operate only on the configured `sourceId`.
 
-With the default durable store enabled, outcome and feedback tools are available. Business-evaluation tools require an operator-owned profile; task-success additionally requires a separate worker token and state root. Documentation lifecycle tools appear only when the directory overlay is configured.
+Centralized outcome, feedback, business-evaluation, and task-success APIs are intentionally absent. ABCM does not collect package ratings or model outputs. Repository-local fixtures and Docker benchmark runners remain available to ABCM developers and do not persist data in the service. Documentation lifecycle tools appear only when operator-selected directories are configured.
 
-To publish the complete 42-tool runtime, use the full-capabilities overlay instead of the documentation-only overlay:
+To publish the complete 39-tool runtime, including documentation lifecycle for both managed workspaces, use the full-capabilities overlay instead of the documentation-only overlay:
 
 ```bash
 docker compose \
@@ -47,4 +47,24 @@ docker compose \
   up -d --build
 ```
 
-Set `ABCM_BUSINESS_EVALUATION_PROFILES_PATH`, `ABCM_BUSINESS_EVALUATION_WORKER_TOKEN`, and `ABCM_DOCUMENTATION_SOURCE_PATH` in an ignored operator-owned environment file. The repository includes a qualification-only Castalia profile at `deploy/castalia-public-evaluation-profiles.yaml`; it is not an approval to promote benchmark results. Restart a long-lived tunnel or connector after the runtime version or tool configuration changes so it performs a new MCP initialization and `tools/list`.
+When the local service is exposed through OpenAI Secure MCP Tunnel, create its shared Docker network once and include the tunnel overlay on every service replacement:
+
+```bash
+docker network create abcm-runtime
+docker compose \
+  --env-file .env.local \
+  --env-file .env.full-capabilities \
+  -f deploy/compose.config.yaml \
+  -f deploy/compose.service.yaml \
+  -f deploy/compose.full-capabilities.yaml \
+  -f deploy/compose.secure-mcp-tunnel.yaml \
+  up -d --build
+```
+
+The overlay keeps the REST container on the tunnel network under the internal name `abcm-local` and admits that hostname at the MCP Host boundary. Restart tunnel-client after the REST container becomes healthy. Omitting this overlay while replacing the service leaves ChatGPT discovery with a tunnel-side `502` or `Forbidden` response.
+
+Set `ABCM_DOCUMENTATION_PUBLIC_SOURCE_PATH`, `ABCM_DOCUMENTATION_PRIVATE_SOURCE_PATH`, and the separate `ABCM_ARTIFACT_AMENDMENT_OPERATOR_TOKEN` in an ignored operator-owned environment file. The operator token must differ from the agent API token. Restart a long-lived tunnel or connector after the runtime version or tool configuration changes so it performs a new MCP initialization and `tools/list`.
+
+Markdown tags are the source of link packages. Use frontmatter such as `tags: [architecture, control-plane]` or inline tags such as `#architecture`. On the next ScopeMap scan, ABCM exposes one virtual LinkPackage per normalized tag. File create, update, move, delete, batch apply, and documentation sync therefore update packages without a separate publish/rebase lifecycle. Package identifiers never grant access; every build is bound to its workspace and reauthorizes every selected document.
+
+This local environment is a single-version development runtime, not production. After the replacement container is healthy and `bun run runtime:inspect` succeeds, remove stopped containers and versioned images of the previous ABCM server iteration. Preserve the current container/image, `abcm-state`, the tunnel, and the separate `abcm-mcp-server:benchmark` image. A retained Docker rollback version requires an explicit future parallel-version or production policy.

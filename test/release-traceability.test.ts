@@ -2,9 +2,11 @@ import { expect, test } from "bun:test";
 
 import { isReleaseTraceabilityExtension, validateReleaseTraceability } from "../scripts/check-traceability.js";
 
-test("release traceability excludes proposed extensions", () => {
+test("release traceability excludes proposed, withdrawn and superseded extensions", () => {
   expect(isReleaseTraceabilityExtension({ metadata: { status: "proposed" } })).toBe(false);
   expect(isReleaseTraceabilityExtension({ extension: { status: "proposed" } })).toBe(false);
+  expect(isReleaseTraceabilityExtension({ metadata: { status: "withdrawn" } })).toBe(false);
+  expect(isReleaseTraceabilityExtension({ metadata: { status: "superseded" } })).toBe(false);
   expect(isReleaseTraceabilityExtension({ metadata: { status: "approved-for-alpha" } })).toBe(true);
   expect(isReleaseTraceabilityExtension({ metadata: { status: "draft" } })).toBe(true);
 });
@@ -19,8 +21,8 @@ documentationTest("release traceability covers the complete normative baseline a
     baselineMandatory: 76,
     baselineMay: 2,
     baselineAcceptance: 22,
-    extensionSpecifications: 28,
-    extensionRequirements: 201,
-    extensionAcceptance: 59,
+    extensionSpecifications: 32,
+    extensionRequirements: 256,
+    extensionAcceptance: 77,
   });
 });

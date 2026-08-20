@@ -8,6 +8,18 @@ import { createOperationDeadline, throwIfAborted, type OperationDeadline } from 
 import { normalizeBuildTaskContextInput } from "../context/schema.js";
 import type { ContextBuilder } from "../context/context-builder.js";
 import type { ContextLinkGraphSessionService } from "../context/link-graph-session.js";
+import type { ContextLinkPackageService } from "../context/link-package.js";
+import {
+  contextLinkPackageBuildInputSchema,
+  contextLinkPackageGetInputSchema,
+  contextLinkPackageListInputSchema,
+} from "../context/link-package-schema.js";
+import type { ArtifactAmendmentService } from "../artifacts/amendment-service.js";
+import {
+  artifactAmendmentAcceptInputSchema,
+  artifactAmendmentPreviewInputSchema,
+  artifactLineageGetInputSchema,
+} from "../artifacts/amendment-schema.js";
 import {
   contextLinkGraphStartInputSchema,
   restContextLinkGraphFinalizeInputSchema,
@@ -16,15 +28,6 @@ import {
 import { ABCM_SERVER_INFO, ABCM_SPEC_VERSION } from "../core/server-info.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
-import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
-import type { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
-import type { BusinessEvaluationApi } from "../evaluation/context-business-eval-profile.js";
-import {
-  taskSuccessClaimRequestSchema,
-  taskSuccessStartRequestSchema,
-  taskSuccessSubmitRequestSchema,
-  type TaskSuccessWorkerCoordinator,
-} from "../evaluation/task-success-worker.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -50,16 +53,7 @@ import {
   restWorkspaceUploadStartInputSchema,
   workspaceRegistrationSchema,
 } from "./schemas.js";
-import {
-  contextBuildInputSchema,
-  contextFeedbackListInputSchema,
-  contextFeedbackSubmissionSchema,
-  contextOutcomeListInputSchema,
-  contextOutcomeSubmissionSchema,
-  businessEvaluationListRequestSchema,
-  businessEvaluationRunRequestSchema,
-  domainLanguageInputSchema,
-} from "../mcp/tool-schemas.js";
+import { contextBuildInputSchema, domainLanguageInputSchema } from "../mcp/tool-schemas.js";
 import { resolveRestLimitOptions, type AbcmRestLimitOptions } from "./config.js";
 
 export interface AbcmRestDependencies {
@@ -73,10 +67,8 @@ export interface AbcmRestDependencies {
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
   contextLinkGraphSessions?: ContextLinkGraphSessionService;
-  contextOutcomes?: ContextOutcomeService;
-  contextFeedback?: ContextFeedbackService;
-  contextBusinessEvaluations?: BusinessEvaluationApi;
-  taskSuccessEvaluations?: TaskSuccessWorkerCoordinator;
+  contextLinkPackages?: ContextLinkPackageService;
+  artifactAmendments?: ArtifactAmendmentService;
   workspaces?: WorkspaceRegistrationService;
   documentation?: DirectoryDocumentationSyncService;
   obsidianSync?: ObsidianSyncService;
@@ -344,81 +336,31 @@ export function createAbcmRestHandler(
         return json(dependencies.contextLinkGraphSessions.issueWebSocketTicket({ sessionId: linkGraphTicket[1]!, ...body }), 201);
       }
 
-      if (request.method === "POST" && url.pathname === "/v1/context/outcomes") {
-        if (dependencies.contextOutcomes === undefined) throw new AbcmError("ACCESS_DENIED", "Context outcome access is not configured.");
-        return json(dependencies.contextOutcomes.record(await readJson(request, contextOutcomeSubmissionSchema, maxRequestBodyBytes, signal)), 201);
+      if (request.method === "GET" && url.pathname === "/v1/context/link-packages") {
+        if (dependencies.contextLinkPackages === undefined) throw new AbcmError("ACCESS_DENIED", "Context link packages are not configured.");
+        const input = contextLinkPackageListInputSchema.parse({ workspaceId: url.searchParams.get("workspaceId") });
+        const packageId = url.searchParams.get("packageId");
+        return json(packageId === null
+          ? { packages: dependencies.contextLinkPackages.list(input.workspaceId) }
+          : dependencies.contextLinkPackages.get(input.workspaceId, contextLinkPackageGetInputSchema.shape.packageId.parse(packageId)));
       }
-
-      if (request.method === "GET" && url.pathname === "/v1/context/outcomes") {
-        if (dependencies.contextOutcomes === undefined) throw new AbcmError("ACCESS_DENIED", "Context outcome access is not configured.");
-        const query = contextOutcomeListInputSchema.parse({
-          workspaceId: url.searchParams.get("workspaceId"),
-          fingerprintId: url.searchParams.get("fingerprintId"),
-        });
-        return json({ outcomes: dependencies.contextOutcomes.list(query.workspaceId, query.fingerprintId) });
+      if (request.method === "POST" && url.pathname === "/v1/context/link-packages/build") {
+        if (dependencies.contextLinkPackages === undefined) throw new AbcmError("ACCESS_DENIED", "Context link packages are not configured.");
+        const body = await readJson(request, contextLinkPackageBuildInputSchema, maxRequestBodyBytes, signal);
+        return json(await dependencies.contextLinkPackages.build({ workspaceId: body.workspaceId, packageId: body.packageId, request: normalizeBuildTaskContextInput(body.request) }, signal));
       }
-
-      if (request.method === "POST" && url.pathname === "/v1/context/feedback") {
-        if (dependencies.contextFeedback === undefined) throw new AbcmError("ACCESS_DENIED", "Context feedback access is not configured.");
-        return json(dependencies.contextFeedback.propose(await readJson(request, contextFeedbackSubmissionSchema, maxRequestBodyBytes, signal)), 201);
+      if (request.method === "POST" && url.pathname === "/v1/artifact-amendments/preview") {
+        if (dependencies.artifactAmendments === undefined) throw new AbcmError("ACCESS_DENIED", "Artifact amendment workflow is not configured.");
+        return json(await dependencies.artifactAmendments.preview(await readJson(request, artifactAmendmentPreviewInputSchema, maxRequestBodyBytes, signal), signal));
       }
-
-      if (request.method === "GET" && url.pathname === "/v1/context/feedback") {
-        if (dependencies.contextFeedback === undefined) throw new AbcmError("ACCESS_DENIED", "Context feedback access is not configured.");
-        const query = contextFeedbackListInputSchema.parse({
-          workspaceId: url.searchParams.get("workspaceId"),
-          fingerprintId: url.searchParams.get("fingerprintId"),
-        });
-        return json({ proposals: dependencies.contextFeedback.list(query.workspaceId, query.fingerprintId) });
+      if (request.method === "POST" && url.pathname === "/v1/artifact-amendments/accept") {
+        if (dependencies.artifactAmendments === undefined) throw new AbcmError("ACCESS_DENIED", "Artifact amendment workflow is not configured.");
+        return json(await dependencies.artifactAmendments.accept(await readJson(request, artifactAmendmentAcceptInputSchema, maxRequestBodyBytes, signal), signal));
       }
-
-      if (request.method === "POST" && url.pathname === "/v1/context/business-evaluations") {
-        if (dependencies.contextBusinessEvaluations === undefined) {
-          throw new AbcmError("ACCESS_DENIED", "Context business evaluation access is not configured.");
-        }
-        const body = await readJson(request, businessEvaluationRunRequestSchema, maxRequestBodyBytes, signal);
-        return json(await dependencies.contextBusinessEvaluations.run(body, signal), 201);
-      }
-
-      if (request.method === "GET" && url.pathname === "/v1/context/business-evaluation-profiles") {
-        if (dependencies.contextBusinessEvaluations === undefined) {
-          throw new AbcmError("ACCESS_DENIED", "Context business evaluation access is not configured.");
-        }
-        return json({ profiles: dependencies.contextBusinessEvaluations.listProfiles() });
-      }
-
-      if (request.method === "POST" && url.pathname === "/v1/context/task-success-evaluations") {
-        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success evaluation is not configured.");
-        return json(await dependencies.taskSuccessEvaluations.start(await readJson(request, taskSuccessStartRequestSchema, maxRequestBodyBytes, signal), signal), 202);
-      }
-
-      const taskSuccessSession = /^\/v1\/context\/task-success-evaluations\/(task-session-[a-f0-9]{24})$/.exec(url.pathname);
-      if (request.method === "GET" && taskSuccessSession !== null) {
-        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success evaluation is not configured.");
-        const session = dependencies.taskSuccessEvaluations.get(taskSuccessSession[1]!);
-        if (session === undefined) throw new AbcmError("FILE_NOT_FOUND", "Task-success evaluation session was not found.");
-        return json(session);
-      }
-
-      if (request.method === "POST" && url.pathname === "/v1/context/task-success-worker/jobs/claim") {
-        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success worker is not configured.");
-        return json(await dependencies.taskSuccessEvaluations.claim(await readJson(request, taskSuccessClaimRequestSchema, maxRequestBodyBytes, signal)));
-      }
-
-      if (request.method === "POST" && url.pathname === "/v1/context/task-success-worker/jobs/submit") {
-        if (dependencies.taskSuccessEvaluations === undefined) throw new AbcmError("ACCESS_DENIED", "Task-success worker is not configured.");
-        return json(await dependencies.taskSuccessEvaluations.submit(await readJson(request, taskSuccessSubmitRequestSchema, maxRequestBodyBytes, signal), signal));
-      }
-
-      if (request.method === "GET" && url.pathname === "/v1/context/business-evaluations") {
-        if (dependencies.contextBusinessEvaluations === undefined) {
-          throw new AbcmError("ACCESS_DENIED", "Context business evaluation access is not configured.");
-        }
-        const query = businessEvaluationListRequestSchema.parse({
-          workspaceId: url.searchParams.get("workspaceId"),
-          datasetId: url.searchParams.get("datasetId"),
-        });
-        return json({ evaluations: dependencies.contextBusinessEvaluations.list(query.workspaceId, query.datasetId) });
+      if (request.method === "GET" && url.pathname === "/v1/artifact-lineages") {
+        if (dependencies.artifactAmendments === undefined) throw new AbcmError("ACCESS_DENIED", "Artifact amendment workflow is not configured.");
+        const input = artifactLineageGetInputSchema.parse({ workspaceId: url.searchParams.get("workspaceId"), lineageId: url.searchParams.get("lineageId") });
+        return json(dependencies.artifactAmendments.getLineage(input.workspaceId, input.lineageId));
       }
 
       const documentationApply = /^\/v1\/documentation-imports\/([^/]+)\/apply$/.exec(url.pathname);

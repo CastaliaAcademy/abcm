@@ -25,7 +25,8 @@ function items(value: SpecificationItem[] | Record<string, unknown> | undefined)
 }
 
 export function isReleaseTraceabilityExtension(specification: Specification): boolean {
-  return specification.metadata?.status !== "proposed" && specification.extension?.status !== "proposed";
+  const statuses = [specification.metadata?.status, specification.extension?.status];
+  return statuses.every(status => status !== "proposed" && status !== "superseded" && status !== "withdrawn");
 }
 
 function assertExact(label: string, expected: readonly string[], groups: readonly Group[]): void {

@@ -39,7 +39,7 @@ import type { ArchitecturePolicyService } from "../architecture/architecture-pol
 const PRIORITY: readonly SelectionReason[] = [
   "required_applicable", "operator_controlled_applicable", "role_required", "task_type_required", "explicit_link",
   "path_exact", "path_prefix",
-  "skill_required", "target_scope", "related_scope", "domain_or_entity_match", "semantic_or_keyword_match", "optional_background",
+  "skill_required", "link_package_optional", "target_scope", "related_scope", "domain_or_entity_match", "semantic_or_keyword_match", "optional_background",
 ];
 const DEFAULT_BUDGETS: Readonly<Record<string, ContextBudgetProfile>> = {
   default: { softLimitTokens: 8_000, hardLimitTokens: 12_000 },
@@ -130,8 +130,12 @@ function cachedProjection(document: ContextBuildCacheBundle["selectedDocuments"]
   return base;
 }
 
-function documentId(link: string): string | undefined {
-  return /^abcm:\/\/(?:artifact|document|plan|architecture)\/([^/?#]+)$/.exec(link)?.[1];
+function documentId(link: string, revision?: MapRevision): string | undefined {
+  const match = /^abcm:\/\/(artifact|document|plan|architecture|lineage)\/([^/?#]+)$/.exec(link);
+  if (match === null) return undefined;
+  if (match[1] !== "lineage") return match[2];
+  const lineage = revision?.artifactLineages?.find(candidate => candidate.lineageId === match[2]);
+  return lineage?.status === "valid" ? lineage.headArtifactId : undefined;
 }
 
 function hasDocumentAccess(principal: ContextPrincipal, node: ScopeNode): boolean {
@@ -576,9 +580,10 @@ export class ContextBuilder {
     const pathScopes = new Set(pathScopeIds);
     const affected = new Set(affectedScopeIds);
     const multiScopeBoundary = request.exactScopeIds === undefined ? undefined : this.#ancestorUnion(revision, affectedScopeIds, principal);
-    const explicitLinks = [...(request.explicitDocumentLinks ?? []), ...(request.explicitLinks ?? []).filter(link => !link.startsWith("abcm://skill/") && documentId(link) !== undefined)];
+    const explicitLinks = [...(request.explicitDocumentLinks ?? []), ...(request.explicitLinks ?? []).filter(link => !link.startsWith("abcm://skill/") && documentId(link, revision) !== undefined)];
     const explicitIds = new Set<string>();
     const explicitReasons = new Map<string, Set<SelectionReason>>();
+    const linkPackageReferences = new Map((request.linkPackageDocuments ?? []).map(reference => [reference.documentId, reference.mandatory]));
     const addExplicit = (id: string, reason: SelectionReason) => {
       explicitIds.add(id);
       const reasons = explicitReasons.get(id) ?? new Set<SelectionReason>();
@@ -586,19 +591,29 @@ export class ContextBuilder {
       explicitReasons.set(id, reasons);
     };
     for (const link of explicitLinks) {
-      const id = documentId(link);
+      const id = documentId(link, revision);
       if (id === undefined || !revision.documents.some(document => document.documentId === id)) {
         throw new AbcmError("CONTEXT_CONFIGURATION_INVALID", `Required document link '${link}' did not resolve.`, { link });
       }
       addExplicit(id, "explicit_link");
     }
     const nodeById = new Map(revision.nodes.map(node => [node.scopeId, node]));
+    for (const [packageDocumentId, mandatory] of linkPackageReferences) {
+      const document = revision.documents.find(candidate => candidate.documentId === packageDocumentId);
+      const node = document === undefined ? undefined : nodeById.get(document.scopeId);
+      if (document === undefined || node === undefined || !hasDocumentAccess(principal, node)) {
+        if (mandatory) {
+          throw new AbcmError("REQUIRED_CONTEXT_ACCESS_DENIED", "A mandatory link package document is unavailable to the current principal.");
+        }
+        linkPackageReferences.delete(packageDocumentId);
+      }
+    }
     for (const reference of request.explicitDocuments ?? []) {
       let matches: DocumentRecord[];
       if (reference.selector === "document-id") {
         matches = revision.documents.filter(document => document.documentId === reference.documentId);
       } else if (reference.selector === "uri") {
-        const id = documentId(reference.uri);
+        const id = documentId(reference.uri, revision);
         matches = id === undefined ? [] : revision.documents.filter(document => document.documentId === id);
       } else if (reference.selector === "repository-file") {
         matches = revision.documents.filter(document => document.relativePath === reference.path);
@@ -635,7 +650,7 @@ export class ContextBuilder {
       }
     }
     for (const requirement of requirements.filter(item => item.kind === "explicit_link")) {
-      const id = documentId(requirement.value);
+      const id = documentId(requirement.value, revision);
       if (id === undefined || !revision.documents.some(document => document.documentId === id)) {
         throw new AbcmError("CONTEXT_CONFIGURATION_INVALID", `Skill-required document link '${requirement.value}' did not resolve.`, { link: requirement.value, skillId: requirement.sourceSkillId });
       }
@@ -657,22 +672,26 @@ export class ContextBuilder {
     for (const document of revision.documents) {
       const reasons = new Set<SelectionReason>();
       const explicitlyLinked = explicitIds.has(document.documentId);
+      const linkPackageMandatory = linkPackageReferences.get(document.documentId);
+      const linkPackageReferenced = linkPackageMandatory !== undefined;
       const applicableBoundary = pathScopes.has(document.scopeId) || affected.has(document.scopeId) || inApplicableBoundary(document.scopeId);
-      if (!applicableBoundary && !explicitlyLinked) continue;
+      if (!applicableBoundary && !explicitlyLinked && !linkPackageReferenced) continue;
       if (document.requiredSelectors.includes("always")) reasons.add("required_applicable");
       if (document.contextPolicy === "operator" || document.contextPolicy === "operator-controlled") reasons.add("operator_controlled_applicable");
       if (document.requiredSelectors.includes(request.roleId)) reasons.add("role_required");
       if (document.requiredSelectors.includes(request.taskType)) reasons.add("task_type_required");
       if (document.taskSelectors.includes(request.taskType)) reasons.add("task_type_required");
       if (explicitlyLinked) for (const reason of explicitReasons.get(document.documentId) ?? ["explicit_link" as const]) reasons.add(reason);
+      if (linkPackageMandatory === true) reasons.add("explicit_link");
+      else if (linkPackageReferenced) reasons.add("link_package_optional");
       if (requiredKinds.has(document.kind) || (document.tags ?? []).some(tag => requiredTags.has(tag))) reasons.add("skill_required");
-      const mandatory = [...reasons].some(reason => PRIORITY.indexOf(reason) <= PRIORITY.indexOf("skill_required"));
+      const mandatory = linkPackageMandatory === true || [...reasons].some(reason => PRIORITY.indexOf(reason) <= PRIORITY.indexOf("skill_required"));
       if (document.lifecycle === "deleted" || document.lifecycle === "archived" || document.lifecycle === "superseded") {
         if (mandatory) omissions.push({ documentId: document.documentId, reason: "lifecycle_excluded", selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
         continue;
       }
       if (!mandatory) {
-        if (document.contextPolicy === "explicit-only") continue;
+        if (document.contextPolicy === "explicit-only" && !linkPackageReferenced) continue;
         if (document.roleSelectors.length > 0 && !document.roleSelectors.includes(request.roleId)) continue;
         if (document.taskSelectors.length > 0 && !document.taskSelectors.includes(request.taskType)) continue;
         if (pathScopes.has(document.scopeId)) {
@@ -682,7 +701,7 @@ export class ContextBuilder {
         }
         else if (affected.has(document.scopeId)) reasons.add("related_scope");
         else if (inApplicableBoundary(document.scopeId) && document.domain !== undefined && canonicalSet.has(document.domain)) reasons.add("domain_or_entity_match");
-        else {
+        else if (!linkPackageReferenced) {
           const metadataTokens = new Set(`${document.documentId} ${document.kind} ${document.title} ${(document.tags ?? []).join(" ")}`.toLocaleLowerCase("en-US").split(/[^a-z0-9.-]+/).filter(Boolean));
           if (inApplicableBoundary(document.scopeId) && [...keywordSet].some(keyword => metadataTokens.has(keyword))) reasons.add("semantic_or_keyword_match");
           else continue;

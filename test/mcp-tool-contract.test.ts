@@ -17,8 +17,7 @@ async function fixture() {
   const source = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-source-"));
   const workspaceStore = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-workspaces-"));
   const fileOperationState = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-file-ops-"));
-  const taskStateRoot = await mkdtemp(join(tmpdir(), "abcm-mcp-tool-task-state-"));
-  roots.push(root, source, workspaceStore, fileOperationState, taskStateRoot);
+  roots.push(root, source, workspaceStore, fileOperationState);
   await writeFile(join(root, "scope.yaml"), "apiVersion: abcm/v1\nkind: workflow\nid: test\nname: Test\n");
   await mkdir(join(root, "domain-language"));
   await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
@@ -43,49 +42,6 @@ async function fixture() {
       documentationSources: [{ id: "docs", workspaceId: "test", root: source, targetBasePath: "artifacts/mirror" }],
       workspaceStoreRoot: workspaceStore,
       fileOperations: { stateRoot: fileOperationState },
-      businessEvaluationWorkerToken: "worker-token-123456789",
-      businessEvaluationTaskStateRoot: taskStateRoot,
-      businessEvaluationProfiles: [{
-        schemaVersion: "abcm.eval.execution-profile/v1",
-        id: "tool-contract-profile",
-        version: "1.0.0",
-        status: "approved",
-        workspaceId: "test",
-        phase: "task-success",
-        taskSuccess: {
-          workerPoolId: "tool-contract-workers",
-          modelIdentityDigest: `sha256:${"5".repeat(64)}`,
-          judgeRubricDigest: `sha256:${"6".repeat(64)}`,
-          judgeIdentityClass: "blind-programmatic",
-        },
-        dataset: {
-          schemaVersion: "abcm.eval.business.v1", id: "tool-contract-dataset", title: "Tool contract", status: "approved", language: "ru", ownerScope: "test",
-          sourceBaseline: { path: "baseline.md", sourceCommit: "a".repeat(40), sourceChecksum: `sha256:${"0".repeat(64)}` },
-          metrics: { mandatoryRecall: "known gold" }, proposedGates: {},
-          scenarios: [{ id: "BIZ-TOOL-001", title: "Tool contract", fixture: "tool-fixture", when: "run", then: ["receipt"] }],
-        },
-        fixtures: {
-          schemaVersion: "abcm.eval.fixtures.v1", id: "tool-fixtures", title: "Tool fixtures", status: "approved", language: "ru", ownerScope: "test",
-          reproducibility: { pin: ["snapshot"], rawEvidence: ["receipt"] }, real: [],
-          synthetic: [{ id: "tool-fixture", scopes: 1, files: 1, documents: 1, skills: 0 }], adversarial: [],
-        },
-        repetitions: 1,
-        blindSeedDigest: `sha256:${"1".repeat(64)}`,
-        baselineIdentityDigest: `sha256:${"2".repeat(64)}`,
-        executionEnvironmentDigest: `sha256:${"3".repeat(64)}`,
-        measurementWindowDigest: `sha256:${"4".repeat(64)}`,
-        gatePolicy: {
-          mandatoryRecallMin: 1, precisionMin: 0, relevantTokenRatioMin: 0, taskSuccessRateMaxDegradationVsV0: 1,
-          deterministicBundleRateMin: 1, stableErrorClassificationRateMin: 1, unauthorizedLeakageMax: 0,
-          tokenReductionMin: 0, costPerSuccessfulTaskReductionMin: 0, requiredFallbackModes: ["direct-search"],
-        },
-        scenarios: [{
-          scenarioId: "BIZ-TOOL-001",
-          directSearch: { queryTerms: ["test"], allowedPathPrefixes: ["artifacts"] },
-          context: { projectId: "missing-project", roleId: "agent", taskType: "test", goal: "test" },
-          goldDocumentIds: ["gold"], mandatoryDocumentIds: ["gold"], goldClaims: [], forbiddenMarkers: [],
-        }],
-      }],
     },
   );
   await runtime.ready;
@@ -102,10 +58,10 @@ describe("MCP tool contract", () => {
     const { runtime, server, client } = await fixture();
     try {
       const listed = await client.listTools();
-      expect(listed.tools).toHaveLength(42);
+      expect(listed.tools).toHaveLength(39);
       expect(client.getNegotiatedProtocolVersion()).toBe("2025-11-25");
       expect(client.getServerCapabilities()?.experimental?.["abcm.dev/contract"]).toEqual({
-        contractVersion: "0.6.1",
+        contractVersion: "0.8.0",
         specificationVersion: "0.5.0",
         supportedProtocolVersions: ["2025-11-25"],
         operationTimeoutMs: 30000,
@@ -141,15 +97,12 @@ describe("MCP tool contract", () => {
         "context.step_link_graph_session",
         "context.issue_link_graph_ticket",
         "context.finalize_link_graph_session",
-        "context.record_outcome",
-        "context.list_outcomes",
-        "context.propose_feedback",
-        "context.list_feedback",
-        "context.list_business_evaluation_profiles",
-        "context.run_business_evaluation",
-        "context.list_business_evaluations",
-        "context.start_task_success_evaluation",
-        "context.get_task_success_evaluation",
+        "context.list_link_packages",
+        "context.get_link_package",
+        "context.build_from_link_package",
+        "artifact.preview_amendment",
+        "artifact.accept_amendment",
+        "artifact.get_lineage",
         "documentation_source.preview",
         "documentation_source.apply",
         "documentation_source.sync",
@@ -157,7 +110,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.18.2",
+        version: "1.20.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
@@ -270,6 +223,17 @@ describe("MCP tool contract", () => {
       }
 
       await runtime.scopeMap.scan("test");
+      const stableDomainErrors = [
+        ["context.get_link_package", { workspaceId: "test", packageId: `tag-package-${"0".repeat(24)}` }, "CONTEXT_LINK_PACKAGE_NOT_FOUND"],
+        ["artifact.get_lineage", { workspaceId: "test", lineageId: "missing-lineage" }, "ARTIFACT_LINEAGE_NOT_FOUND"],
+        ["context.get_domain_language", { anchor: { workspaceId: "test", projectId: "missing-project" } }, "PROJECT_ANCHOR_NOT_RESOLVED"],
+      ] as const;
+      for (const [name, arguments_, code] of stableDomainErrors) {
+        const failed = await client.callTool({ name, arguments: arguments_ });
+        expect(failed.isError).toBe(true);
+        expect(JSON.parse((failed.content[0] as { text: string }).text)).toEqual(expect.objectContaining({ code }));
+        expect(failed.structuredContent).toEqual(expect.objectContaining({ error_code: code }));
+      }
       const language = await client.callTool({
         name: "context.get_domain_language",
         arguments: { anchor: { workspaceId: "test", projectId: "project" }, roleId: "agent" },
