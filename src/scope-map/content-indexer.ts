@@ -6,7 +6,7 @@ import { z } from "zod/v4";
 import { throwIfAborted } from "../core/operation.js";
 import { parseSafeYaml } from "../core/safe-yaml.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
-import { parseDocumentLinkSource, type DocumentLinkSource } from "./link-graph.js";
+import { normalizeDocumentTag, parseDocumentLinkSource, type DocumentLinkSource } from "./link-graph.js";
 import type {
   DocumentRecord,
   ExecutableResourceRecord,
@@ -67,6 +67,12 @@ const documentMetadataSchema = z
     links: z.array(z.string()).optional(),
     controlMode: z.string().optional(),
     projection: z.enum(["full", "section", "summary", "metadata", "reference"]).optional(),
+    lineageId: z.string().min(1).max(256).optional(),
+    amends: z.string().min(1).max(256).optional(),
+    baseArtifactId: z.string().min(1).max(256).optional(),
+    baseChecksum: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
+    expectedLineageHead: z.string().min(1).max(256).optional(),
+    supersedes: z.string().min(1).max(256).optional(),
   })
   .passthrough();
 
@@ -225,6 +231,7 @@ function documentFrom(
   relativePath: string,
   fileChecksum: string,
   metadata: DocumentMetadata,
+  inlineTags: readonly string[],
 ): DocumentRecord {
   return {
     documentId: metadata.id,
@@ -240,14 +247,49 @@ function documentFrom(
     ],
     roleSelectors: metadata.audiences ?? [],
     taskSelectors: metadata.taskTypes ?? [],
-    tags: metadata.tags ?? [],
+    tags: [...new Set([...(metadata.tags ?? []), ...inlineTags].map(normalizeDocumentTag).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right)),
     ...(metadata.domain === undefined ? {} : { domain: metadata.domain }),
     worker: metadata.worker ?? null,
     links: metadata.links ?? [],
     contextPolicy: metadata.controlMode ?? "default",
     ...(metadata.projection === undefined ? {} : { projectionPolicy: metadata.projection }),
     storageMode: "managed",
+    ...(["adr", "rfc"].includes(metadata.kind.toLocaleLowerCase("en-US")) ? { artifactId: metadata.id } : {}),
+    ...(metadata.lineageId === undefined ? {} : { lineageId: metadata.lineageId }),
+    ...(metadata.amends === undefined ? {} : { amends: metadata.amends }),
+    ...(metadata.baseArtifactId === undefined ? {} : { baseArtifactId: metadata.baseArtifactId }),
+    ...(metadata.baseChecksum === undefined ? {} : { baseChecksum: metadata.baseChecksum }),
+    ...(metadata.expectedLineageHead === undefined ? {} : { expectedLineageHead: metadata.expectedLineageHead }),
+    ...(metadata.supersedes === undefined ? {} : { supersedes: metadata.supersedes }),
   };
+}
+
+/** Parses Obsidian-compatible inline tags outside frontmatter, code fences and inline code. */
+export function parseInlineDocumentTags(content: string): string[] {
+  const lines = content.split(/\r?\n/);
+  let start = 0;
+  if (lines[0]?.trim() === "---") {
+    const end = lines.slice(1).findIndex(line => line.trim() === "---");
+    if (end !== -1) start = end + 2;
+  }
+  let fence: "```" | "~~~" | undefined;
+  const tags = new Set<string>();
+  for (let index = start; index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    const marker = /^\s*(```|~~~)/.exec(line)?.[1] as "```" | "~~~" | undefined;
+    if (marker !== undefined) {
+      fence = fence === undefined ? marker : fence === marker ? undefined : fence;
+      continue;
+    }
+    if (fence !== undefined) continue;
+    const searchable = line.replace(/`[^`]*`/g, "");
+    for (const match of searchable.matchAll(/(?<![\\\p{L}\p{N}_-])#([\p{L}\p{N}_/-]*[\p{L}_/-][\p{L}\p{N}_/-]*)/gu)) {
+      const tag = normalizeDocumentTag(match[1] ?? "");
+      if (tag !== "") tags.add(tag);
+    }
+  }
+  return [...tags].sort((left, right) => left.localeCompare(right));
 }
 
 function plantUmlEnvelopeValid(content: string): boolean {
@@ -407,7 +449,8 @@ export async function indexScopeContent(
         message: invalidPlacement,
       });
     } else if (parsedMetadata !== undefined) {
-      const document = documentFrom(scope, relativePath, fileChecksum, parsedMetadata);
+      const decodedContent = new TextDecoder().decode(content);
+      const document = documentFrom(scope, relativePath, fileChecksum, parsedMetadata, parseInlineDocumentTags(decodedContent));
       documentCandidates.push(document);
       if (extname(scopeRelativePath).toLocaleLowerCase("en-US") === ".md") {
         linkSources.push(parseDocumentLinkSource(
@@ -418,7 +461,7 @@ export async function indexScopeContent(
               ? [parsedMetadata.aliases]
               : parsedMetadata.aliases,
           parsedMetadata.links ?? [],
-          new TextDecoder().decode(content),
+          decodedContent,
         ));
       }
     }

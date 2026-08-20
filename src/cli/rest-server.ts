@@ -4,8 +4,6 @@ import { createAbcmRuntime } from "../app/create-runtime.js";
 import { installGracefulShutdown } from "./graceful-shutdown.js";
 import { parseDocumentationSources } from "../documentation/config.js";
 import { parseContextPrincipalEnvironment } from "../domain-language/context-principal-config.js";
-import { loadBusinessEvaluationProfiles } from "../evaluation/context-business-eval-config.js";
-import { parseTaskSuccessEnvironment } from "../evaluation/task-success-config.js";
 import { parseScopeMapReconcileEnvironment } from "../scope-map/reconcile-config.js";
 import { parseRestLimitEnvironment } from "../rest/config.js";
 import { discoverManagedWorkspaces } from "../workspace/provisioning-service.js";
@@ -37,8 +35,9 @@ const documentationSources = parseDocumentationSources(process.env.ABCM_DOCUMENT
 const scopeMapReconcile = parseScopeMapReconcileEnvironment(process.env);
 const restLimits = parseRestLimitEnvironment(process.env);
 const contextPrincipal = parseContextPrincipalEnvironment(process.env, "static-bearer");
-const businessEvaluationProfiles = await loadBusinessEvaluationProfiles(process.env.ABCM_BUSINESS_EVALUATION_PROFILES);
-const taskSuccessEnvironment = parseTaskSuccessEnvironment(process.env);
+const amendmentOperatorToken = process.env.ABCM_ARTIFACT_AMENDMENT_OPERATOR_TOKEN;
+const amendmentOperatorIdentity = process.env.ABCM_ARTIFACT_AMENDMENT_OPERATOR_IDENTITY;
+const amendmentApprovalTtlMs = optionalPositiveInteger("ABCM_ARTIFACT_AMENDMENT_APPROVAL_TTL_MS");
 const contextLinkGraphSessionTtlMs = optionalPositiveInteger("ABCM_CONTEXT_LINK_GRAPH_SESSION_TTL_MS");
 const contextLinkGraphTicketTtlMs = optionalPositiveInteger("ABCM_CONTEXT_LINK_GRAPH_TICKET_TTL_MS");
 const contextLinkGraphMaxCandidates = optionalPositiveInteger("ABCM_CONTEXT_LINK_GRAPH_MAX_CANDIDATES");
@@ -73,7 +72,7 @@ const allowedOrigins = commaSeparated(process.env.ABCM_MCP_ALLOWED_ORIGINS);
 const discoveredWorkspaces =
   workspaceStoreRoot === undefined
     ? []
-    : (await discoverManagedWorkspaces(workspaceStoreRoot)).filter(workspace => workspace.id !== workspaceId);
+    : (await discoverManagedWorkspaces(workspaceStoreRoot, [workspaceRoot])).filter(workspace => workspace.id !== workspaceId);
 const runtime = createAbcmRuntime(
   [{ id: workspaceId, root: workspaceRoot }, ...discoveredWorkspaces],
   {
@@ -116,8 +115,14 @@ const runtime = createAbcmRuntime(
       },
     }),
     sqliteDerivedStoreEnabled,
-    ...(businessEvaluationProfiles === undefined ? {} : { businessEvaluationProfiles }),
-    ...taskSuccessEnvironment,
+    ...(amendmentOperatorToken === undefined && amendmentOperatorIdentity === undefined && amendmentApprovalTtlMs === undefined ? {} : {
+      artifactAmendments: {
+        ...(fileOperationStateRoot === undefined ? {} : { stateRoot: resolve(fileOperationStateRoot, "artifact-amendments") }),
+        ...(amendmentOperatorToken === undefined ? {} : { operatorToken: amendmentOperatorToken }),
+        ...(amendmentOperatorIdentity === undefined ? {} : { operatorIdentity: amendmentOperatorIdentity }),
+        ...(amendmentApprovalTtlMs === undefined ? {} : { approvalTtlMs: amendmentApprovalTtlMs }),
+      },
+    }),
     ...(documentationSources === undefined ? {} : { documentationSources }),
     scopeMapReconcile: {
       ...scopeMapReconcile,

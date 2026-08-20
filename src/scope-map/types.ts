@@ -83,7 +83,9 @@ export interface MapDiagnostic {
     | "PLANTUML_INCLUDE_CYCLE"
     | "LINK_GRAPH_BROKEN"
     | "LINK_GRAPH_AMBIGUOUS"
-    | "LINK_GRAPH_CYCLE";
+    | "LINK_GRAPH_CYCLE"
+    | "ARTIFACT_LINEAGE_INVALID"
+    | "ARTIFACT_LINEAGE_CONFLICT";
   severity: "branch_error" | "scope_error" | "warning";
   path: string;
   message: string;
@@ -128,6 +130,20 @@ export interface DocumentRecord {
   contextPolicy: string;
   projectionPolicy?: "full" | "section" | "summary" | "metadata" | "reference";
   storageMode: "managed" | "mirror";
+  artifactId?: string;
+  lineageId?: string;
+  amends?: string;
+  baseArtifactId?: string;
+  baseChecksum?: string;
+  expectedLineageHead?: string;
+  supersedes?: string;
+}
+
+export interface ArtifactLineageRecord {
+  lineageId: string;
+  artifactIds: readonly string[];
+  headArtifactId?: string;
+  status: "valid" | "ambiguous";
 }
 
 export type LinkGraphEdgeType =
@@ -136,6 +152,7 @@ export type LinkGraphEdgeType =
   | "heading-reference"
   | "block-reference"
   | "domain-relation"
+  | "tag"
   | "backlink";
 
 export interface LinkGraphHeading {
@@ -177,12 +194,21 @@ export interface LinkGraphEdge {
   derivedFromEdgeId?: string;
 }
 
+/** A deterministic, virtual grouping derived from document tags. It is never persisted as mutable state. */
+export interface LinkGraphTagPackage {
+  packageId: string;
+  tag: string;
+  documentIds: readonly string[];
+  digest: string;
+}
+
 export interface TypedLinkGraph {
   apiVersion: "abcm/link-graph/v1";
   policyVersion: "v1";
   digest: string;
   nodes: readonly LinkGraphNode[];
   edges: readonly LinkGraphEdge[];
+  tagPackages?: readonly LinkGraphTagPackage[];
 }
 
 export interface ExecutableResourceRecord {
@@ -230,6 +256,7 @@ export interface MapRevision {
   executableResources: readonly ExecutableResourceRecord[];
   skills: readonly SkillDescriptor[];
   linkGraph: TypedLinkGraph;
+  artifactLineages?: readonly ArtifactLineageRecord[];
   diagnostics: readonly MapDiagnostic[];
 }
 

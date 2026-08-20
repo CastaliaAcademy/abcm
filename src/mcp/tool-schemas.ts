@@ -10,6 +10,36 @@ import {
 } from "../architecture/architecture-policy-service.js";
 import { buildTaskContextSchema } from "../context/schema.js";
 import {
+  contextLinkPackageBuildInputSchema,
+  contextLinkPackageGetInputSchema,
+  contextLinkPackageListInputSchema,
+  contextLinkPackageListOutputSchema,
+  contextLinkPackageViewSchema,
+} from "../context/link-package-schema.js";
+import {
+  artifactAmendmentAcceptInputSchema,
+  artifactAmendmentPreviewInputSchema,
+  artifactAmendmentPreviewOutputSchema,
+  artifactAmendmentReceiptSchema,
+  artifactLineageGetInputSchema,
+  artifactLineageOutputSchema,
+} from "../artifacts/amendment-schema.js";
+export {
+  contextLinkPackageBuildInputSchema,
+  contextLinkPackageGetInputSchema,
+  contextLinkPackageListInputSchema,
+  contextLinkPackageListOutputSchema,
+  contextLinkPackageViewSchema,
+} from "../context/link-package-schema.js";
+export {
+  artifactAmendmentAcceptInputSchema,
+  artifactAmendmentPreviewInputSchema,
+  artifactAmendmentPreviewOutputSchema,
+  artifactAmendmentReceiptSchema,
+  artifactLineageGetInputSchema,
+  artifactLineageOutputSchema,
+} from "../artifacts/amendment-schema.js";
+import {
   contextLinkGraphFinalizeInputSchema,
   contextLinkGraphGetInputSchema,
   contextLinkGraphSessionOutputSchema,
@@ -26,24 +56,6 @@ export {
   contextLinkGraphStepInputSchema,
 } from "../context/link-graph-session-schema.js";
 import { projectLanguageTagSchema } from "../core/project-language.js";
-import { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
-export { contextOutcomeReceiptSchema, contextOutcomeSubmissionSchema } from "../evaluation/context-outcome-receipt.js";
-import { contextFeedbackProposalSchema, contextFeedbackSubmissionSchema } from "../evaluation/context-feedback.js";
-export { contextFeedbackProposalSchema, contextFeedbackSubmissionSchema } from "../evaluation/context-feedback.js";
-import {
-  businessEvaluationListRequestSchema,
-  businessEvaluationReceiptSchema,
-} from "../evaluation/context-business-eval-runner.js";
-export {
-  businessEvaluationListRequestSchema,
-  businessEvaluationReceiptSchema,
-} from "../evaluation/context-business-eval-runner.js";
-import {
-  businessEvaluationProfileSummarySchema,
-  serverOwnedBusinessEvaluationRunRequestSchema,
-} from "../evaluation/context-business-eval-profile.js";
-import { taskSuccessSessionSchema, taskSuccessStartRequestSchema } from "../evaluation/task-success-worker.js";
-export const businessEvaluationRunRequestSchema = serverOwnedBusinessEvaluationRunRequestSchema;
 import {
   workspaceBatchApplyInputSchema,
   workspaceBatchApplyOutputSchema,
@@ -74,16 +86,6 @@ export const agentInstructionsOutputSchema = z.object({
   checksum: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   content: z.string().min(1),
 }).strict();
-export const businessEvaluationListOutputSchema = z.object({
-  evaluations: z.array(businessEvaluationReceiptSchema),
-}).strict();
-export const businessEvaluationProfileListInputSchema = z.object({}).strict();
-export const businessEvaluationProfileListOutputSchema = z.object({
-  profiles: z.array(businessEvaluationProfileSummarySchema),
-}).strict();
-export const taskSuccessEvaluationStartInputSchema = taskSuccessStartRequestSchema;
-export const taskSuccessEvaluationGetInputSchema = z.object({ sessionId: z.string().regex(/^task-session-[a-f0-9]{24}$/) }).strict();
-export const taskSuccessEvaluationSessionOutputSchema = taskSuccessSessionSchema;
 
 const workspaceId = z.string().min(1);
 const path = z.string();
@@ -307,6 +309,7 @@ export const contextLinkGraphFinalizeOutputSchema = z.object({
   bundle: contextBuildOutputSchema,
   receipt: contextLinkGraphRetrievalReceiptSchema,
 }).strict();
+export const contextLinkPackageBuildOutputSchema = z.object({ bundle: contextBuildOutputSchema, package: contextLinkPackageViewSchema }).strict();
 
 const contextPreviewDocumentSchema = z.object({
   documentId: z.string(),
@@ -342,13 +345,6 @@ export const contextPreviewOutputSchema = z.object({
   fallbackModes: z.tuple([z.literal("direct-search"), z.literal("explicit-documents"), z.literal("bounded-resource-read")]),
   cache: contextBuildCacheMetadataSchema,
 }).strict();
-export const contextOutcomeListInputSchema = z.object({
-  workspaceId,
-  fingerprintId: z.string().regex(/^fingerprint-[a-f0-9]{24}$/),
-}).strict();
-export const contextOutcomeListOutputSchema = z.object({ outcomes: z.array(contextOutcomeReceiptSchema) }).strict();
-export const contextFeedbackListInputSchema = contextOutcomeListInputSchema;
-export const contextFeedbackListOutputSchema = z.object({ proposals: z.array(contextFeedbackProposalSchema) }).strict();
 
 const documentationOperationSchema = z.object({
   operation: z.enum(["create", "update", "move", "delete", "unchanged", "conflict"]),
@@ -429,12 +425,12 @@ export const ABCM_MCP_TOOL_SCHEMAS = {
   "context.step_link_graph_session": { input: contextLinkGraphStepInputSchema, output: contextLinkGraphSessionOutputSchema },
   "context.issue_link_graph_ticket": { input: contextLinkGraphFinalizeInputSchema, output: contextLinkGraphSessionOutputSchema },
   "context.finalize_link_graph_session": { input: contextLinkGraphFinalizeInputSchema, output: contextLinkGraphFinalizeOutputSchema },
-  "context.record_outcome": { input: contextOutcomeSubmissionSchema, output: contextOutcomeReceiptSchema },
-  "context.list_outcomes": { input: contextOutcomeListInputSchema, output: contextOutcomeListOutputSchema },
-  "context.propose_feedback": { input: contextFeedbackSubmissionSchema, output: contextFeedbackProposalSchema },
-  "context.list_feedback": { input: contextFeedbackListInputSchema, output: contextFeedbackListOutputSchema },
-  "context.run_business_evaluation": { input: businessEvaluationRunRequestSchema, output: businessEvaluationReceiptSchema },
-  "context.list_business_evaluations": { input: businessEvaluationListRequestSchema, output: businessEvaluationListOutputSchema },
+  "context.list_link_packages": { input: contextLinkPackageListInputSchema, output: contextLinkPackageListOutputSchema },
+  "context.get_link_package": { input: contextLinkPackageGetInputSchema, output: contextLinkPackageViewSchema },
+  "context.build_from_link_package": { input: contextLinkPackageBuildInputSchema, output: contextLinkPackageBuildOutputSchema },
+  "artifact.preview_amendment": { input: artifactAmendmentPreviewInputSchema, output: artifactAmendmentPreviewOutputSchema },
+  "artifact.accept_amendment": { input: artifactAmendmentAcceptInputSchema, output: artifactAmendmentReceiptSchema },
+  "artifact.get_lineage": { input: artifactLineageGetInputSchema, output: artifactLineageOutputSchema },
   "documentation_source.preview": { input: documentationPreviewInputSchema, output: documentationPreviewOutputSchema },
   "documentation_source.apply": { input: documentationApplyInputSchema, output: documentationSyncOutputSchema },
   "documentation_source.sync": { input: documentationSyncInputSchema, output: documentationSyncOutputSchema },

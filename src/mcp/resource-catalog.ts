@@ -32,7 +32,8 @@ const TRUSTED_ACCESS: ScopeMapAccess = {
   ],
 };
 const ACTIVE_LIFECYCLES = new Set(["active"]);
-const TEMPLATE_DIGEST = "mcp-resource-contract-v0.1";
+const ACCEPTED_LIFECYCLES = new Set(["accepted", "superseded"]);
+const TEMPLATE_DIGEST = "mcp-resource-contract-v0.2";
 
 interface CursorPayload {
   version: 1;
@@ -161,9 +162,16 @@ export class McpResourceCatalog {
         },
         {
           name: "ABCM artifact",
-          title: "Indexed context artifact",
-          description: "One active, permitted non-plan context document from the current ScopeMap revision.",
+          title: "Exact indexed artifact revision",
+          description: "One permitted immutable artifact revision. Superseded accepted revisions remain exact-addressable.",
           uriTemplate: "abcm://artifact/{documentId}",
+          mimeType: "text/markdown",
+        },
+        {
+          name: "ABCM artifact lineage",
+          title: "Current accepted artifact lineage head",
+          description: "The unique current accepted head of one lineage inside the active pinned ScopeMap revision.",
+          uriTemplate: "abcm://lineage/{lineageId}",
           mimeType: "text/markdown",
         },
         {
@@ -275,7 +283,8 @@ export class McpResourceCatalog {
     }
 
     for (const document of revision.documents) {
-      if (!ACTIVE_LIFECYCLES.has(document.lifecycle) || !this.#canReadDocument(revision, document.scopeId)) continue;
+      const exactAcceptedArtifact = document.artifactId !== undefined && ACCEPTED_LIFECYCLES.has(document.lifecycle);
+      if ((!ACTIVE_LIFECYCLES.has(document.lifecycle) && !exactAcceptedArtifact) || !this.#canReadDocument(revision, document.scopeId)) continue;
       const namespace = documentNamespace(document);
       const file = revision.files.find(candidate => candidate.relativePath === document.relativePath);
       resources.push({
@@ -286,6 +295,22 @@ export class McpResourceCatalog {
         mimeType: mimeTypeFor(document.relativePath),
         ...(file === undefined ? {} : { size: file.size }),
         source: { type: "document", document },
+      });
+    }
+
+    for (const lineage of revision.artifactLineages ?? []) {
+      if (lineage.status !== "valid" || lineage.headArtifactId === undefined) continue;
+      const head = revision.documents.find(document => document.artifactId === lineage.headArtifactId);
+      if (head === undefined || !this.#canReadDocument(revision, head.scopeId)) continue;
+      const file = revision.files.find(candidate => candidate.relativePath === head.relativePath);
+      resources.push({
+        uri: resourceUri("lineage", lineage.lineageId),
+        name: head.title,
+        title: `${head.title} (current lineage head)`,
+        description: `Current accepted head '${head.artifactId}' of lineage '${lineage.lineageId}' in revision '${revision.revision}'.`,
+        mimeType: mimeTypeFor(head.relativePath),
+        ...(file === undefined ? {} : { size: file.size }),
+        source: { type: "document", document: head },
       });
     }
 

@@ -88,6 +88,16 @@ describe("WorkspaceProvisioningService", () => {
     expect(await readFile(join(existing, "keep.txt"), "utf8")).toBe("keep");
   });
 
+  test("does not rediscover the explicitly configured workspace under a directory alias id", async () => {
+    const physicalRoot = join(storeRoot, "public");
+    await mkdir(physicalRoot, { recursive: true });
+    await writeFile(join(physicalRoot, "scope.yaml"), "apiVersion: abcm/v1\nkind: workflow\nid: castalia-public\n");
+    expect(await discoverManagedWorkspaces(storeRoot)).toEqual([
+      expect.objectContaining({ id: "public", root: physicalRoot }),
+    ]);
+    expect(await discoverManagedWorkspaces(storeRoot, [physicalRoot])).toEqual([]);
+  });
+
   test("runtime registration becomes immediately available to files and survives discovery", async () => {
     const primaryRoot = join(temporaryRoot, "primary");
     await mkdir(join(primaryRoot, "domain-language"), { recursive: true });

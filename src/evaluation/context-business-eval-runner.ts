@@ -91,6 +91,7 @@ export const businessEvaluationInputSchema = z.object({
     measurementWindowDigest: digest,
     modelIdentityDigest: digest.nullable(),
     judgeRubricDigest: digest.nullable(),
+    judgeProtocolDigest: digest.nullable(),
     judgeIdentityClass: id.nullable(),
   }).strict(),
   gatePolicy: z.object({
@@ -109,9 +110,10 @@ export const businessEvaluationInputSchema = z.object({
   if (input.phase === "task-success" && (
     input.inputIdentity.modelIdentityDigest === null ||
     input.inputIdentity.judgeRubricDigest === null ||
+    input.inputIdentity.judgeProtocolDigest === null ||
     input.inputIdentity.judgeIdentityClass === null
   )) {
-    context.addIssue({ code: "custom", path: ["inputIdentity"], message: "Task-success evaluation requires pinned model and blind judge identities." });
+    context.addIssue({ code: "custom", path: ["inputIdentity"], message: "Task-success evaluation requires pinned model and complete blind judge protocol identities." });
   }
 });
 

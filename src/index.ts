@@ -26,6 +26,15 @@ export {
   getAbcmAgentInstructions,
 } from "./agent-instructions/agent-instructions.js";
 export { CONTEXT_SELECTION_POLICY_VERSION, ContextBuilder } from "./context/context-builder.js";
+export { ContextLinkPackageService } from "./context/link-package.js";
+export type { ContextLinkPackageView } from "./context/link-package.js";
+export {
+  contextLinkPackageBuildInputSchema,
+  contextLinkPackageGetInputSchema,
+  contextLinkPackageListInputSchema,
+  contextLinkPackageListOutputSchema,
+  contextLinkPackageViewSchema,
+} from "./context/link-package-schema.js";
 export {
   CONTEXT_BUILD_CACHE_POLICY_VERSION,
   DOCUMENT_PROJECTION_POLICY_VERSION,
@@ -35,6 +44,27 @@ export {
 } from "./context/context-build-cache.js";
 export type { ContextBuildCacheCatalog, ContextBuildCacheEntry, ContextBuildCacheIdentity } from "./context/context-build-cache.js";
 export { DirectoryContextFingerprintStore } from "./context/directory-context-fingerprint-store.js";
+export { ArtifactAmendmentService } from "./artifacts/amendment-service.js";
+export type {
+  AcceptArtifactAmendmentInput,
+  ArtifactAmendmentApprovalReceipt,
+  ArtifactAmendmentPreview,
+  ArtifactAmendmentPreviewInput,
+  ArtifactAmendmentReceipt,
+  ArtifactLineageView,
+} from "./artifacts/amendment-service.js";
+export { SqliteArtifactAmendmentReceiptStore } from "./artifacts/amendment-store.js";
+export type { ArtifactAmendmentReceiptStore } from "./artifacts/amendment-store.js";
+export {
+  artifactAmendmentApprovalIssueInputSchema,
+  artifactAmendmentApprovalReceiptSchema,
+  artifactAmendmentAcceptInputSchema,
+  artifactAmendmentPreviewInputSchema,
+  artifactAmendmentPreviewOutputSchema,
+  artifactAmendmentReceiptSchema,
+  artifactLineageGetInputSchema,
+  artifactLineageOutputSchema,
+} from "./artifacts/amendment-schema.js";
 export { ContextLinkGraphSessionService } from "./context/link-graph-session.js";
 export type {
   ContextLinkGraphCandidate,
@@ -108,81 +138,8 @@ export type {
 } from "./evaluation/context-efficiency-contracts.js";
 export { evaluateContextEfficiency } from "./evaluation/context-efficiency-evaluator.js";
 export type { ContextEfficiencyReport, ContextEfficiencyVariantResult } from "./evaluation/context-efficiency-evaluator.js";
-export {
-  contextOutcomeDigest,
-  contextOutcomeReceiptSchema,
-  contextOutcomeSubmissionSchema,
-  createContextOutcomeReceipt,
-} from "./evaluation/context-outcome-receipt.js";
-export { ContextOutcomeService } from "./evaluation/context-outcome-service.js";
-export type {
-  ContextOutcomeCatalog,
-  ContextOutcomeReceipt,
-  ContextOutcomeSubmission,
-} from "./evaluation/context-outcome-receipt.js";
-export {
-  contextFeedbackProposalSchema,
-  contextFeedbackSubmissionSchema,
-  createContextFeedbackProposal,
-} from "./evaluation/context-feedback.js";
-export { ContextFeedbackService } from "./evaluation/context-feedback-service.js";
-export type {
-  ContextFeedbackCatalog,
-  ContextFeedbackProposal,
-  ContextFeedbackProposalInput,
-  ContextFeedbackSubmission,
-} from "./evaluation/context-feedback.js";
 export { runDirectSearchBaseline } from "./evaluation/direct-search-baseline.js";
 export type { DirectSearchBaselineRequest, DirectSearchBaselineResult } from "./evaluation/direct-search-baseline.js";
-export {
-  ContextBusinessEvalRunner,
-  InMemoryBusinessEvaluationCatalog,
-  businessEvaluationInputSchema,
-  businessEvaluationListRequestSchema,
-  businessEvaluationReceiptSchema,
-  businessEvaluationRunRequestSchema,
-  businessFixtureCatalogSchema,
-  businessScenarioDatasetSchema,
-  businessVariantObservationSchema,
-  contextBusinessVariants,
-} from "./evaluation/context-business-eval-runner.js";
-export {
-  BusinessEvaluationProfileRegistry,
-  ServerOwnedBusinessEvaluationService,
-  businessEvaluationExecutionProfileSchema,
-  businessEvaluationProfileSummarySchema,
-  serverOwnedBusinessEvaluationRunRequestSchema,
-} from "./evaluation/context-business-eval-profile.js";
-export { loadBusinessEvaluationProfiles } from "./evaluation/context-business-eval-config.js";
-export {
-  TaskSuccessWorkerCoordinator,
-  DirectoryTaskSuccessStateStore,
-  taskSuccessClaimRequestSchema,
-  taskSuccessClaimResultSchema,
-  taskSuccessSessionSchema,
-  taskSuccessStartRequestSchema,
-  taskSuccessSubmitRequestSchema,
-} from "./evaluation/task-success-worker.js";
-export type { TaskSuccessEvaluationBackend, TaskSuccessSession } from "./evaluation/task-success-worker.js";
-export type {
-  BusinessEvaluationExecutionProfile,
-  BusinessEvaluationApi,
-  BusinessEvaluationProfileSummary,
-  ServerOwnedBusinessEvaluationRunRequest,
-  ServerOwnedBusinessEvaluationServiceDependencies,
-} from "./evaluation/context-business-eval-profile.js";
-export type {
-  BusinessEvaluationCatalog,
-  BusinessEvaluationInput,
-  BusinessEvaluationReceipt,
-  BusinessEvaluationRunRequest,
-  BusinessFixtureCatalog,
-  BusinessScenarioDataset,
-  BusinessVariant,
-  BusinessVariantExecutionRequest,
-  BusinessVariantExecutor,
-  BusinessVariantObservation,
-} from "./evaluation/context-business-eval-runner.js";
 export type {
   RuntimeOwnerHandle,
   ScanLeaseHandle,
@@ -269,6 +226,7 @@ export { ScopeMapReconcileCoordinator } from "./scope-map/reconcile-coordinator.
 export type { ScopeMapReconcileOptions, ScopeMapScanner } from "./scope-map/reconcile-coordinator.js";
 export type {
   AbcmPermission,
+  ArtifactLineageRecord,
   DocumentRecord,
   ExecutableResourceRecord,
   FileClassification,

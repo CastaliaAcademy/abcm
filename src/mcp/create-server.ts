@@ -8,6 +8,8 @@ import { createOperationDeadline } from "../core/operation.js";
 import { normalizeBuildTaskContextInput } from "../context/schema.js";
 import type { ContextBuilder } from "../context/context-builder.js";
 import type { ContextLinkGraphSessionService } from "../context/link-graph-session.js";
+import type { ContextLinkPackageService } from "../context/link-package.js";
+import type { ArtifactAmendmentService } from "../artifacts/amendment-service.js";
 import {
   ABCM_MCP_CONTRACT_VERSION,
   ABCM_MCP_PROTOCOL_VERSIONS,
@@ -16,10 +18,6 @@ import {
 } from "../core/server-info.js";
 import type { DomainLanguageService } from "../domain-language/domain-language-service.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
-import type { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
-import type { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
-import type { BusinessEvaluationApi } from "../evaluation/context-business-eval-profile.js";
-import type { TaskSuccessWorkerCoordinator } from "../evaluation/task-success-worker.js";
 import type { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { ScopeMapAccess } from "../scope-map/types.js";
@@ -52,23 +50,18 @@ import {
   contextLinkGraphSessionOutputSchema,
   contextLinkGraphStartInputSchema,
   contextLinkGraphStepInputSchema,
-  contextOutcomeListInputSchema,
-  contextOutcomeListOutputSchema,
-  contextOutcomeReceiptSchema,
-  contextOutcomeSubmissionSchema,
-  contextFeedbackListInputSchema,
-  contextFeedbackListOutputSchema,
-  contextFeedbackProposalSchema,
-  contextFeedbackSubmissionSchema,
-  businessEvaluationListOutputSchema,
-  businessEvaluationListRequestSchema,
-  businessEvaluationProfileListInputSchema,
-  businessEvaluationProfileListOutputSchema,
-  businessEvaluationReceiptSchema,
-  businessEvaluationRunRequestSchema,
-  taskSuccessEvaluationGetInputSchema,
-  taskSuccessEvaluationSessionOutputSchema,
-  taskSuccessEvaluationStartInputSchema,
+  contextLinkPackageBuildInputSchema,
+  contextLinkPackageBuildOutputSchema,
+  contextLinkPackageGetInputSchema,
+  contextLinkPackageListInputSchema,
+  contextLinkPackageListOutputSchema,
+  contextLinkPackageViewSchema,
+  artifactAmendmentAcceptInputSchema,
+  artifactAmendmentPreviewInputSchema,
+  artifactAmendmentPreviewOutputSchema,
+  artifactAmendmentReceiptSchema,
+  artifactLineageGetInputSchema,
+  artifactLineageOutputSchema,
   documentationApplyInputSchema,
   documentationPreviewInputSchema,
   documentationPreviewOutputSchema,
@@ -123,10 +116,8 @@ export interface AbcmMcpDependencies {
   contextPrincipal?: ContextPrincipal;
   contextBuilder?: ContextBuilder;
   contextLinkGraphSessions?: ContextLinkGraphSessionService;
-  contextOutcomes?: ContextOutcomeService;
-  contextFeedback?: ContextFeedbackService;
-  contextBusinessEvaluations?: BusinessEvaluationApi;
-  taskSuccessEvaluations?: TaskSuccessWorkerCoordinator;
+  contextLinkPackages?: ContextLinkPackageService;
+  artifactAmendments?: ArtifactAmendmentService;
   documentation?: DirectoryDocumentationSyncService;
   workspaces?: WorkspaceProvisioningService;
   mcpResourcePageSize?: number;
@@ -634,128 +625,51 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
       async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextLinkGraphSessions!.finalize(input, signal)) }), context.mcpReq.signal, operationTimeoutMs),
     );
   }
-  if (dependencies.contextOutcomes !== undefined) {
-    server.registerTool(
-      "context.record_outcome",
-      {
-        title: "Record immutable context outcome",
-        description: "Bind one body-free task outcome, usage, and cost receipt to a principal-owned ContextFingerprint repeat.",
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        inputSchema: contextOutcomeSubmissionSchema,
-        outputSchema: toolOutputSchema(contextOutcomeReceiptSchema),
-      },
-      async (input, context) => toolResult(async () => ({ ...dependencies.contextOutcomes!.record(input) }), context.mcpReq.signal, operationTimeoutMs),
-    );
-    server.registerTool(
-      "context.list_outcomes",
-      {
-        title: "List context outcomes",
-        description: "List body-free immutable outcome receipts for one principal-owned ContextFingerprint.",
-        annotations: { readOnlyHint: true, openWorldHint: false },
-        inputSchema: contextOutcomeListInputSchema,
-        outputSchema: toolOutputSchema(contextOutcomeListOutputSchema),
-      },
-      async (input, context) => toolResult(async () => ({ outcomes: dependencies.contextOutcomes!.list(input.workspaceId, input.fingerprintId) }), context.mcpReq.signal, operationTimeoutMs),
-    );
+  if (dependencies.contextLinkPackages !== undefined) {
+    server.registerTool("context.list_link_packages", {
+      title: "List tag-derived link packages",
+      description: "List access-filtered virtual packages derived from tags in the active workspace documents.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
+      inputSchema: contextLinkPackageListInputSchema,
+      outputSchema: toolOutputSchema(contextLinkPackageListOutputSchema),
+    }, async (input, context) => toolResult(async () => ({ packages: dependencies.contextLinkPackages!.list(input.workspaceId) }), context.mcpReq.signal, operationTimeoutMs));
+    server.registerTool("context.get_link_package", {
+      title: "Get tag-derived link package",
+      description: "Read one access-filtered virtual package derived from an Obsidian-compatible document tag.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
+      inputSchema: contextLinkPackageGetInputSchema,
+      outputSchema: toolOutputSchema(contextLinkPackageViewSchema),
+    }, async (input, context) => toolResult(async () => ({ ...dependencies.contextLinkPackages!.get(input.workspaceId, input.packageId) }), context.mcpReq.signal, operationTimeoutMs));
+    server.registerTool("context.build_from_link_package", {
+      title: "Build context from tag-derived link package",
+      description: "Bind a tag package to the same workspace bootstrap, reauthorize every member, and build through ContextBuilder.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      inputSchema: contextLinkPackageBuildInputSchema,
+      outputSchema: toolOutputSchema(contextLinkPackageBuildOutputSchema),
+    }, async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextLinkPackages!.build({ workspaceId: input.workspaceId, packageId: input.packageId, request: normalizeBuildTaskContextInput(input.request) }, signal)) }), context.mcpReq.signal, operationTimeoutMs));
   }
-  if (dependencies.contextFeedback !== undefined) {
-    server.registerTool(
-      "context.propose_feedback",
-      {
-        title: "Propose context feedback",
-        description: "Create an immutable body-free ranking-policy or dataset proposal without changing active selection.",
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        inputSchema: contextFeedbackSubmissionSchema,
-        outputSchema: toolOutputSchema(contextFeedbackProposalSchema),
-      },
-      async (input, context) => toolResult(async () => ({ ...dependencies.contextFeedback!.propose(input) }), context.mcpReq.signal, operationTimeoutMs),
-    );
-    server.registerTool(
-      "context.list_feedback",
-      {
-        title: "List context feedback proposals",
-        description: "List immutable body-free proposals for one principal-owned ContextFingerprint.",
-        annotations: { readOnlyHint: true, openWorldHint: false },
-        inputSchema: contextFeedbackListInputSchema,
-        outputSchema: toolOutputSchema(contextFeedbackListOutputSchema),
-      },
-      async (input, context) => toolResult(async () => ({ proposals: dependencies.contextFeedback!.list(input.workspaceId, input.fingerprintId) }), context.mcpReq.signal, operationTimeoutMs),
-    );
-  }
-  if (dependencies.contextBusinessEvaluations !== undefined) {
-    server.registerTool(
-      "context.list_business_evaluation_profiles",
-      {
-        title: "List business evaluation profiles",
-        description: "List server-owned, versioned V0-V5 execution profiles available to this runtime.",
-        annotations: { readOnlyHint: true, openWorldHint: false },
-        inputSchema: businessEvaluationProfileListInputSchema,
-        outputSchema: toolOutputSchema(businessEvaluationProfileListOutputSchema),
-      },
-      async (_input, context) => toolResult(
-        async () => ({ profiles: dependencies.contextBusinessEvaluations!.listProfiles() }),
-        context.mcpReq.signal,
-        operationTimeoutMs,
-      ),
-    );
-    server.registerTool(
-      "context.run_business_evaluation",
-      {
-        title: "Run context business evaluation",
-        description: "Run one registered server-owned V0-V5 profile and persist an immutable body-free receipt.",
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        inputSchema: businessEvaluationRunRequestSchema,
-        outputSchema: toolOutputSchema(businessEvaluationReceiptSchema),
-      },
-      async (input, context) => toolResult(
-        async signal => ({ ...(await dependencies.contextBusinessEvaluations!.run(input, signal)) }),
-        context.mcpReq.signal,
-        operationTimeoutMs,
-      ),
-    );
-    server.registerTool(
-      "context.list_business_evaluations",
-      {
-        title: "List context business evaluations",
-        description: "List immutable body-free evaluation receipts for one workspace and dataset.",
-        annotations: { readOnlyHint: true, openWorldHint: false },
-        inputSchema: businessEvaluationListRequestSchema,
-        outputSchema: toolOutputSchema(businessEvaluationListOutputSchema),
-      },
-      async (input, context) => toolResult(
-        async () => ({ evaluations: dependencies.contextBusinessEvaluations!.list(input.workspaceId, input.datasetId) }),
-        context.mcpReq.signal,
-        operationTimeoutMs,
-      ),
-    );
-  }
-  if (dependencies.taskSuccessEvaluations !== undefined) {
-    server.registerTool(
-      "context.start_task_success_evaluation",
-      {
-        title: "Start task-success evaluation",
-        description: "Prepare blind jobs from one server-owned profile for an independently authenticated external model worker.",
-        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        inputSchema: taskSuccessEvaluationStartInputSchema,
-        outputSchema: toolOutputSchema(taskSuccessEvaluationSessionOutputSchema),
-      },
-      async (input, context) => toolResult(async signal => ({ ...(await dependencies.taskSuccessEvaluations!.start(input, signal)) }), context.mcpReq.signal, operationTimeoutMs),
-    );
-    server.registerTool(
-      "context.get_task_success_evaluation",
-      {
-        title: "Get task-success evaluation",
-        description: "Read body-free progress and final receipt identity for one task-success session.",
-        annotations: { readOnlyHint: true, openWorldHint: false },
-        inputSchema: taskSuccessEvaluationGetInputSchema,
-        outputSchema: toolOutputSchema(taskSuccessEvaluationSessionOutputSchema),
-      },
-      async (input, context) => toolResult(async () => {
-        const session = dependencies.taskSuccessEvaluations!.get(input.sessionId);
-        if (session === undefined) throw new AbcmError("FILE_NOT_FOUND", "Task-success evaluation session was not found.");
-        return { ...session };
-      }, context.mcpReq.signal, operationTimeoutMs),
-    );
+  if (dependencies.artifactAmendments !== undefined) {
+    server.registerTool("artifact.preview_amendment", {
+      title: "Preview accepted artifact amendment",
+      description: "Validate draft checksum, base accepted bytes, lineage head and MapRevision and return the canonical approval payload digest.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
+      inputSchema: artifactAmendmentPreviewInputSchema,
+      outputSchema: toolOutputSchema(artifactAmendmentPreviewOutputSchema),
+    }, async (input, context) => toolResult(async signal => ({ ...(await dependencies.artifactAmendments!.preview(input, signal)) }), context.mcpReq.signal, operationTimeoutMs));
+    server.registerTool("artifact.accept_amendment", {
+      title: "Accept artifact amendment",
+      description: "Create one new immutable lineage head from an approved draft while preserving the previous accepted file byte-for-byte.",
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      inputSchema: artifactAmendmentAcceptInputSchema,
+      outputSchema: toolOutputSchema(artifactAmendmentReceiptSchema),
+    }, async (input, context) => toolResult(async signal => ({ ...(await dependencies.artifactAmendments!.accept(input, signal)) }), context.mcpReq.signal, operationTimeoutMs));
+    server.registerTool("artifact.get_lineage", {
+      title: "Get artifact lineage",
+      description: "Resolve the current accepted head and immutable revision chain inside the active MapRevision.",
+      annotations: { readOnlyHint: true, openWorldHint: false },
+      inputSchema: artifactLineageGetInputSchema,
+      outputSchema: toolOutputSchema(artifactLineageOutputSchema),
+    }, async (input, context) => toolResult(async () => ({ ...dependencies.artifactAmendments!.getLineage(input.workspaceId, input.lineageId) }), context.mcpReq.signal, operationTimeoutMs));
   }
   if (dependencies.documentation !== undefined) {
     server.registerTool(

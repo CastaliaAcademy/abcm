@@ -339,90 +339,52 @@ export function createAbcmOpenApiDocument(): JsonObject {
           },
         },
       },
-      "/v1/context/outcomes": {
-        post: {
-          operationId: "recordContextOutcome",
-          description: "Record an immutable body-free outcome, usage, and cost receipt for one principal-owned ContextFingerprint repeat.",
-          requestBody: { required: true, content: { "application/json": { schema: reference("ContextOutcomeSubmission") } } },
-          responses: { "201": response("Immutable context outcome receipt", reference("ContextOutcomeReceipt")), ...problemResponses },
-        },
+      "/v1/context/link-packages": {
         get: {
-          operationId: "listContextOutcomes",
+          operationId: "listOrGetContextLinkPackages",
+          description: "List or get access-filtered virtual packages derived from document tags.",
           parameters: [
-            parameter("workspaceId", "query", true, { type: "string", minLength: 1 }),
-            parameter("fingerprintId", "query", true, { type: "string", pattern: "^fingerprint-[a-f0-9]{24}$" }),
+            parameter("workspaceId", "query", true, { type: "string" }),
+            parameter("packageId", "query", false, { type: "string", pattern: "^tag-package-[a-f0-9]{24}$" }),
           ],
-          responses: { "200": response("Immutable context outcome receipts", reference("ContextOutcomeListResult")), ...problemResponses },
+          responses: { "200": response("Tag-derived package or package list", { oneOf: [reference("ContextLinkPackage"), reference("ContextLinkPackageListResult")] }), ...problemResponses },
         },
       },
-      "/v1/context/feedback": {
+      "/v1/context/link-packages/build": {
         post: {
-          operationId: "proposeContextFeedback",
-          description: "Create an immutable body-free proposal; active ranking and datasets are not changed by this operation.",
-          requestBody: { required: true, content: { "application/json": { schema: reference("ContextFeedbackSubmission") } } },
-          responses: { "201": response("Immutable context feedback proposal", reference("ContextFeedbackProposal")), ...problemResponses },
+          operationId: "buildFromContextLinkPackage",
+          description: "Bind the tag package to the bootstrap workspace, reauthorize every member and build through ContextBuilder.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("ContextLinkPackageBuildRequest") } } },
+          responses: { "200": response("ContextBundle built after consumer reauthorization", reference("ContextLinkPackageBuildResult")), ...problemResponses },
         },
+      },
+      "/v1/artifact-amendments/preview": {
+        post: {
+          operationId: "previewArtifactAmendment",
+          requestBody: { required: true, content: { "application/json": { schema: reference("ArtifactAmendmentPreviewRequest") } } },
+          responses: { "200": response("Canonical amendment approval payload", reference("ArtifactAmendmentPreview")), ...problemResponses },
+        },
+      },
+      "/v1/operator/artifact-amendment-approvals": {
+        post: {
+          operationId: "issueArtifactAmendmentApproval",
+          description: "Issue a short-lived server-stored one-time approval using the separate operator identity. The agent bearer token is not accepted.",
+          requestBody: { required: true, content: { "application/json": { schema: reference("ArtifactAmendmentApprovalIssueRequest") } } },
+          responses: { "201": response("Server-issued amendment approval", reference("ArtifactAmendmentApprovalReceipt")), ...problemResponses },
+        },
+      },
+      "/v1/artifact-amendments/accept": {
+        post: {
+          operationId: "acceptArtifactAmendment",
+          requestBody: { required: true, content: { "application/json": { schema: reference("ArtifactAmendmentAcceptRequest") } } },
+          responses: { "200": response("Immutable amendment receipt", reference("ArtifactAmendmentReceipt")), ...problemResponses },
+        },
+      },
+      "/v1/artifact-lineages": {
         get: {
-          operationId: "listContextFeedback",
-          parameters: [
-            parameter("workspaceId", "query", true, { type: "string", minLength: 1 }),
-            parameter("fingerprintId", "query", true, { type: "string", pattern: "^fingerprint-[a-f0-9]{24}$" }),
-          ],
-          responses: { "200": response("Immutable context feedback proposals", reference("ContextFeedbackListResult")), ...problemResponses },
-        },
-      },
-      "/v1/context/business-evaluations": {
-        post: {
-          operationId: "runContextBusinessEvaluation",
-          description: "Run one registered server-owned V0-V5 profile and persist one immutable body-free receipt.",
-          requestBody: { required: true, content: { "application/json": { schema: reference("BusinessEvaluationRunRequest") } } },
-          responses: { "201": response("Immutable business evaluation receipt", reference("BusinessEvaluationReceipt")), ...problemResponses },
-        },
-        get: {
-          operationId: "listContextBusinessEvaluations",
-          parameters: [
-            parameter("workspaceId", "query", true, { type: "string", minLength: 1 }),
-            parameter("datasetId", "query", true, { type: "string", minLength: 1 }),
-          ],
-          responses: { "200": response("Immutable business evaluation receipts", reference("BusinessEvaluationListResult")), ...problemResponses },
-        },
-      },
-      "/v1/context/business-evaluation-profiles": {
-        get: {
-          operationId: "listContextBusinessEvaluationProfiles",
-          description: "List versioned server-owned business-evaluation profiles. Client-supplied manifests and host paths are not accepted.",
-          responses: { "200": response("Available business evaluation profiles", reference("BusinessEvaluationProfileListResult")), ...problemResponses },
-        },
-      },
-      "/v1/context/task-success-evaluations": {
-        post: {
-          operationId: "startTaskSuccessEvaluation",
-          description: "Prepare transient blind jobs from a server-owned profile; model calls remain outside ABCM.",
-          requestBody: { required: true, content: { "application/json": { schema: reference("TaskSuccessStartRequest") } } },
-          responses: { "202": response("Task-success session", reference("TaskSuccessSession")), ...problemResponses },
-        },
-      },
-      "/v1/context/task-success-evaluations/{sessionId}": {
-        get: {
-          operationId: "getTaskSuccessEvaluation",
-          parameters: [parameter("sessionId", "path", true, { type: "string", pattern: "^task-session-[a-f0-9]{24}$" })],
-          responses: { "200": response("Body-free task-success progress", reference("TaskSuccessSession")), ...problemResponses },
-        },
-      },
-      "/v1/context/task-success-worker/jobs/claim": {
-        post: {
-          operationId: "claimTaskSuccessJob",
-          description: "Worker-token endpoint. Returns one blind prompt and ABCM-prepared context without variant or gold labels.",
-          requestBody: { required: true, content: { "application/json": { schema: reference("TaskSuccessClaimRequest") } } },
-          responses: { "200": response("Claimed blind job or null", reference("TaskSuccessClaimResult")), ...problemResponses },
-        },
-      },
-      "/v1/context/task-success-worker/jobs/submit": {
-        post: {
-          operationId: "submitTaskSuccessJob",
-          description: "Worker-token endpoint. Accepts body-free result digests, verdicts, and measurements; model output is rejected.",
-          requestBody: { required: true, content: { "application/json": { schema: reference("TaskSuccessSubmitRequest") } } },
-          responses: { "200": response("Updated body-free task-success progress", reference("TaskSuccessSession")), ...problemResponses },
+          operationId: "getArtifactLineage",
+          parameters: [parameter("workspaceId", "query", true, { type: "string" }), parameter("lineageId", "query", true, { type: "string" })],
+          responses: { "200": response("Artifact lineage inside the active MapRevision", reference("ArtifactLineage")), ...problemResponses },
         },
       },
       "/v1/workspaces/{workspaceId}/documentation-sources/preview": {

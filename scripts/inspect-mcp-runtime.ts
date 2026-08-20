@@ -4,7 +4,8 @@ const baseUrl = (process.env.ABCM_BASE_URL ?? "http://127.0.0.1:8787").replace(/
 const token = process.env.ABCM_API_TOKEN;
 const workspaceId = process.env.ABCM_WORKSPACE_ID ?? "castalia-public";
 const projectId = process.env.ABCM_PROJECT_ID ?? "abcm";
-const expectedToolCount = Number(process.env.ABCM_EXPECTED_MCP_TOOL_COUNT ?? "42");
+const expectedToolCount = Number(process.env.ABCM_EXPECTED_MCP_TOOL_COUNT ?? "39");
+const documentationSourceId = process.env.ABCM_DOCUMENTATION_SOURCE_ID ?? "castalia-public-import";
 
 if (!token) throw new Error("ABCM_API_TOKEN is required.");
 if (!Number.isSafeInteger(expectedToolCount) || expectedToolCount < 1) {
@@ -59,18 +60,16 @@ try {
   const serverVersion = client.getServerVersion()?.version;
   const instructionVersion = (instructions.structuredContent as { version?: string } | undefined)?.version;
   const instructionContent = (instructions.structuredContent as { content?: string } | undefined)?.content;
-  const profilesResult = await client.callTool({ name: "context.list_business_evaluation_profiles", arguments: {} });
-  const profiles = (profilesResult.structuredContent as { profiles?: Array<{ phase?: string }> } | undefined)?.profiles ?? [];
   const documentationResult = await client.callTool({
     name: "documentation_source.preview",
-    arguments: { workspaceId, sourceId: "operator-selected" },
+    arguments: { workspaceId, sourceId: documentationSourceId },
   });
   const documentation = documentationResult.structuredContent as { sourceId?: string; operations?: unknown[] } | undefined;
 
   if (names.length !== expectedToolCount || new Set(names).size !== names.length) {
     throw new Error(`Expected ${expectedToolCount} unique MCP tools, received ${names.length}.`);
   }
-  if (serverVersion !== "0.1.1" || instructionVersion !== "1.18.2") {
+  if (serverVersion !== "0.1.3" || instructionVersion !== "1.20.0") {
     throw new Error(`Unexpected server/instruction versions: server='${serverVersion}', instructions='${instructionVersion}'.`);
   }
   if (!instructionContent?.includes("не добавляет pairing, device, cursor или conflict операции в MCP manifest")) {
@@ -82,10 +81,9 @@ try {
   if (overflowTextError.code !== "REQUIRED_CONTEXT_EXCEEDS_LIMIT" || overflowStructuredError?.error_code !== overflowTextError.code) {
     throw new Error(`Budget error mismatch: text='${overflowTextError.code}', structured='${overflowStructuredError?.error_code}'.`);
   }
-  if (!profiles.some(profile => profile.phase === "retrieval") || !profiles.some(profile => profile.phase === "task-success")) {
-    throw new Error("Both retrieval and task-success server-owned profiles must be published.");
-  }
-  if (documentationResult.isError || documentation?.sourceId !== "operator-selected") {
+  const forbiddenEvaluationTools = names.filter(name => /outcome|feedback|business_evaluation|task_success/.test(name));
+  if (forbiddenEvaluationTools.length > 0) throw new Error(`Centralized evaluation tools are still published: ${forbiddenEvaluationTools.join(", ")}`);
+  if (documentationResult.isError || documentation?.sourceId !== documentationSourceId) {
     throw new Error("The operator-selected documentation source preview is unavailable.");
   }
 
@@ -97,7 +95,7 @@ try {
     tools: names,
     missingDocumentError: { text: textError.code, structured: structuredError.error_code },
     requiredBudgetError: { text: overflowTextError.code, structured: overflowStructuredError.error_code },
-    businessEvaluationProfiles: profiles.map(profile => profile.phase),
+    centralizedEvaluationTools: [],
     documentationSource: { id: documentation.sourceId, operationCount: documentation.operations?.length ?? 0 },
   }, null, 2));
 } finally {

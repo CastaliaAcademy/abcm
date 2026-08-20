@@ -15,7 +15,7 @@ const safeRepositoryPath = z.string().min(1).max(1_024).superRefine((value, cont
 const expectedKind = safeDocumentId.optional();
 const explicitDocumentReference = z.discriminatedUnion("selector", [
   z.object({ selector: z.literal("document-id"), documentId: safeDocumentId, expectedKind }).strict(),
-  z.object({ selector: z.literal("uri"), uri: z.string().regex(/^abcm:\/\/(?:artifact|document|plan|architecture)\/[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/), expectedKind }).strict(),
+  z.object({ selector: z.literal("uri"), uri: z.string().regex(/^abcm:\/\/(?:artifact|document|plan|architecture|lineage)\/[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/), expectedKind }).strict(),
   z.object({ selector: z.literal("repository-file"), path: safeRepositoryPath, expectedKind }).strict(),
   z.object({ selector: z.literal("repository-directory"), path: safeRepositoryPath, recursive: z.boolean().optional(), expectedKind }).strict(),
   z.object({ selector: z.literal("repository-prefix"), prefix: safeRepositoryPath, expectedKind }).strict(),

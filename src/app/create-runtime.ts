@@ -10,22 +10,13 @@ import {
 } from "../context/link-graph-session.js";
 import { ContextLinkGraphWebSocketAdapter } from "../context/link-graph-websocket.js";
 import { SqliteContextLinkGraphSessionStore } from "../context/link-graph-session-store.js";
+import { ContextLinkPackageService } from "../context/link-package.js";
+import { ArtifactAmendmentService } from "../artifacts/amendment-service.js";
+import { SqliteArtifactAmendmentReceiptStore } from "../artifacts/amendment-store.js";
 import type { ContextBuildCacheCatalog } from "../context/context-build-cache.js";
 import type { AbcmObservability } from "../core/observability.js";
 import { DirectoryContextFingerprintStore } from "../context/directory-context-fingerprint-store.js";
 import type { ContextBuilderOptions, ContextFingerprintCatalog } from "../context/types.js";
-import type { ContextOutcomeCatalog } from "../evaluation/context-outcome-receipt.js";
-import { ContextOutcomeService } from "../evaluation/context-outcome-service.js";
-import type { ContextFeedbackCatalog } from "../evaluation/context-feedback.js";
-import { ContextFeedbackService } from "../evaluation/context-feedback-service.js";
-import {
-  type BusinessEvaluationCatalog,
-} from "../evaluation/context-business-eval-runner.js";
-import {
-  BusinessEvaluationProfileRegistry,
-  ServerOwnedBusinessEvaluationService,
-} from "../evaluation/context-business-eval-profile.js";
-import { TaskSuccessWorkerCoordinator } from "../evaluation/task-success-worker.js";
 import { SqliteWorkspaceMapStore } from "../derived-store/sqlite-workspace-map-store.js";
 import type { ScopeMapStore, SqliteWorkspaceMapStoreOptions } from "../derived-store/types.js";
 import { DirectoryDocumentationSyncService } from "../documentation/directory-documentation-sync-service.js";
@@ -34,6 +25,7 @@ import { DomainLanguageService, type DomainLanguageServiceOptions } from "../dom
 import { ScopePathResolver } from "../domain-language/scope-path-resolver.js";
 import type { ContextPrincipal } from "../domain-language/types.js";
 import { createAbcmRestHandler } from "../rest/create-rest-handler.js";
+import { createArtifactAmendmentOperatorHandler } from "../rest/artifact-amendment-operator-handler.js";
 import type { AbcmRestLimitOptions } from "../rest/config.js";
 import { requireStaticBearerToken } from "../rest/static-bearer-auth.js";
 import { ScopeMapReconcileCoordinator, type ScopeMapReconcileOptions } from "../scope-map/reconcile-coordinator.js";
@@ -75,15 +67,10 @@ export interface AbcmRuntimeOptions {
   domainLanguage?: DomainLanguageServiceOptions;
   context?: ContextBuilderOptions;
   contextLinkGraph?: ContextLinkGraphSessionOptions & { stateRoot?: string };
+  artifactAmendments?: { stateRoot?: string; operatorToken?: string; operatorIdentity?: string; approvalTtlMs?: number };
   observability?: AbcmObservability;
   contextFingerprintCatalog?: ContextFingerprintCatalog;
-  contextOutcomeCatalog?: ContextOutcomeCatalog;
   contextBuildCacheCatalog?: ContextBuildCacheCatalog;
-  contextFeedbackCatalog?: ContextFeedbackCatalog;
-  businessEvaluationCatalog?: BusinessEvaluationCatalog;
-  businessEvaluationProfiles?: readonly unknown[];
-  businessEvaluationWorkerToken?: string;
-  businessEvaluationTaskStateRoot?: string;
   obsidianSync?: Omit<ObsidianSyncServiceOptions, "observability">;
 }
 
@@ -95,6 +82,9 @@ export function createAbcmRuntime(
   if (workspaces.length === 0) throw new Error("At least one workspace definition is required.");
   if (options.obsidianSync !== undefined && options.bearerToken === undefined) {
     throw new Error("Obsidian synchronization requires an administrative bearer token.");
+  }
+  if (options.artifactAmendments?.operatorToken !== undefined && options.artifactAmendments.operatorToken === options.bearerToken) {
+    throw new Error("Artifact amendment operator token must differ from the agent bearer token.");
   }
   const defaultWorkspace = workspaces[0]!;
   const registry = new WorkspaceRegistry(workspaces);
@@ -163,22 +153,7 @@ export function createAbcmRuntime(
     });
   }
   const contextFingerprintCatalog = options.contextFingerprintCatalog ?? ownedScopeMapStore;
-  const contextOutcomeCatalog = options.contextOutcomeCatalog ?? ownedScopeMapStore;
   const contextBuildCacheCatalog = options.contextBuildCacheCatalog ?? ownedScopeMapStore;
-  const contextFeedbackCatalog = options.contextFeedbackCatalog ?? ownedScopeMapStore;
-  const businessEvaluationCatalog = options.businessEvaluationCatalog ?? ownedScopeMapStore;
-  if (options.businessEvaluationProfiles !== undefined && businessEvaluationCatalog === undefined) {
-    throw new Error("businessEvaluationProfiles require a durable businessEvaluationCatalog or sqliteDerivedStoreEnabled=true.");
-  }
-  if (options.businessEvaluationProfiles !== undefined && options.contextPrincipal === undefined) {
-    throw new Error("businessEvaluationProfiles require contextPrincipal.");
-  }
-  const contextOutcomes = contextOutcomeCatalog !== undefined && contextFingerprintCatalog !== undefined && options.contextPrincipal !== undefined
-    ? new ContextOutcomeService(contextOutcomeCatalog, contextFingerprintCatalog, options.contextPrincipal)
-    : undefined;
-  const contextFeedback = contextFeedbackCatalog !== undefined && contextFingerprintCatalog !== undefined && options.contextPrincipal !== undefined
-    ? new ContextFeedbackService(contextFeedbackCatalog, contextFingerprintCatalog, options.contextPrincipal)
-    : undefined;
   const contextFingerprintStore = new DirectoryContextFingerprintStore(registry, contextFingerprintCatalog);
   const contextBuilder = new ContextBuilder({
     files,
@@ -212,32 +187,20 @@ export function createAbcmRuntime(
   const contextLinkGraphWebSocket = contextLinkGraphSessions === undefined
     ? undefined
     : new ContextLinkGraphWebSocketAdapter(contextLinkGraphSessions);
-  const businessEvaluationProfiles = options.businessEvaluationProfiles === undefined
+  const contextLinkPackages = options.contextPrincipal === undefined
     ? undefined
-    : new BusinessEvaluationProfileRegistry(options.businessEvaluationProfiles);
-  const contextBusinessEvaluations = businessEvaluationProfiles === undefined
+    : new ContextLinkPackageService({ contextBuilder, scopeMap, principal: options.contextPrincipal });
+  const artifactAmendmentStateRoot = options.artifactAmendments?.stateRoot ?? (
+    options.fileOperations === undefined ? undefined : resolve(options.fileOperations.stateRoot, "artifact-amendments")
+  );
+  const artifactAmendmentStore = artifactAmendmentStateRoot === undefined
     ? undefined
-    : new ServerOwnedBusinessEvaluationService(businessEvaluationCatalog!, businessEvaluationProfiles, {
-        files,
-        scopeMap,
-        domainLanguage,
-        scopePathResolver,
-        skillConnectionResolver,
-        fingerprintStore: contextFingerprintStore,
-        principal: options.contextPrincipal!,
-        ...(options.context === undefined ? {} : { options: options.context }),
-        ...(options.observability === undefined ? {} : { observability: options.observability }),
-      });
-  const hasTaskSuccessProfiles = businessEvaluationProfiles?.list().some(profile => profile.phase === "task-success") ?? false;
-  if (hasTaskSuccessProfiles && options.businessEvaluationWorkerToken === undefined) {
-    throw new Error("Task-success business evaluation profiles require businessEvaluationWorkerToken.");
-  }
-  if (hasTaskSuccessProfiles && options.businessEvaluationTaskStateRoot === undefined) {
-    throw new Error("Task-success business evaluation profiles require businessEvaluationTaskStateRoot.");
-  }
-  const taskSuccessEvaluations = contextBusinessEvaluations === undefined || !hasTaskSuccessProfiles
-    ? undefined
-    : new TaskSuccessWorkerCoordinator(contextBusinessEvaluations, { stateRoot: options.businessEvaluationTaskStateRoot! });
+    : new SqliteArtifactAmendmentReceiptStore(artifactAmendmentStateRoot);
+  const artifactAmendments = new ArtifactAmendmentService(files, scopeMap, {
+    ...(artifactAmendmentStore === undefined ? {} : { store: artifactAmendmentStore }),
+    ...(options.artifactAmendments?.operatorIdentity === undefined ? {} : { operatorIdentity: options.artifactAmendments.operatorIdentity }),
+    ...(options.artifactAmendments?.approvalTtlMs === undefined ? {} : { approvalTtlMs: options.artifactAmendments.approvalTtlMs }),
+  });
   if (documentationState !== undefined && options.documentationSources !== undefined) {
     documentation = new DirectoryDocumentationSyncService({
       registry,
@@ -262,10 +225,8 @@ export function createAbcmRuntime(
       domainLanguage,
       contextBuilder,
       ...(contextLinkGraphSessions === undefined ? {} : { contextLinkGraphSessions }),
-      ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
-      ...(contextFeedback === undefined ? {} : { contextFeedback }),
-      ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
-      ...(taskSuccessEvaluations === undefined ? {} : { taskSuccessEvaluations }),
+      ...(contextLinkPackages === undefined ? {} : { contextLinkPackages }),
+      artifactAmendments,
       ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
       ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
       ...(documentation === undefined ? {} : { documentation }),
@@ -288,10 +249,8 @@ export function createAbcmRuntime(
             domainLanguage,
             contextBuilder,
             ...(contextLinkGraphSessions === undefined ? {} : { contextLinkGraphSessions }),
-            ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
-            ...(contextFeedback === undefined ? {} : { contextFeedback }),
-            ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
-            ...(taskSuccessEvaluations === undefined ? {} : { taskSuccessEvaluations }),
+            ...(contextLinkPackages === undefined ? {} : { contextLinkPackages }),
+            artifactAmendments,
             ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
             ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
             ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),
@@ -307,13 +266,13 @@ export function createAbcmRuntime(
   const staticRestHandler = options.bearerToken === undefined
     ? baseRestHandler
     : requireStaticBearerToken(baseRestHandler, options.bearerToken, options.observability);
-  const workerRestHandler = options.businessEvaluationWorkerToken === undefined
+  const operatorRestHandler = options.artifactAmendments?.operatorToken === undefined
     ? undefined
-    : requireStaticBearerToken(baseRestHandler, options.businessEvaluationWorkerToken, options.observability);
+    : requireStaticBearerToken(createArtifactAmendmentOperatorHandler(artifactAmendments), options.artifactAmendments.operatorToken, options.observability);
   const restHandler = async (request: Request) => {
-    if (new URL(request.url).pathname.startsWith("/v1/context/task-success-worker/")) {
-      if (workerRestHandler === undefined) return Response.json({ code: "ACCESS_DENIED", detail: "Task-success worker access is not configured." }, { status: 403 });
-      return workerRestHandler(request);
+    if (new URL(request.url).pathname === "/v1/operator/artifact-amendment-approvals") {
+      if (operatorRestHandler === undefined) return Response.json({ code: "ACCESS_DENIED", detail: "Artifact amendment operator approval is not configured." }, { status: 403 });
+      return operatorRestHandler(request);
     }
     if (obsidianSync !== undefined && options.bearerToken !== undefined) {
       const pathname = new URL(request.url).pathname;
@@ -339,7 +298,6 @@ export function createAbcmRuntime(
     ready: Promise.all([
       uploads?.ready ?? Promise.resolve(),
       batches?.ready ?? Promise.resolve(),
-      taskSuccessEvaluations?.ready ?? Promise.resolve(),
     ]).then(() => undefined),
     scopeMap,
     architecturePolicies,
@@ -349,17 +307,11 @@ export function createAbcmRuntime(
     contextBuilder,
     contextLinkGraphSessions,
     contextLinkGraphWebSocket,
+    contextLinkPackages,
+    artifactAmendments,
     contextFingerprintStore,
     contextFingerprintCatalog,
-    contextOutcomeCatalog,
-    contextOutcomes,
     contextBuildCacheCatalog,
-    contextFeedbackCatalog,
-    contextFeedback,
-    businessEvaluationCatalog,
-    businessEvaluationProfiles,
-    contextBusinessEvaluations,
-    taskSuccessEvaluations,
     scopeMapReconciler,
     workspaceProvisioning,
     documentation,
@@ -379,10 +331,8 @@ export function createAbcmRuntime(
         domainLanguage,
         contextBuilder,
         ...(contextLinkGraphSessions === undefined ? {} : { contextLinkGraphSessions }),
-        ...(contextOutcomes === undefined ? {} : { contextOutcomes }),
-        ...(contextFeedback === undefined ? {} : { contextFeedback }),
-        ...(contextBusinessEvaluations === undefined ? {} : { contextBusinessEvaluations }),
-        ...(taskSuccessEvaluations === undefined ? {} : { taskSuccessEvaluations }),
+        ...(contextLinkPackages === undefined ? {} : { contextLinkPackages }),
+        artifactAmendments,
         ...(options.contextPrincipal === undefined ? {} : { contextPrincipal: options.contextPrincipal }),
         ...(options.scopeMapAccess === undefined ? {} : { scopeMapAccess: options.scopeMapAccess }),
         ...(options.mcpOperationTimeoutMs === undefined ? {} : { mcpOperationTimeoutMs: options.mcpOperationTimeoutMs }),
@@ -403,7 +353,11 @@ export function createAbcmRuntime(
               try {
                 contextLinkGraphSessionStore?.close();
               } finally {
-                ownedScopeMapStore?.close();
+                try {
+                  artifactAmendmentStore?.close();
+                } finally {
+                  ownedScopeMapStore?.close();
+                }
               }
             } finally {
               mutationCoordinator.close();

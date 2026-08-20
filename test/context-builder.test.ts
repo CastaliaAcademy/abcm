@@ -136,6 +136,41 @@ describe("ContextBuilder", () => {
     await expect(builder.build(request(bootstrap.bootstrapId), restricted)).rejects.toMatchObject({ code: "REQUIRED_CONTEXT_ACCESS_DENIED" });
   });
 
+  test("reauthorizes LinkPackage documents without turning optional references into mandatory context", async () => {
+    const { builder, bootstrap } = await fixture();
+    const restricted: ContextPrincipal = {
+      principalId: principal.principalId,
+      access: { workspacePermissions: [], scopeGrants: {
+        workflow: ["scope.discover", "scope.read_metadata", "context.build", "document.read"],
+        commerce: ["scope.discover", "scope.read_metadata", "context.build", "document.read"],
+        catalog: ["scope.discover", "scope.read_metadata", "context.build", "document.read"],
+        search: ["scope.discover", "scope.read_metadata", "context.build", "document.read"],
+        "other-project": ["scope.discover", "scope.read_metadata"],
+      } },
+    };
+    const optional = await builder.build({
+      ...request(bootstrap.bootstrapId),
+      linkPackageDocuments: [{ documentId: "project-overview", mandatory: false }, { documentId: "foreign-required", mandatory: false }],
+    }, restricted);
+    expect(optional.selectedDocuments.find(document => document.documentId === "project-overview")).toEqual(expect.objectContaining({
+      mandatory: false,
+      selectionReasons: expect.arrayContaining(["link_package_optional"]),
+    }));
+    expect(optional.selectedDocuments.map(document => document.documentId)).not.toContain("foreign-required");
+
+    let denied: unknown;
+    try {
+      await builder.build({
+        ...request(bootstrap.bootstrapId),
+        linkPackageDocuments: [{ documentId: "foreign-required", mandatory: true }],
+      }, restricted);
+    } catch (error) {
+      denied = error;
+    }
+    expect(denied).toEqual(expect.objectContaining({ code: "REQUIRED_CONTEXT_ACCESS_DENIED" }));
+    expect(JSON.stringify(denied)).not.toContain("foreign-required");
+  });
+
   test("reserves mandatory content before optional budget and reports boundaries", async () => {
     const { builder, bootstrap } = await fixture({ budgetProfiles: { tiny: { softLimitTokens: 70, hardLimitTokens: 75 } } });
     const result = await builder.build({ ...request(bootstrap.bootstrapId), budgetProfile: "tiny" }, principal);
