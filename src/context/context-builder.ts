@@ -28,6 +28,7 @@ import type {
   ContextFingerprintStore,
   ContextOmission,
   ContextSelectionPreview,
+  ContextSelectionStage,
   DocumentProjectionMode,
   MaterializedDocumentProjection,
   SelectedContextDocument,
@@ -47,13 +48,25 @@ const DEFAULT_BUDGETS: Readonly<Record<string, ContextBudgetProfile>> = {
   expanded: { softLimitTokens: 24_000, hardLimitTokens: 32_000 },
 };
 const PASSIVE_ANCESTOR_KINDS = new Set(["index", "template"]);
-export const CONTEXT_SELECTION_POLICY_VERSION = "context-selection/v3" as const;
+export const CONTEXT_SELECTION_POLICY_VERSION = "context-selection/v4" as const;
 
 interface Candidate {
   document: DocumentRecord;
   reasons: Set<SelectionReason>;
   mandatory: boolean;
 }
+
+function selectionStage(mandatory: boolean, reasons: ReadonlySet<SelectionReason>): ContextSelectionStage {
+  if (mandatory) return "mandatory";
+  if ([...reasons].some(reason => reason !== "target_scope" && reason !== "optional_background")) return "relevant";
+  return "background_fallback";
+}
+
+const SELECTION_STAGE_PRIORITY: Readonly<Record<ContextSelectionStage, number>> = {
+  mandatory: 0,
+  relevant: 1,
+  background_fallback: 2,
+};
 
 export interface ContextBuilderDependencies {
   files: WorkspaceFileService;
@@ -195,6 +208,7 @@ export class ContextBuilder {
       relativePath: item.relativePath,
       checksum: item.checksum,
       mandatory: item.mandatory,
+      selectionStage: item.selectionStage,
       effectivePriority: item.effectivePriority,
       selectionReasons: item.selectionReasons,
       projection: {
@@ -213,6 +227,7 @@ export class ContextBuilder {
       mapDigest: bundle.mapDigest,
       primaryTargetScope: bundle.primaryTargetScope,
       affectedScopes: bundle.affectedScopes,
+      contextMode: bundle.contextMode,
       budgetProfile: bundle.budgetProfile,
       budget: bundle.budget,
       budgetAllocation: bundle.budgetAllocation,
@@ -230,6 +245,8 @@ export class ContextBuilder {
     if (!principal.access.workspacePermissions.includes("context.build") && !Object.values(principal.access.scopeGrants ?? {}).some(grants => grants.includes("context.build"))) {
       throw new AbcmError("ACCESS_DENIED", "Context build permission is required.");
     }
+    const contextMode = request.contextMode ?? "balanced";
+    request = { ...request, contextMode };
     const bootstrap = this.#dependencies.domainLanguage.validateBootstrap(request.domainLanguageBootstrapId, principal);
     if (bootstrap.roleId !== undefined && bootstrap.roleId !== request.roleId) {
       throw new AbcmError("CONTEXT_CONFIGURATION_INVALID", "Domain-language bootstrap role does not match the context build role.");
@@ -304,19 +321,24 @@ export class ContextBuilder {
       path.normalizedIntent.canonicalDomains,
       path.normalizedIntent.canonicalTerms,
       skills.contextRequirements,
+      path.affectedScopeDetails.filter(detail => detail.origin === "relation").map(detail => detail.scopeId),
       principal,
     );
     const materialized: SelectedContextDocument[] = [];
     const omissions: ContextOmission[] = [...lifecycleOmissions];
     const nodes = new Map(revision.nodes.map(node => [node.scopeId, node]));
-    const ordered = [...candidates.values()].sort((left, right) => Number(right.mandatory) - Number(left.mandatory) || this.#priority(left) - this.#priority(right) || left.document.documentId.localeCompare(right.document.documentId));
+    const ordered = [...candidates.values()].sort((left, right) =>
+      SELECTION_STAGE_PRIORITY[selectionStage(left.mandatory, left.reasons)] - SELECTION_STAGE_PRIORITY[selectionStage(right.mandatory, right.reasons)] ||
+      this.#priority(left) - this.#priority(right) ||
+      left.document.documentId.localeCompare(right.document.documentId)
+    );
     for (const candidate of ordered) {
       throwIfAborted(signal);
       const node = nodes.get(candidate.document.scopeId);
       const reasons = this.#reasons(candidate);
       if (node === undefined || !hasDocumentAccess(principal, node)) {
         if (candidate.mandatory) throw new AbcmError("REQUIRED_CONTEXT_ACCESS_DENIED", `Mandatory document '${candidate.document.documentId}' is not readable.`, { documentId: candidate.document.documentId });
-        omissions.push({ documentId: candidate.document.documentId, reason: "access_denied", selectionReasons: reasons });
+        omissions.push({ documentId: candidate.document.documentId, reason: "access_denied", selectionStage: selectionStage(candidate.mandatory, candidate.reasons), selectionReasons: reasons });
         continue;
       }
       let source;
@@ -339,6 +361,7 @@ export class ContextBuilder {
         relativePath: candidate.document.relativePath,
         checksum: candidate.document.checksum,
         mandatory: candidate.mandatory,
+        selectionStage: selectionStage(candidate.mandatory, candidate.reasons),
         effectivePriority: this.#priority(candidate),
         selectionReasons: reasons,
         projection: projected,
@@ -360,7 +383,7 @@ export class ContextBuilder {
     if (request.exactScopeIds === undefined) {
       for (const item of materialized) {
         if (!item.mandatory && tokenEstimate + item.tokenEstimate > budget.softLimitTokens) {
-          omissions.push({ documentId: item.documentId, reason: "budget_exceeded", selectionReasons: item.selectionReasons });
+          omissions.push({ documentId: item.documentId, reason: "budget_exceeded", selectionStage: item.selectionStage, selectionReasons: item.selectionReasons });
           continue;
         }
         selected.push(item); tokenEstimate += item.tokenEstimate;
@@ -383,7 +406,7 @@ export class ContextBuilder {
           if (item === undefined) continue;
           remaining -= 1;
           if (tokenEstimate + item.tokenEstimate > budget.softLimitTokens) {
-            omissions.push({ documentId: item.documentId, reason: "budget_exceeded", selectionReasons: item.selectionReasons });
+            omissions.push({ documentId: item.documentId, reason: "budget_exceeded", selectionStage: item.selectionStage, selectionReasons: item.selectionReasons });
           } else {
             selected.push(item);
             tokenEstimate += item.tokenEstimate;
@@ -413,6 +436,7 @@ export class ContextBuilder {
     });
     const digestInput = {
       selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION,
+      contextMode,
       mapRevision: revision.revision,
       mapDigest: revision.digest,
       domainLanguageBootstrapDigest: bootstrap.bootstrapDigest,
@@ -435,7 +459,7 @@ export class ContextBuilder {
     const fingerprintId = `fingerprint-${fingerprintIdentityDigest.slice("sha256:".length, "sha256:".length + 24)}`;
     const fingerprintDocuments: ContextFingerprintDocument[] = selected.map(item => ({
       documentId: item.documentId, scopeId: item.scopeId, relativePath: item.relativePath, checksum: item.checksum,
-      mandatory: item.mandatory, effectivePriority: item.effectivePriority, selectionReasons: item.selectionReasons,
+      mandatory: item.mandatory, selectionStage: item.selectionStage, effectivePriority: item.effectivePriority, selectionReasons: item.selectionReasons,
       projection: { mode: item.projection.mode, authoritative: item.projection.authoritative, sourceDocumentId: item.projection.sourceDocumentId, sourceChecksum: item.projection.sourceChecksum },
       tokenEstimate: item.tokenEstimate,
     }));
@@ -449,7 +473,7 @@ export class ContextBuilder {
       domainLanguageBootstrapId: bootstrap.bootstrapId,
       domainLanguageBootstrapDigest: bootstrap.bootstrapDigest,
       domainLanguageSources: path.domainLanguageSources,
-      configurationDigests: [digest({ selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION, budgetProfile: budgetName, budget }), path.multiScopePolicyDigest],
+      configurationDigests: [digest({ selectionPolicyVersion: CONTEXT_SELECTION_POLICY_VERSION, contextMode, budgetProfile: budgetName, budget }), path.multiScopePolicyDigest],
       roleId: request.roleId,
       taskType: request.taskType,
       primaryTargetScope: path.primaryTargetScopeId,
@@ -462,6 +486,7 @@ export class ContextBuilder {
         connectionReasons: skill.connectionReasons, ...(skill.approvalId === undefined ? {} : { approvalId: skill.approvalId }),
       })),
       budgetProfile: budgetName,
+      contextMode,
       budget,
       bundleDigest,
       tokenEstimate,
@@ -477,6 +502,7 @@ export class ContextBuilder {
       roleId: request.roleId,
       taskType: request.taskType,
       budgetProfile: budgetName,
+      contextMode,
       budget,
       primaryTargetScope: path.primaryTargetScopeId,
       affectedScopes: path.affectedScopeIds,
@@ -573,12 +599,14 @@ export class ContextBuilder {
     canonicalDomains: readonly string[],
     canonicalTerms: readonly string[],
     requirements: readonly SkillContextRequirement[],
+    relationScopeIds: readonly string[],
     principal: ContextPrincipal,
   ) {
     const candidates = new Map<string, Candidate>();
     const omissions: ContextOmission[] = [];
     const pathScopes = new Set(pathScopeIds);
     const affected = new Set(affectedScopeIds);
+    const relationScopes = new Set(relationScopeIds);
     const multiScopeBoundary = request.exactScopeIds === undefined ? undefined : this.#ancestorUnion(revision, affectedScopeIds, principal);
     const explicitLinks = [...(request.explicitDocumentLinks ?? []), ...(request.explicitLinks ?? []).filter(link => !link.startsWith("abcm://skill/") && documentId(link, revision) !== undefined)];
     const explicitIds = new Set<string>();
@@ -669,6 +697,7 @@ export class ContextBuilder {
     const inApplicableBoundary = (scopeId: string): boolean => multiScopeBoundary?.has(scopeId) ?? inProject(scopeId);
     const keywordSet = new Set((request.keywords ?? []).map(value => value.toLocaleLowerCase("en-US")));
     const canonicalSet = new Set([...canonicalDomains, ...canonicalTerms]);
+    const focused = request.contextMode === "focused";
     for (const document of revision.documents) {
       const reasons = new Set<SelectionReason>();
       const explicitlyLinked = explicitIds.has(document.documentId);
@@ -687,31 +716,35 @@ export class ContextBuilder {
       if (requiredKinds.has(document.kind) || (document.tags ?? []).some(tag => requiredTags.has(tag))) reasons.add("skill_required");
       const mandatory = linkPackageMandatory === true || [...reasons].some(reason => PRIORITY.indexOf(reason) <= PRIORITY.indexOf("skill_required"));
       if (document.lifecycle === "deleted" || document.lifecycle === "archived" || document.lifecycle === "superseded") {
-        if (mandatory || linkPackageReferenced) omissions.push({ documentId: document.documentId, reason: "lifecycle_excluded", selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
+        if (mandatory || linkPackageReferenced) omissions.push({ documentId: document.documentId, reason: "lifecycle_excluded", selectionStage: selectionStage(mandatory, reasons), selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
         continue;
       }
       if (!mandatory) {
         if (document.contextPolicy === "explicit-only" && !linkPackageReferenced) continue;
         if (document.roleSelectors.length > 0 && !document.roleSelectors.includes(request.roleId)) {
-          if (linkPackageReferenced) omissions.push({ documentId: document.documentId, reason: "selector_mismatch", selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
+          if (linkPackageReferenced) omissions.push({ documentId: document.documentId, reason: "selector_mismatch", selectionStage: selectionStage(mandatory, reasons), selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
           continue;
         }
         if (document.taskSelectors.length > 0 && !document.taskSelectors.includes(request.taskType)) {
-          if (linkPackageReferenced) omissions.push({ documentId: document.documentId, reason: "selector_mismatch", selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
+          if (linkPackageReferenced) omissions.push({ documentId: document.documentId, reason: "selector_mismatch", selectionStage: selectionStage(mandatory, reasons), selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
           continue;
         }
-        if (pathScopes.has(document.scopeId)) {
+        const metadataTokens = new Set(`${document.documentId} ${document.kind} ${document.title} ${(document.tags ?? []).join(" ")}`.toLocaleLowerCase("en-US").split(/[^a-z0-9.-]+/).filter(Boolean));
+        const domainMatches = inApplicableBoundary(document.scopeId) && document.domain !== undefined && canonicalSet.has(document.domain);
+        const keywordMatches = inApplicableBoundary(document.scopeId) && [...keywordSet].some(keyword => metadataTokens.has(keyword));
+        if (linkPackageReferenced) {
+          // LinkPackage membership is already an explicit relevant signal.
+        } else if (relationScopes.has(document.scopeId)) reasons.add("related_scope");
+        else if (domainMatches) reasons.add("domain_or_entity_match");
+        else if (keywordMatches) reasons.add("semantic_or_keyword_match");
+        else if (focused) continue;
+        else if (pathScopes.has(document.scopeId)) {
           if (affected.has(document.scopeId)) reasons.add("target_scope");
           else if (PASSIVE_ANCESTOR_KINDS.has(document.kind)) continue;
           else reasons.add("optional_background");
         }
         else if (affected.has(document.scopeId)) reasons.add("related_scope");
-        else if (inApplicableBoundary(document.scopeId) && document.domain !== undefined && canonicalSet.has(document.domain)) reasons.add("domain_or_entity_match");
-        else if (!linkPackageReferenced) {
-          const metadataTokens = new Set(`${document.documentId} ${document.kind} ${document.title} ${(document.tags ?? []).join(" ")}`.toLocaleLowerCase("en-US").split(/[^a-z0-9.-]+/).filter(Boolean));
-          if (inApplicableBoundary(document.scopeId) && [...keywordSet].some(keyword => metadataTokens.has(keyword))) reasons.add("semantic_or_keyword_match");
-          else continue;
-        }
+        else continue;
       }
       candidates.set(document.documentId, { document, reasons, mandatory });
     }

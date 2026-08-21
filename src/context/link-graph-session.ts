@@ -57,7 +57,7 @@ export interface ContextLinkGraphSessionView {
   mapDigest: string;
   linkGraphDigest: string;
   linkGraphPolicyVersion: "v1";
-  selectionPolicyVersion: "context-selection/v3";
+  selectionPolicyVersion: "context-selection/v4";
   seedDocumentIds: readonly string[];
   confirmedDocumentIds: readonly string[];
   candidates: readonly ContextLinkGraphCandidate[];
@@ -114,7 +114,7 @@ export interface ContextLinkGraphRetrievalReceipt {
   mapDigest: string;
   linkGraphDigest: string;
   linkGraphPolicyVersion: "v1";
-  selectionPolicyVersion: "context-selection/v3";
+  selectionPolicyVersion: "context-selection/v4";
   sequence: number;
   stateDigest: string;
   confirmedDocumentIds: readonly string[];

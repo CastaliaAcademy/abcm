@@ -118,6 +118,7 @@ export type {
   ContextFingerprintStore,
   ContextOmission,
   ContextSelectionPreview,
+  ContextSelectionStage,
   DocumentProjectionMode,
   MaterializedDocumentProjection,
   SelectedContextDocument,

@@ -47,3 +47,11 @@ export const CANONICAL_PLAN_0037_PATHS = Object.freeze([
   "artifacts/plans/PLAN-0037/traceability.yaml",
   "artifacts/plans/PLAN-0037/evidence/implementation.md",
 ] as const);
+
+export const CANONICAL_PLAN_0038_PATHS = Object.freeze([
+  "docs/spec/extensions/migration-report-context-precision-v0.1.yaml",
+  "artifacts/plans/PLAN-0038/plan.md",
+  "artifacts/plans/PLAN-0038/verification-plan.md",
+  "artifacts/plans/PLAN-0038/traceability.yaml",
+  "artifacts/plans/PLAN-0038/evidence/implementation.md",
+] as const);

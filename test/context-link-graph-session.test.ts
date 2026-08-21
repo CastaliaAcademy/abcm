@@ -28,12 +28,13 @@ afterEach(async () => {
 
 const preview: ContextSelectionPreview = {
   previewDigest: "sha256:preview",
-  selectionPolicyVersion: "context-selection/v3",
+    selectionPolicyVersion: "context-selection/v4",
   workspaceId: "workspace",
   mapRevision: "sha256:map",
   mapDigest: "sha256:map",
   primaryTargetScope: "public",
   affectedScopes: ["public"],
+  contextMode: "balanced",
   budgetProfile: "default",
   budget: { softLimitTokens: 1000, hardLimitTokens: 2000 },
   budgetAllocation: [],
@@ -43,6 +44,7 @@ const preview: ContextSelectionPreview = {
     relativePath: "project/public/A.md",
     checksum: "sha256:a",
     mandatory: false,
+    selectionStage: "background_fallback",
     effectivePriority: 10,
     selectionReasons: ["target_scope"],
     projection: {

@@ -87,7 +87,7 @@ describe("ContextBuilder", () => {
     const { root, builder, bootstrap } = await fixture();
     const preview = await builder.preview(request(bootstrap.bootstrapId), principal);
 
-    expect(preview.selectionPolicyVersion).toBe("context-selection/v3");
+    expect(preview.selectionPolicyVersion).toBe("context-selection/v4");
     expect(preview.selectedDocuments.map(item => item.documentId)).toEqual(["security-baseline", "search-implementation", "ADR-SEARCH", "project-overview"]);
     expect(preview.fallbackModes).toEqual(["direct-search", "explicit-documents", "bounded-resource-read"]);
     expect(JSON.stringify(preview)).not.toContain("Never expose SECRET-SOURCE");

@@ -415,7 +415,7 @@ try {
       principalAccessDigest: inputIdentity.principalAccessDigest,
       requestSetDigest: inputIdentity.requestDigest,
       policyDigest: inputIdentity.policyDigest,
-      selectionPolicyVersion: "context-selection/v3",
+      selectionPolicyVersion: "context-selection/v4",
       cachePolicyDigest: sha(first.cache.policyVersion),
       cachePolicyVersion: first.cache.policyVersion,
       projectionPolicyVersion: first.cache.projectionPolicyVersion,

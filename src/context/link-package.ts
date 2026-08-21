@@ -16,7 +16,7 @@ export interface ContextLinkPackageView {
   mapRevision: string;
   mapDigest: string;
   linkGraphDigest: string;
-  selectionPolicyVersion: "context-selection/v3";
+  selectionPolicyVersion: "context-selection/v4";
   source: "document-tags";
 }
 
@@ -123,7 +123,7 @@ export class ContextLinkPackageService {
       mapRevision: revision.revision,
       mapDigest: revision.digest,
       linkGraphDigest: revision.linkGraph.digest,
-      selectionPolicyVersion: "context-selection/v3",
+      selectionPolicyVersion: "context-selection/v4",
       source: "document-tags",
     };
   }

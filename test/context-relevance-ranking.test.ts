@@ -35,6 +35,7 @@ describe("ранжирование релевантности контекста
     const root = await mkdtemp(join(tmpdir(), "abcm-context-ranking-")); roots.push(root);
     await addScope(root, "", "workflow", "workflow");
     await addScope(root, "project", "project", "commerce");
+    await addScope(root, "hidden", "project", "hidden");
     await addScope(root, "project/orders", "service", "orders");
     await addScope(root, "project/orders/refund", "feature", "refund");
 
@@ -94,6 +95,102 @@ describe("ранжирование релевантности контекста
       const repeated = await runtime.contextBuilder.build(request, principal);
       expect(repeated.bundleDigest).toBe(bundle.bundleDigest);
       expect(repeated.selectedDocuments.map(item => item.documentId)).toEqual(selectedIds);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  test("focused mode отделяет точный документ от generic scope background", async () => {
+    const root = await mkdtemp(join(tmpdir(), "abcm-context-exact-document-")); roots.push(root);
+    await addScope(root, "", "workflow", "workflow");
+    await addScope(root, "project", "project", "commerce");
+
+    await document(root, "artifacts/safety.md", "id: safety\nkind: convention\ntitle: Safety\nrequired: true", "Соблюдать границы доступа.");
+    await document(root, "project/artifacts/migration-report.md", "id: migration-report\nkind: report\ntitle: Migration report\nrequiredFor: [documentation-migration]", "Проверить migration gate.");
+    await document(root, "project/artifacts/plans/PLAN-0037/plan.md", "id: PLAN-0037\nkind: plan\ntitle: Current plan", "Исправить connected errors.");
+    await document(root, "project/artifacts/reports/current-evidence.md", "id: current-evidence\nkind: report\ntitle: Current audit evidence", "Актуальное доказательство.");
+    await document(root, "project/artifacts/plans/PLAN-0036/plan.md", "id: PLAN-0036\nkind: plan\ntitle: Old plan", "Исторический план. ".repeat(200));
+    await document(root, "project/artifacts/evals/baseline.md", "id: old-baseline\nkind: report\ntitle: Old baseline", "Исторический baseline. ".repeat(200));
+    await document(root, "project/artifacts/adr/ADR-0001.md", "id: ADR-0001\nkind: adr\ntitle: Old decision", "Старое решение.");
+    await document(root, "hidden/artifacts/secret.md", "id: forbidden-secret\nkind: report\ntitle: Forbidden secret", "FORBIDDEN-MARKER");
+
+    const scopedPrincipal: ContextPrincipal = {
+      principalId: "agent:focused-benchmark",
+      access: { workspacePermissions: [], scopeGrants: {
+        workflow: ["scope.discover", "scope.read_metadata", "context.build", "document.read"],
+        commerce: ["scope.discover", "scope.read_metadata", "context.build", "document.read"],
+      } },
+    };
+
+    const runtime = createAbcmRuntime({ id: "test", root }, {
+      sqliteDerivedStoreEnabled: true,
+      contextPrincipal: scopedPrincipal,
+      context: { budgetProfiles: {
+        roomy: { softLimitTokens: 4_000, hardLimitTokens: 8_000 },
+        benchmark: { softLimitTokens: 300, hardLimitTokens: 1_000 },
+      } },
+    });
+    try {
+      await runtime.scopeMap.scan("test");
+      const bootstrap = await runtime.domainLanguage.createBootstrap({
+        anchor: { workspaceId: "test", projectId: "commerce" },
+        roleId: "executor-agent",
+      }, scopedPrincipal);
+      const baseRequest = {
+        domainLanguageBootstrapId: bootstrap.bootstrapId,
+        roleId: "executor-agent",
+        taskType: "documentation-migration",
+        goal: "Проверить PLAN-0037 перед миграцией",
+        exactScopeIds: ["commerce"],
+        keywords: ["audit"],
+        explicitDocuments: [{ selector: "document-id", documentId: "PLAN-0037" }],
+        contextMode: "focused",
+        budgetProfile: "roomy",
+      } as const;
+
+      const narrow = await runtime.contextBuilder.preview(baseRequest, scopedPrincipal);
+      expect(narrow.selectionPolicyVersion).toBe("context-selection/v4");
+      expect(narrow.selectedDocuments.map(item => item.documentId)).toEqual(["safety", "migration-report", "PLAN-0037", "current-evidence"]);
+      expect(narrow.contextMode).toBe("focused");
+      expect(narrow.selectedDocuments.map(item => item.selectionStage)).toEqual(["mandatory", "mandatory", "mandatory", "relevant"]);
+      expect(narrow.selectedDocuments.find(item => item.documentId === "PLAN-0037")?.selectionReasons).toEqual(["explicit_link"]);
+      expect(narrow.omissions).toEqual([]);
+
+      const scopeWide = await runtime.contextBuilder.preview({ ...baseRequest, contextMode: "balanced" }, scopedPrincipal);
+      expect(scopeWide.contextMode).toBe("balanced");
+      expect(scopeWide.selectedDocuments.map(item => item.documentId)).toEqual([
+        "safety",
+        "migration-report",
+        "PLAN-0037",
+        "current-evidence",
+        "ADR-0001",
+        "old-baseline",
+        "PLAN-0036",
+      ]);
+      expect(scopeWide.selectedDocuments.filter(item => item.selectionReasons.includes("target_scope")).map(item => item.documentId)).toEqual([
+        "ADR-0001",
+        "old-baseline",
+        "PLAN-0036",
+      ]);
+      expect(scopeWide.selectedDocuments.filter(item => item.selectionReasons.includes("target_scope")).every(item => item.selectionStage === "background_fallback")).toBe(true);
+
+      const focusedRuns = await Promise.all(Array.from({ length: 10 }, () => runtime.contextBuilder.preview({ ...baseRequest, budgetProfile: "benchmark" }, scopedPrincipal)));
+      const balancedRuns = await Promise.all(Array.from({ length: 10 }, () => runtime.contextBuilder.preview({ ...baseRequest, contextMode: "balanced", budgetProfile: "benchmark" }, scopedPrincipal)));
+      expect(new Set(focusedRuns.map(run => run.previewDigest)).size).toBe(1);
+      expect(new Set(balancedRuns.map(run => run.previewDigest)).size).toBe(1);
+      const focusedRun = focusedRuns[0]!;
+      const balancedRun = balancedRuns[0]!;
+      const mandatoryGold = ["safety", "migration-report", "PLAN-0037"];
+      const taskSuccess = (run: typeof focusedRun) => mandatoryGold.every(id => run.selectedDocuments.some(document => document.documentId === id)) && run.selectedDocuments.some(document => document.documentId === "current-evidence");
+      const relevantTokens = (run: typeof focusedRun) => run.selectedDocuments.filter(document => document.selectionStage !== "background_fallback").reduce((sum, document) => sum + document.tokenEstimate, 0);
+      expect(taskSuccess(focusedRun)).toBe(true);
+      expect(taskSuccess(balancedRun)).toBe(true);
+      expect(focusedRun.selectedDocuments.filter(document => document.mandatory).length / mandatoryGold.length).toBe(1);
+      expect(focusedRun.omissions.length).toBeLessThan(balancedRun.omissions.length);
+      expect(relevantTokens(focusedRun) / focusedRun.tokenEstimate).toBeGreaterThan(relevantTokens(balancedRun) / balancedRun.tokenEstimate);
+      expect(focusedRun.tokenEstimate).toBeLessThan(balancedRun.tokenEstimate);
+      expect(JSON.stringify(focusedRun)).not.toContain("forbidden-secret");
+      expect(JSON.stringify(balancedRun)).not.toContain("forbidden-secret");
     } finally {
       await runtime.close();
     }

@@ -61,6 +61,7 @@ export const buildTaskContextSchema = z.object({
   requestedSkillIds: textList.optional(),
   explicitDocumentLinks: textList.optional(),
   explicitDocuments: z.array(explicitDocumentReference).min(1).max(64).optional(),
+  contextMode: z.enum(["focused", "balanced"]).optional(),
   approvalId: z.string().min(1).max(256).optional(),
   execution: z.object({
     planId: z.string().min(1).max(128),
@@ -95,6 +96,7 @@ export function normalizeBuildTaskContextInput(input: BuildTaskContextInput): Bu
     ...(input.requestedSkillIds === undefined ? {} : { requestedSkillIds: input.requestedSkillIds }),
     ...(input.explicitDocumentLinks === undefined ? {} : { explicitDocumentLinks: input.explicitDocumentLinks }),
     ...(input.explicitDocuments === undefined ? {} : { explicitDocuments: input.explicitDocuments }),
+    ...(input.contextMode === undefined ? {} : { contextMode: input.contextMode }),
     ...(input.approvalId === undefined ? {} : { approvalId: input.approvalId }),
     ...(input.execution === undefined ? {} : { execution: {
       planId: input.execution.planId,

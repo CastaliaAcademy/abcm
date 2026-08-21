@@ -17,6 +17,8 @@ export type SelectionReason =
   | "semantic_or_keyword_match"
   | "optional_background";
 
+export type ContextSelectionStage = "mandatory" | "relevant" | "background_fallback";
+
 export type DocumentProjectionMode = "full" | "section" | "summary" | "metadata" | "reference";
 
 export interface ContextBudgetProfile {
@@ -54,6 +56,8 @@ export interface BuildTaskContextRequest {
   requestedSkillIds?: readonly string[];
   explicitDocumentLinks?: readonly string[];
   explicitDocuments?: readonly ExplicitDocumentReference[];
+  /** focused requires a relevance signal; balanced additionally admits generic scope background as fallback. */
+  contextMode?: "focused" | "balanced";
   /** Internal consumer-side binding supplied only after a tag-derived LinkPackage has been validated. */
   linkPackageDocuments?: readonly { documentId: string; mandatory: boolean }[];
   approvalId?: string;
@@ -76,6 +80,7 @@ export interface SelectedContextDocument {
   relativePath: string;
   checksum: string;
   mandatory: boolean;
+  selectionStage: ContextSelectionStage;
   effectivePriority: number;
   selectionReasons: readonly SelectionReason[];
   projection: MaterializedDocumentProjection;
@@ -85,6 +90,7 @@ export interface SelectedContextDocument {
 export interface ContextOmission {
   documentId: string;
   reason: "access_denied" | "budget_exceeded" | "lifecycle_excluded" | "selector_mismatch";
+  selectionStage: ContextSelectionStage;
   selectionReasons: readonly SelectionReason[];
 }
 
@@ -94,6 +100,7 @@ export interface ContextFingerprintDocument {
   relativePath: string;
   checksum: string;
   mandatory: boolean;
+  selectionStage: ContextSelectionStage;
   effectivePriority: number;
   selectionReasons: readonly SelectionReason[];
   projection: Omit<MaterializedDocumentProjection, "content">;
@@ -135,6 +142,7 @@ export interface ContextFingerprint {
     approvalId?: string;
   }[];
   budgetProfile: string;
+  contextMode: "focused" | "balanced";
   budget: ContextBudgetProfile;
   bundleDigest: string;
   tokenEstimate: number;
@@ -151,6 +159,7 @@ export interface ContextBundle {
   roleId: string;
   taskType: string;
   budgetProfile: string;
+  contextMode: "focused" | "balanced";
   budget: ContextBudgetProfile;
   primaryTargetScope: string;
   affectedScopes: readonly string[];
@@ -181,12 +190,13 @@ export interface ContextBuildCacheMetadata {
 
 export interface ContextSelectionPreview {
   previewDigest: string;
-  selectionPolicyVersion: "context-selection/v3";
+  selectionPolicyVersion: "context-selection/v4";
   workspaceId: string;
   mapRevision: string;
   mapDigest: string;
   primaryTargetScope: string;
   affectedScopes: readonly string[];
+  contextMode: "focused" | "balanced";
   budgetProfile: string;
   budget: ContextBudgetProfile;
   budgetAllocation: readonly ContextBudgetAllocation[];
