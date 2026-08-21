@@ -16,7 +16,7 @@ describe("ABCM MCP server library", () => {
       name: "abcm-mcp-server",
       version: "0.1.7",
     });
-    expect(ABCM_AGENT_INSTRUCTIONS_VERSION).toBe("1.24.0");
+    expect(ABCM_AGENT_INSTRUCTIONS_VERSION).toBe("1.26.0");
     expect(ABCM_MCP_CONTRACT_VERSION).toBe("1.0.0");
     expect(ABCM_SPEC_VERSION).toBe("0.5.0");
     expect(Object.keys(ABCM_MCP_TOOL_SCHEMAS)).toHaveLength(36);

@@ -145,9 +145,25 @@ export function createAbcmRuntime(
           await obsidianSync?.captureWorkspaceMutation(workspaceId, changedPaths);
         },
       });
+  const artifactAmendmentStateRoot = options.artifactAmendments?.stateRoot ?? (
+    options.fileOperations !== undefined
+      ? resolve(options.fileOperations.stateRoot, "artifact-amendments")
+      : options.obsidianSync === undefined
+        ? undefined
+        : resolve(options.obsidianSync.stateRoot, "artifact-amendments")
+  );
+  const artifactAmendmentStore = artifactAmendmentStateRoot === undefined
+    ? undefined
+    : new SqliteArtifactAmendmentReceiptStore(artifactAmendmentStateRoot);
+  const artifactAmendments = new ArtifactAmendmentService(files, scopeMap, {
+    ...(artifactAmendmentStore === undefined ? {} : { store: artifactAmendmentStore }),
+    ...(options.artifactAmendments?.operatorIdentity === undefined ? {} : { operatorIdentity: options.artifactAmendments.operatorIdentity }),
+    ...(options.artifactAmendments?.approvalTtlMs === undefined ? {} : { approvalTtlMs: options.artifactAmendments.approvalTtlMs }),
+  });
   if (options.obsidianSync !== undefined) {
     obsidianSync = new ObsidianSyncService(registry, files, {
       ...options.obsidianSync,
+      artifactAmendments,
       ...(options.documentationSources === undefined ? {} : { reservedReadOnlyMappings: options.documentationSources.map(source => ({ workspaceId: source.workspaceId, targetBasePath: source.targetBasePath })) }),
       ...(options.observability === undefined ? {} : { observability: options.observability }),
     });
@@ -190,17 +206,6 @@ export function createAbcmRuntime(
   const contextLinkPackages = options.contextPrincipal === undefined
     ? undefined
     : new ContextLinkPackageService({ contextBuilder, scopeMap, principal: options.contextPrincipal });
-  const artifactAmendmentStateRoot = options.artifactAmendments?.stateRoot ?? (
-    options.fileOperations === undefined ? undefined : resolve(options.fileOperations.stateRoot, "artifact-amendments")
-  );
-  const artifactAmendmentStore = artifactAmendmentStateRoot === undefined
-    ? undefined
-    : new SqliteArtifactAmendmentReceiptStore(artifactAmendmentStateRoot);
-  const artifactAmendments = new ArtifactAmendmentService(files, scopeMap, {
-    ...(artifactAmendmentStore === undefined ? {} : { store: artifactAmendmentStore }),
-    ...(options.artifactAmendments?.operatorIdentity === undefined ? {} : { operatorIdentity: options.artifactAmendments.operatorIdentity }),
-    ...(options.artifactAmendments?.approvalTtlMs === undefined ? {} : { approvalTtlMs: options.artifactAmendments.approvalTtlMs }),
-  });
   if (documentationState !== undefined && options.documentationSources !== undefined) {
     documentation = new DirectoryDocumentationSyncService({
       registry,

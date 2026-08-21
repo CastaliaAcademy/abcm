@@ -4,6 +4,7 @@ import { join, posix } from "node:path";
 
 import { Database } from "bun:sqlite";
 
+import type { ArtifactAmendmentService } from "../artifacts/amendment-service.js";
 import { AbcmError } from "../core/errors.js";
 import { emitAudit, type AbcmObservability } from "../core/observability.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
@@ -40,6 +41,7 @@ export interface ObsidianSyncServiceOptions {
   credentialTtlSeconds?: number;
   observability?: AbcmObservability;
   reservedReadOnlyMappings?: readonly { workspaceId: string; targetBasePath: string }[];
+  artifactAmendments?: ArtifactAmendmentService;
 }
 
 interface StoredPreview {
@@ -115,6 +117,7 @@ export class ObsidianSyncService {
   readonly #previewTtlSeconds: number;
   readonly #observability: AbcmObservability | undefined;
   readonly #reservedReadOnlyMappings: readonly { workspaceId: string; targetBasePath: string }[];
+  readonly #artifactAmendments: ArtifactAmendmentService | undefined;
   readonly #journals = new Map<string, SqliteSyncJournal>();
   #captureSuppression = 0;
 
@@ -129,6 +132,7 @@ export class ObsidianSyncService {
     this.#previewTtlSeconds = options.previewTtlSeconds ?? DEFAULT_PREVIEW_TTL_SECONDS;
     this.#observability = options.observability;
     this.#reservedReadOnlyMappings = options.reservedReadOnlyMappings ?? [];
+    this.#artifactAmendments = options.artifactAmendments;
     mkdirSync(options.stateRoot, { recursive: true });
     this.#devices = new SqliteObsidianDeviceStore(join(options.stateRoot, "obsidian-devices.sqlite"), {
       clock: this.#clock,
@@ -488,13 +492,25 @@ export class ObsidianSyncService {
       try {
         if (operation.kind === "create" || operation.kind === "update") {
           const content = this.#content(operation);
-          entry = await this.#files.write(
-            principal.workspaceId,
-            this.#fullPath(principal, operation.path),
-            content,
-            operation.kind === "create" ? { ifNoneMatch: "*" } : { ifMatch: operation.baseChecksum },
-            signal,
-          );
+          const amendment = operation.kind === "update"
+            ? await this.#artifactAmendments?.acceptIntegratedEdit({
+                workspaceId: principal.workspaceId,
+                path: this.#fullPath(principal, operation.path),
+                baseChecksum: operation.baseChecksum,
+                content,
+                operationId: operation.operationId,
+                integrationIdentity: principal.deviceId,
+              }, signal)
+            : undefined;
+          entry = amendment === undefined
+            ? await this.#files.write(
+                principal.workspaceId,
+                this.#fullPath(principal, operation.path),
+                content,
+                operation.kind === "create" ? { ifNoneMatch: "*" } : { ifMatch: operation.baseChecksum },
+                signal,
+              )
+            : (await this.#files.read(principal.workspaceId, this.#fullPath(principal, operation.path), signal)).entry;
         } else if (operation.kind === "delete") {
           await this.#files.delete(principal.workspaceId, this.#fullPath(principal, operation.path), { ifMatch: operation.baseChecksum }, signal);
         } else {
@@ -522,7 +538,7 @@ export class ObsidianSyncService {
       } finally {
         this.#captureSuppression -= 1;
       }
-      const recorded = journal.record(this.#mutation(operation, principal.deviceId, entry?.size, moveContentType));
+      const recorded = journal.record(this.#mutation(operation, principal.deviceId, entry, moveContentType));
       const receipt: OperationReceipt = {
         operationId: operation.operationId,
         cursor: recorded.event.cursor,
@@ -533,7 +549,14 @@ export class ObsidianSyncService {
       this.#storeReceipt(operation.operationId, requestDigest, receipt);
       return receipt;
     } catch (error) {
-      if (!(error instanceof AbcmError) || !["FILE_ALREADY_EXISTS", "FILE_CHECKSUM_MISMATCH", "SYNC_OBJECT_CONFLICT", "SYNC_OBJECT_NOT_FOUND"].includes(error.code)) throw error;
+      if (!(error instanceof AbcmError) || ![
+        "FILE_ALREADY_EXISTS",
+        "FILE_CHECKSUM_MISMATCH",
+        "SYNC_OBJECT_CONFLICT",
+        "SYNC_OBJECT_NOT_FOUND",
+        "ARTIFACT_AMENDMENT_CONFLICT",
+        "ARTIFACT_AMENDMENT_INVALID",
+      ].includes(error.code)) throw error;
       const receipt = await this.#recordConflict(principal, operation, requestDigest);
       return receipt;
     }
@@ -572,11 +595,26 @@ export class ObsidianSyncService {
     }
   }
 
-  #mutation(operation: SyncApplyOperation, deviceId: string, moveSize?: number, moveContentType?: string): SyncJournalMutation {
+  #mutation(
+    operation: SyncApplyOperation,
+    deviceId: string,
+    entry?: { checksum?: string; size: number },
+    moveContentType?: string,
+  ): SyncJournalMutation {
     if (operation.kind === "create") return { kind: "create", operationId: operation.operationId, originDeviceId: deviceId, objectId: operation.objectId, path: operation.path, checksum: operation.checksum, size: operation.size, contentType: operation.contentType };
-    if (operation.kind === "update") return { kind: "update", operationId: operation.operationId, originDeviceId: deviceId, objectId: operation.objectId, path: operation.path, baseChecksum: operation.baseChecksum, checksum: operation.checksum, size: operation.size, contentType: operation.contentType };
+    if (operation.kind === "update") return {
+      kind: "update",
+      operationId: operation.operationId,
+      originDeviceId: deviceId,
+      objectId: operation.objectId,
+      path: operation.path,
+      baseChecksum: operation.baseChecksum,
+      checksum: entry?.checksum ?? operation.checksum,
+      size: entry?.size ?? operation.size,
+      contentType: operation.contentType,
+    };
     if (operation.kind === "delete") return { kind: "delete", operationId: operation.operationId, originDeviceId: deviceId, objectId: operation.objectId, path: operation.path, baseChecksum: operation.baseChecksum };
-    return { kind: "move", operationId: operation.operationId, originDeviceId: deviceId, objectId: operation.objectId, previousPath: operation.previousPath, path: operation.path, baseChecksum: operation.baseChecksum, checksum: operation.checksum, size: moveSize ?? 0, contentType: moveContentType ?? "application/octet-stream" };
+    return { kind: "move", operationId: operation.operationId, originDeviceId: deviceId, objectId: operation.objectId, previousPath: operation.previousPath, path: operation.path, baseChecksum: operation.baseChecksum, checksum: operation.checksum, size: entry?.size ?? 0, contentType: moveContentType ?? "application/octet-stream" };
   }
 
   #content(operation: Extract<SyncApplyOperation, { kind: "create" | "update" | "move" }>): Uint8Array {

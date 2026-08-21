@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,6 +14,7 @@ import {
 import { createAbcmRuntime } from "../src/app/create-runtime.js";
 
 const roots: string[] = [];
+const checksum = (value: Uint8Array | string) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))));
 
 async function fixture() {
@@ -137,6 +139,77 @@ describe("ArtifactAmendmentService", () => {
       expect(recovered).toEqual(expect.objectContaining({ artifactId: "ADR-DECISION-V2", acceptedAt: "2026-08-20T00:00:00.000Z" }));
       expect(await recoveredService.accept(input)).toEqual(recovered);
       expect(recoveredService.getLineage("workspace", "decision").artifacts.filter(artifact => artifact.artifactId === "ADR-DECISION-V2")).toHaveLength(1);
+    } finally {
+      await runtime.close();
+      store.close();
+    }
+  });
+
+  test("recovers an integration-approved stable-path amendment after receipt commit failure", async () => {
+    const { root, runtime, store, revision, basePath, baseBytes } = await fixture();
+    try {
+      const base = revision.documents.find(document => document.relativePath === basePath)!;
+      const content = new TextEncoder().encode(
+        "---\nid: ADR-DECISION-V1\nkind: adr\ntitle: Decision from Obsidian\nstatus: accepted\nlineageId: decision\ntags: [operator-edit]\n---\nIntegrated edit.\n",
+      );
+      const input = {
+        workspaceId: "workspace",
+        path: basePath,
+        baseChecksum: base.checksum,
+        content,
+        operationId: "op_integrated_amendment_0001",
+        integrationIdentity: "device_operator_0001",
+      };
+      const failing = new ArtifactAmendmentService(runtime.files, runtime.scopeMap, {
+        store: new FailOnceReceiptStore(store),
+        operatorIdentity: "operator",
+        clock: () => new Date("2026-08-20T00:00:00.000Z"),
+      });
+      await expect(failing.acceptIntegratedEdit(input)).rejects.toThrow("simulated receipt commit failure");
+      expect(await readFile(join(root, "project/artifacts/adr/revisions/ADR-DECISION-V1.md"), "utf8")).toBe(baseBytes);
+
+      const recoveredService = new ArtifactAmendmentService(runtime.files, runtime.scopeMap, {
+        store,
+        operatorIdentity: "operator",
+        clock: () => new Date("2026-08-20T00:05:00.000Z"),
+      });
+      const recovered = await recoveredService.acceptIntegratedEdit(input);
+      expect(recovered).toEqual(expect.objectContaining({
+        baseArtifactId: "ADR-DECISION-V1",
+        supersedes: "ADR-DECISION-V1",
+        approvedBy: "operator/obsidian/device_operator_0001",
+        acceptedAt: "2026-08-20T00:00:00.000Z",
+      }));
+      expect(await recoveredService.acceptIntegratedEdit(input)).toEqual(recovered);
+      expect(recoveredService.getLineage("workspace", "decision").artifacts.filter(artifact => artifact.artifactId === recovered?.artifactId)).toHaveLength(1);
+    } finally {
+      await runtime.close();
+      store.close();
+    }
+  });
+
+  test("recovers the stable head after an interrupted archive rename", async () => {
+    const { root, runtime, store, revision, basePath, baseBytes } = await fixture();
+    try {
+      const base = revision.documents.find(document => document.relativePath === basePath)!;
+      const archivePath = "project/artifacts/adr/revisions/ADR-DECISION-V1.md";
+      await mkdir(join(root, "project/artifacts/adr/revisions"), { recursive: true });
+      await rename(join(root, basePath), join(root, archivePath));
+      const accepted = new TextEncoder().encode(
+        "---\nid: ADR-DECISION-V2\nkind: adr\ntitle: Recovered decision\nstatus: accepted\nlineageId: decision\nsupersedes: ADR-DECISION-V1\n---\nRecovered head.\n",
+      );
+
+      const result = await runtime.files.amendAcceptedArtifact(
+        "workspace",
+        basePath,
+        archivePath,
+        accepted,
+        base.checksum,
+      );
+
+      expect(result.head.checksum).toBe(checksum(accepted));
+      expect(await readFile(join(root, archivePath), "utf8")).toBe(baseBytes);
+      expect(new Uint8Array(await readFile(join(root, basePath)))).toEqual(accepted);
     } finally {
       await runtime.close();
       store.close();

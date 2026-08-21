@@ -1,4 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
+import { posix } from "node:path";
+
+import { parseDocument } from "yaml";
 
 import { AbcmError } from "../core/errors.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
@@ -63,6 +66,15 @@ export interface ArtifactAmendmentReceipt {
   acceptedAt: string;
 }
 
+export interface IntegratedArtifactAmendmentInput {
+  workspaceId: string;
+  path: string;
+  baseChecksum: string;
+  content: Uint8Array;
+  operationId: string;
+  integrationIdentity: string;
+}
+
 export interface ArtifactLineageView {
   workspaceId: string;
   mapRevision: string;
@@ -85,6 +97,22 @@ interface PreparedPreview {
 interface PendingArtifactAmendment {
   preview: ArtifactAmendmentPreview;
   acceptedAt: string;
+}
+
+interface PendingIntegratedArtifactAmendment {
+  workspaceId: string;
+  path: string;
+  archivePath: string;
+  artifactId: string;
+  lineageId: string;
+  baseArtifactId: string;
+  baseChecksum: string;
+  sourceChecksum: string;
+  acceptedChecksum: string;
+  acceptedContentBase64: string;
+  previousMapRevision: string;
+  approvedBy: string;
+  approvedAt: string;
 }
 
 function digestBytes(bytes: Uint8Array): `sha256:${string}` {
@@ -116,6 +144,40 @@ function acceptedBytes(content: Uint8Array, supersedes: string): Uint8Array {
   return new TextEncoder().encode(`${match[1]}${lines.join("\n")}${match[3]}${source.slice(match[0].length)}`);
 }
 
+function integratedAcceptedBytes(
+  content: Uint8Array,
+  base: Pick<DocumentRecord, "artifactId" | "checksum" | "kind" | "lineageId">,
+  artifactId: string,
+): Uint8Array {
+  const source = new TextDecoder().decode(content);
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source);
+  if (match === null) throw new AbcmError("ARTIFACT_AMENDMENT_INVALID", "Integrated amendment must contain YAML frontmatter.");
+  const document = parseDocument(match[1] ?? "", { schema: "core", strict: true, uniqueKeys: true, merge: false });
+  const issues = [...document.errors, ...document.warnings];
+  if (issues.length > 0 || document.contents === null) {
+    throw new AbcmError("ARTIFACT_AMENDMENT_INVALID", "Integrated amendment frontmatter is invalid.");
+  }
+  document.set("id", artifactId);
+  document.set("kind", base.kind);
+  document.set("status", "accepted");
+  document.set("lineageId", base.lineageId ?? base.artifactId!);
+  document.set("amends", base.artifactId!);
+  document.set("baseArtifactId", base.artifactId!);
+  document.set("baseChecksum", base.checksum);
+  document.set("expectedLineageHead", base.artifactId!);
+  document.set("supersedes", base.artifactId!);
+  const frontmatter = document.toString({ lineWidth: 0 }).trimEnd();
+  return new TextEncoder().encode(`---\n${frontmatter}\n---\n${source.slice(match[0].length)}`);
+}
+
+function artifactIdForIntegratedAmendment(base: DocumentRecord, sourceChecksum: string): string {
+  const lineage = (base.lineageId ?? base.artifactId ?? base.documentId)
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "") || "artifact";
+  return `${base.kind.toLocaleUpperCase("en-US")}-${lineage}-${sourceChecksum.slice(7, 19)}`;
+}
+
 function artifact(revision: MapRevision, artifactId: string): DocumentRecord | undefined {
   return revision.documents.find(document => document.artifactId === artifactId);
 }
@@ -144,6 +206,104 @@ export class ArtifactAmendmentService {
 
   async preview(input: ArtifactAmendmentPreviewInput, signal?: AbortSignal): Promise<ArtifactAmendmentPreview> {
     return (await this.#prepare(input, signal)).preview;
+  }
+
+  async acceptIntegratedEdit(
+    input: IntegratedArtifactAmendmentInput,
+    signal?: AbortSignal,
+  ): Promise<ArtifactAmendmentReceipt | undefined> {
+    const sourceChecksum = digestBytes(input.content);
+    const approvalReceiptId = `integration-approval-${digest({
+      workspaceId: input.workspaceId,
+      operationId: input.operationId,
+      integrationIdentity: input.integrationIdentity,
+    }).slice(7, 39)}`;
+    const existing = this.#store?.getByApproval(approvalReceiptId) as ArtifactAmendmentReceipt | undefined;
+    if (existing !== undefined) {
+      if (existing.workspaceId !== input.workspaceId || existing.draftPath !== input.path || existing.draftChecksum !== sourceChecksum) {
+        throw new AbcmError("ARTIFACT_AMENDMENT_APPROVAL_REPLAY", "Integrated amendment identity was reused with different content.");
+      }
+      return existing;
+    }
+    const storedOperation = this.#store?.getOperationByApproval(approvalReceiptId);
+    if (storedOperation !== undefined) {
+      return this.#finishIntegratedEdit(
+        storedOperation.payload as PendingIntegratedArtifactAmendment,
+        storedOperation.operationDigest,
+        approvalReceiptId,
+        signal,
+      );
+    }
+
+    let revision: MapRevision;
+    try {
+      revision = this.#scopeMap.getActiveRevision(input.workspaceId);
+    } catch (error) {
+      if (!(error instanceof AbcmError) || error.code !== "MAP_NOT_BUILT") throw error;
+      revision = await this.#scopeMap.scan(input.workspaceId, signal);
+    }
+    const current = revision.documents.find(document => document.relativePath === input.path);
+    if (
+      current === undefined ||
+      !["adr", "rfc"].includes(current.kind.toLocaleLowerCase("en-US")) ||
+      current.lifecycle.toLocaleLowerCase("en-US") !== "accepted"
+    ) return undefined;
+    if (current.checksum !== input.baseChecksum) {
+      throw new AbcmError("ARTIFACT_AMENDMENT_CONFLICT", "Integrated amendment base checksum is stale.", {
+        expected: current.checksum,
+        actual: input.baseChecksum,
+      });
+    }
+    if (current.artifactId === undefined) {
+      throw new AbcmError("ARTIFACT_AMENDMENT_INVALID", "Accepted ADR/RFC has no artifact identity.");
+    }
+    if (this.#store === undefined) {
+      throw new AbcmError("ARTIFACT_AMENDMENT_APPROVAL_REQUIRED", "Durable integrated amendment storage is not configured.");
+    }
+
+    const artifactId = artifactIdForIntegratedAmendment(current, sourceChecksum);
+    const accepted = integratedAcceptedBytes(input.content, current, artifactId);
+    const approvedAt = this.#clock().toISOString();
+    const approvedBy = `${this.#operatorIdentity}/obsidian/${input.integrationIdentity}`;
+    const pending: PendingIntegratedArtifactAmendment = {
+      workspaceId: input.workspaceId,
+      path: input.path,
+      archivePath: posix.join(posix.dirname(input.path), "revisions", `${encodeURIComponent(current.artifactId)}.md`),
+      artifactId,
+      lineageId: current.lineageId ?? current.artifactId,
+      baseArtifactId: current.artifactId,
+      baseChecksum: current.checksum,
+      sourceChecksum,
+      acceptedChecksum: digestBytes(accepted),
+      acceptedContentBase64: Buffer.from(accepted).toString("base64"),
+      previousMapRevision: revision.revision,
+      approvedBy,
+      approvedAt,
+    };
+    const payloadDigest = digest(pending);
+    const operationDigest = digest({ approvalReceiptId, pending });
+    const approval = this.#store.getApproval(approvalReceiptId);
+    if (approval === undefined) {
+      this.#store.issueApproval({
+        receiptId: approvalReceiptId,
+        payloadDigest,
+        approvedBy,
+        approvedAt,
+        expiresAt: new Date(this.#clock().getTime() + this.#approvalTtlMs).toISOString(),
+      });
+    } else if (approval.payloadDigest !== payloadDigest || approval.approvedBy !== approvedBy) {
+      throw new AbcmError("ARTIFACT_AMENDMENT_APPROVAL_REPLAY", "Integrated amendment approval identity is already bound to another payload.");
+    }
+    const reserved = this.#store.reserveApproval(
+      approvalReceiptId,
+      payloadDigest,
+      { operationDigest, approvalReceiptId, payload: pending },
+      this.#clock().toISOString(),
+    );
+    if (reserved === undefined) {
+      throw new AbcmError("ARTIFACT_AMENDMENT_APPROVAL_REQUIRED", "Integrated amendment approval could not be reserved.");
+    }
+    return this.#finishIntegratedEdit(pending, operationDigest, approvalReceiptId, signal);
   }
 
   getLineage(workspaceId: string, lineageId: string): ArtifactLineageView {
@@ -294,6 +454,98 @@ export class ArtifactAmendmentService {
       return receipt;
     } catch (error) {
       if (!acceptedFileWritten) this.#store.releaseApproval(input.approvalReceiptId, operationDigest);
+      throw error;
+    }
+  }
+
+  async #finishIntegratedEdit(
+    pending: PendingIntegratedArtifactAmendment,
+    operationDigest: string,
+    approvalReceiptId: string,
+    signal?: AbortSignal,
+  ): Promise<ArtifactAmendmentReceipt> {
+    if (this.#store === undefined) throw new AbcmError("ARTIFACT_AMENDMENT_APPROVAL_REQUIRED", "Durable integrated amendment storage is not configured.");
+    let acceptedFileWritten = false;
+    try {
+      let revision = this.#scopeMap.getActiveRevision(pending.workspaceId);
+      let current = revision.documents.find(document => document.relativePath === pending.path);
+      if (current?.artifactId === pending.artifactId && current.checksum === pending.acceptedChecksum) {
+        acceptedFileWritten = true;
+      } else if (
+        current?.artifactId === pending.baseArtifactId &&
+        current.lifecycle.toLocaleLowerCase("en-US") === "accepted" &&
+        current.checksum === pending.baseChecksum
+      ) {
+        const content = Uint8Array.from(Buffer.from(pending.acceptedContentBase64, "base64"));
+        if (digestBytes(content) !== pending.acceptedChecksum) {
+          throw new AbcmError("ARTIFACT_AMENDMENT_CONFLICT", "Stored integrated amendment bytes are corrupt.");
+        }
+        await this.#files.amendAcceptedArtifact(
+          pending.workspaceId,
+          pending.path,
+          pending.archivePath,
+          content,
+          pending.baseChecksum,
+          signal,
+        );
+        acceptedFileWritten = true;
+        revision = await this.#scopeMap.scan(pending.workspaceId, signal);
+        current = revision.documents.find(document => document.relativePath === pending.path);
+      } else {
+        throw new AbcmError("ARTIFACT_AMENDMENT_CONFLICT", "Integrated amendment head no longer matches its accepted base.");
+      }
+
+      const archived = revision.documents.find(document =>
+        document.relativePath === pending.archivePath &&
+        document.artifactId === pending.baseArtifactId &&
+        document.checksum === pending.baseChecksum
+      );
+      const lineage = revision.artifactLineages?.find(candidate => candidate.lineageId === pending.lineageId);
+      if (
+        archived === undefined ||
+        current?.artifactId !== pending.artifactId ||
+        current.checksum !== pending.acceptedChecksum ||
+        lineage?.status !== "valid" ||
+        lineage.headArtifactId !== pending.artifactId
+      ) {
+        throw new AbcmError("ARTIFACT_AMENDMENT_CONFLICT", "Integrated amendment did not become the unique lineage head.");
+      }
+      const approval = this.#store.getApproval(approvalReceiptId);
+      if (approval?.consumedBy !== operationDigest) {
+        throw new AbcmError("ARTIFACT_AMENDMENT_APPROVAL_REQUIRED", "Integrated amendment approval reservation is invalid.");
+      }
+      const body = {
+        workspaceId: pending.workspaceId,
+        draftPath: pending.path,
+        previewDigest: digest({
+          sourceChecksum: pending.sourceChecksum,
+          baseChecksum: pending.baseChecksum,
+          previousMapRevision: pending.previousMapRevision,
+        }),
+        lineageId: pending.lineageId,
+        baseArtifactId: pending.baseArtifactId,
+        artifactId: pending.artifactId,
+        supersedes: pending.baseArtifactId,
+        draftChecksum: pending.sourceChecksum,
+        acceptedChecksum: pending.acceptedChecksum,
+        approvalReceiptId,
+        approvalPayloadDigest: approval.payloadDigest,
+        approvedBy: pending.approvedBy,
+        approvedAt: pending.approvedAt,
+        previousMapRevision: pending.previousMapRevision,
+        mapRevision: revision.revision,
+        acceptedAt: pending.approvedAt,
+      };
+      const receiptDigest = digest(body);
+      const receipt: ArtifactAmendmentReceipt = {
+        receiptId: `amendment-receipt-${receiptDigest.slice(7, 31)}`,
+        receiptDigest,
+        ...body,
+      };
+      this.#store.put(receipt.receiptId, receipt.lineageId, approvalReceiptId, receipt);
+      return receipt;
+    } catch (error) {
+      if (!acceptedFileWritten) this.#store.releaseApproval(approvalReceiptId, operationDigest);
       throw error;
     }
   }

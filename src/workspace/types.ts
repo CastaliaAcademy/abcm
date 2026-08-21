@@ -45,7 +45,7 @@ export interface DeleteDirectoryOptions {
 }
 
 export type MutationReconciler = (workspaceId: string, changedPaths: readonly string[]) => Promise<void>;
-export type FileMutationOperation = "write" | "delete" | "move";
+export type FileMutationOperation = "write" | "delete" | "move" | "amend";
 export type MutationAuthorizer = (
   workspaceId: string,
   changedPaths: readonly string[],
