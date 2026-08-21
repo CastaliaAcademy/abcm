@@ -30,3 +30,11 @@ export const CANONICAL_PLAN_0035_PATHS = Object.freeze([
   "artifacts/plans/PLAN-0035/traceability.yaml",
   "artifacts/plans/PLAN-0035/evidence/implementation.md",
 ] as const);
+
+export const CANONICAL_PLAN_0036_PATHS = Object.freeze([
+  "docs/spec/extensions/tag-derived-link-packages-hardening-v0.2.yaml",
+  "artifacts/plans/PLAN-0036/plan.md",
+  "artifacts/plans/PLAN-0036/verification-plan.md",
+  "artifacts/plans/PLAN-0036/traceability.yaml",
+  "artifacts/plans/PLAN-0036/evidence/implementation.md",
+] as const);

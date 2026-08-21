@@ -687,13 +687,19 @@ export class ContextBuilder {
       if (requiredKinds.has(document.kind) || (document.tags ?? []).some(tag => requiredTags.has(tag))) reasons.add("skill_required");
       const mandatory = linkPackageMandatory === true || [...reasons].some(reason => PRIORITY.indexOf(reason) <= PRIORITY.indexOf("skill_required"));
       if (document.lifecycle === "deleted" || document.lifecycle === "archived" || document.lifecycle === "superseded") {
-        if (mandatory) omissions.push({ documentId: document.documentId, reason: "lifecycle_excluded", selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
+        if (mandatory || linkPackageReferenced) omissions.push({ documentId: document.documentId, reason: "lifecycle_excluded", selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
         continue;
       }
       if (!mandatory) {
         if (document.contextPolicy === "explicit-only" && !linkPackageReferenced) continue;
-        if (document.roleSelectors.length > 0 && !document.roleSelectors.includes(request.roleId)) continue;
-        if (document.taskSelectors.length > 0 && !document.taskSelectors.includes(request.taskType)) continue;
+        if (document.roleSelectors.length > 0 && !document.roleSelectors.includes(request.roleId)) {
+          if (linkPackageReferenced) omissions.push({ documentId: document.documentId, reason: "selector_mismatch", selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
+          continue;
+        }
+        if (document.taskSelectors.length > 0 && !document.taskSelectors.includes(request.taskType)) {
+          if (linkPackageReferenced) omissions.push({ documentId: document.documentId, reason: "selector_mismatch", selectionReasons: [...reasons].sort((left, right) => PRIORITY.indexOf(left) - PRIORITY.indexOf(right)) });
+          continue;
+        }
         if (pathScopes.has(document.scopeId)) {
           if (affected.has(document.scopeId)) reasons.add("target_scope");
           else if (PASSIVE_ANCESTOR_KINDS.has(document.kind)) continue;

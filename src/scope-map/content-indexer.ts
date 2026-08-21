@@ -6,7 +6,13 @@ import { z } from "zod/v4";
 import { throwIfAborted } from "../core/operation.js";
 import { parseSafeYaml } from "../core/safe-yaml.js";
 import type { ResolvedWorkspace } from "../workspace/types.js";
-import { normalizeDocumentTag, parseDocumentLinkSource, type DocumentLinkSource } from "./link-graph.js";
+import {
+  DOCUMENT_TAG_MAX_COUNT,
+  DOCUMENT_TAG_MAX_LENGTH,
+  normalizeDocumentTag,
+  validateDocumentTags,
+} from "./document-tags.js";
+import { parseDocumentLinkSource, type DocumentLinkSource } from "./link-graph.js";
 import type {
   DocumentRecord,
   ExecutableResourceRecord,
@@ -60,7 +66,7 @@ const documentMetadataSchema = z
     requiredFor: z.array(z.string()).optional(),
     audiences: z.array(z.string()).optional(),
     taskTypes: z.array(z.string()).optional(),
-    tags: z.array(z.string()).optional(),
+    tags: z.array(z.string().min(1).max(DOCUMENT_TAG_MAX_LENGTH)).max(DOCUMENT_TAG_MAX_COUNT).optional(),
     aliases: z.union([z.string(), z.array(z.string())]).optional(),
     domain: z.string().min(1).optional(),
     worker: z.string().min(1).optional(),
@@ -231,7 +237,7 @@ function documentFrom(
   relativePath: string,
   fileChecksum: string,
   metadata: DocumentMetadata,
-  inlineTags: readonly string[],
+  tags: readonly string[],
 ): DocumentRecord {
   return {
     documentId: metadata.id,
@@ -247,8 +253,7 @@ function documentFrom(
     ],
     roleSelectors: metadata.audiences ?? [],
     taskSelectors: metadata.taskTypes ?? [],
-    tags: [...new Set([...(metadata.tags ?? []), ...inlineTags].map(normalizeDocumentTag).filter(Boolean))]
-      .sort((left, right) => left.localeCompare(right)),
+    tags,
     ...(metadata.domain === undefined ? {} : { domain: metadata.domain }),
     worker: metadata.worker ?? null,
     links: metadata.links ?? [],
@@ -426,9 +431,11 @@ export async function indexScopeContent(
     const fileChecksum = checksum(content);
     const fileClassification = classification(scopeRelativePath);
     const rawFrontmatter = frontmatterData(content);
-    const parsedMetadata = fileClassification === "context_document"
-      ? documentMetadataSchema.safeParse(rawFrontmatter).data
+    const metadataResult = fileClassification === "context_document"
+      ? documentMetadataSchema.safeParse(rawFrontmatter)
       : undefined;
+    const parsedMetadata = metadataResult?.success === true ? metadataResult.data : undefined;
+    const invalidTagMetadata = metadataResult?.success === false && metadataResult.error.issues.some(issue => issue.path[0] === "tags");
     const invalidPlacement = placementIssue(scopeRelativePath, rawFrontmatter);
     files.push({
       scopeId: scope.scopeId,
@@ -436,7 +443,7 @@ export async function indexScopeContent(
       size: metadata.size,
       mtime: Math.trunc(metadata.mtimeMs),
       checksum: fileChecksum,
-      parseStatus: parsedMetadata === undefined ? "not_applicable" : "parsed",
+      parseStatus: invalidTagMetadata ? "invalid" : parsedMetadata === undefined ? "not_applicable" : "parsed",
       classification: fileClassification,
       storageMode: "managed",
     });
@@ -448,21 +455,41 @@ export async function indexScopeContent(
         scopeId: scope.scopeId,
         message: invalidPlacement,
       });
+    } else if (invalidTagMetadata) {
+      diagnostics.push({
+        code: "DOCUMENT_TAGS_INVALID",
+        severity: "warning",
+        path: relativePath,
+        scopeId: scope.scopeId,
+        message: `Frontmatter tags must contain at most ${DOCUMENT_TAG_MAX_COUNT} values of no more than ${DOCUMENT_TAG_MAX_LENGTH} characters each.`,
+      });
     } else if (parsedMetadata !== undefined) {
       const decodedContent = new TextDecoder().decode(content);
-      const document = documentFrom(scope, relativePath, fileChecksum, parsedMetadata, parseInlineDocumentTags(decodedContent));
-      documentCandidates.push(document);
-      if (extname(scopeRelativePath).toLocaleLowerCase("en-US") === ".md") {
-        linkSources.push(parseDocumentLinkSource(
-          document,
-          parsedMetadata.aliases === undefined
-            ? []
-            : typeof parsedMetadata.aliases === "string"
-              ? [parsedMetadata.aliases]
-              : parsedMetadata.aliases,
-          parsedMetadata.links ?? [],
-          decodedContent,
-        ));
+      const tagValidation = validateDocumentTags([...(parsedMetadata.tags ?? []), ...parseInlineDocumentTags(decodedContent)]);
+      if (tagValidation.error !== undefined) {
+        files[files.length - 1] = { ...files[files.length - 1]!, parseStatus: "invalid" };
+        diagnostics.push({
+          code: "DOCUMENT_TAGS_INVALID",
+          severity: "warning",
+          path: relativePath,
+          scopeId: scope.scopeId,
+          message: tagValidation.error,
+        });
+      } else {
+        const document = documentFrom(scope, relativePath, fileChecksum, parsedMetadata, tagValidation.tags);
+        documentCandidates.push(document);
+        if (extname(scopeRelativePath).toLocaleLowerCase("en-US") === ".md") {
+          linkSources.push(parseDocumentLinkSource(
+            document,
+            parsedMetadata.aliases === undefined
+              ? []
+              : typeof parsedMetadata.aliases === "string"
+                ? [parsedMetadata.aliases]
+                : parsedMetadata.aliases,
+            parsedMetadata.links ?? [],
+            decodedContent,
+          ));
+        }
       }
     }
     if (fileClassification === "executable_resource" && PLANTUML_SOURCE_PATH.test(scopeRelativePath)) {

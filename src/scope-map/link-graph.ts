@@ -12,6 +12,9 @@ import type {
   MapDiagnostic,
   TypedLinkGraph,
 } from "./types.js";
+import { normalizeDocumentTag } from "./document-tags.js";
+
+export { normalizeDocumentTag } from "./document-tags.js";
 
 export interface DocumentLinkDeclaration {
   type: Exclude<LinkGraphEdgeType, "backlink" | "tag">;
@@ -38,10 +41,6 @@ function sha256(value: unknown): string {
 
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values.map(value => value.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
-}
-
-export function normalizeDocumentTag(value: string): string {
-  return value.normalize("NFKC").trim().replace(/^#+/, "").toLocaleLowerCase("en-US");
 }
 
 function tagPackages(documents: readonly DocumentRecord[]): LinkGraphTagPackage[] {
