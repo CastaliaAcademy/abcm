@@ -68,6 +68,26 @@ class FailOnceReceiptStore implements ArtifactAmendmentReceiptStore {
   close() {}
 }
 
+class FailOnceReservationStore implements ArtifactAmendmentReceiptStore {
+  #failed = false;
+  constructor(readonly delegate: ArtifactAmendmentReceiptStore) {}
+  get(receiptId: string) { return this.delegate.get(receiptId); }
+  getByApproval(approvalReceiptId: string) { return this.delegate.getByApproval(approvalReceiptId); }
+  put(receiptId: string, lineageId: string, approvalReceiptId: string, payload: unknown) { this.delegate.put(receiptId, lineageId, approvalReceiptId, payload); }
+  issueApproval(approval: StoredArtifactApproval) { this.delegate.issueApproval(approval); }
+  getApproval(receiptId: string) { return this.delegate.getApproval(receiptId); }
+  reserveApproval(receiptId: string, payloadDigest: string, operation: StoredArtifactAmendmentOperation, now: string) {
+    if (!this.#failed) {
+      this.#failed = true;
+      throw new Error("simulated reservation failure");
+    }
+    return this.delegate.reserveApproval(receiptId, payloadDigest, operation, now);
+  }
+  getOperationByApproval(approvalReceiptId: string) { return this.delegate.getOperationByApproval(approvalReceiptId); }
+  releaseApproval(receiptId: string, operationDigest: string) { this.delegate.releaseApproval(receiptId, operationDigest); }
+  close() {}
+}
+
 describe("ArtifactAmendmentService", () => {
   test("keeps accepted bytes immutable and allows only one concurrent lineage head", async () => {
     const { root, runtime, store, service, revision, basePath, baseBytes, firstPath, secondPath } = await fixture();
@@ -181,6 +201,10 @@ describe("ArtifactAmendmentService", () => {
         acceptedAt: "2026-08-20T00:00:00.000Z",
       }));
       expect(await recoveredService.acceptIntegratedEdit(input)).toEqual(recovered);
+      await expect(recoveredService.acceptIntegratedEdit({
+        ...input,
+        baseChecksum: checksum("different accepted base"),
+      })).rejects.toMatchObject({ code: "ARTIFACT_AMENDMENT_APPROVAL_REPLAY" });
       expect(recoveredService.getLineage("workspace", "decision").artifacts.filter(artifact => artifact.artifactId === recovered?.artifactId)).toHaveLength(1);
     } finally {
       await runtime.close();
@@ -210,6 +234,80 @@ describe("ArtifactAmendmentService", () => {
       expect(result.head.checksum).toBe(checksum(accepted));
       expect(await readFile(join(root, archivePath), "utf8")).toBe(baseBytes);
       expect(new Uint8Array(await readFile(join(root, basePath)))).toEqual(accepted);
+    } finally {
+      await runtime.close();
+      store.close();
+    }
+  });
+
+  test("creates a fresh artifact identity when source bytes recur later in one lineage", async () => {
+    const { runtime, store, service, revision, basePath } = await fixture();
+    try {
+      const firstSource = new TextEncoder().encode(
+        "---\nid: local-edit\nkind: adr\ntitle: Reused source\nstatus: accepted\nlineageId: decision\n---\nSource A.\n",
+      );
+      const secondSource = new TextEncoder().encode(
+        "---\nid: local-edit\nkind: adr\ntitle: Intermediate source\nstatus: accepted\nlineageId: decision\n---\nSource B.\n",
+      );
+      const apply = async (content: Uint8Array, operationId: string) => {
+        const baseChecksum = (await runtime.files.read("workspace", basePath)).entry.checksum;
+        return service.acceptIntegratedEdit({
+          workspaceId: "workspace",
+          path: basePath,
+          baseChecksum,
+          content,
+          operationId,
+          integrationIdentity: "device_operator_0001",
+        });
+      };
+
+      const first = await apply(firstSource, "op_reused_source_000001");
+      const second = await apply(secondSource, "op_reused_source_000002");
+      const third = await apply(firstSource, "op_reused_source_000003");
+      const ids = ["ADR-DECISION-V1", first?.artifactId, second?.artifactId, third?.artifactId];
+      expect(new Set(ids).size).toBe(4);
+      expect(service.getLineage("workspace", "decision")).toEqual(expect.objectContaining({
+        status: "valid",
+        headArtifactId: third?.artifactId,
+        artifacts: expect.arrayContaining(ids.map(artifactId => expect.objectContaining({ artifactId }))),
+      }));
+      expect(revision.documents.find(document => document.artifactId === "ADR-DECISION-V1")).toBeDefined();
+    } finally {
+      await runtime.close();
+      store.close();
+    }
+  });
+
+  test("reuses the original approval timestamp after a crash before durable reservation", async () => {
+    const { runtime, store, revision, basePath } = await fixture();
+    try {
+      const base = revision.documents.find(document => document.relativePath === basePath)!;
+      const input = {
+        workspaceId: "workspace",
+        path: basePath,
+        baseChecksum: base.checksum,
+        content: new TextEncoder().encode(
+          "---\nid: local-edit\nkind: adr\ntitle: Reservation recovery\nstatus: accepted\nlineageId: decision\n---\nRecovered.\n",
+        ),
+        operationId: "op_reservation_recovery_01",
+        integrationIdentity: "device_operator_0001",
+      };
+      const failing = new ArtifactAmendmentService(runtime.files, runtime.scopeMap, {
+        store: new FailOnceReservationStore(store),
+        operatorIdentity: "operator",
+        clock: () => new Date("2026-08-20T00:00:00.000Z"),
+      });
+      await expect(failing.acceptIntegratedEdit(input)).rejects.toThrow("simulated reservation failure");
+
+      const recovered = await new ArtifactAmendmentService(runtime.files, runtime.scopeMap, {
+        store,
+        operatorIdentity: "operator",
+        clock: () => new Date("2026-08-20T00:05:00.000Z"),
+      }).acceptIntegratedEdit(input);
+      expect(recovered).toEqual(expect.objectContaining({
+        approvedAt: "2026-08-20T00:00:00.000Z",
+        acceptedAt: "2026-08-20T00:00:00.000Z",
+      }));
     } finally {
       await runtime.close();
       store.close();

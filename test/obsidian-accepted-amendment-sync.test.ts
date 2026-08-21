@@ -143,7 +143,7 @@ describe("Obsidian accepted artifact amendments", () => {
       expect(current).toContain("supersedes: ADR-0001");
       expect(current).toContain("control-plane");
       const generatedId = /^id:\s*(\S+)$/m.exec(current)?.[1];
-      expect(generatedId).toMatch(/^ADR-stable-decision-[a-f0-9]{12}$/);
+      expect(generatedId).toMatch(/^ADR-stable-decision-[a-f0-9]{24}$/);
 
       const archivedPath = join(root, "abcm", "artifacts", "adr", "revisions", "ADR-0001.md");
       expect(await readFile(archivedPath, "utf8")).toBe(baseBytes);

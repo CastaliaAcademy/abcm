@@ -53,6 +53,7 @@ export interface ArtifactAmendmentReceipt {
   previewDigest: string;
   lineageId: string;
   baseArtifactId: string;
+  baseChecksum: string;
   artifactId: string;
   supersedes: string;
   draftChecksum: string;
@@ -170,12 +171,24 @@ function integratedAcceptedBytes(
   return new TextEncoder().encode(`---\n${frontmatter}\n---\n${source.slice(match[0].length)}`);
 }
 
-function artifactIdForIntegratedAmendment(base: DocumentRecord, sourceChecksum: string): string {
+function artifactIdForIntegratedAmendment(
+  base: DocumentRecord,
+  sourceChecksum: string,
+  operationId: string,
+  integrationIdentity: string,
+): string {
   const lineage = (base.lineageId ?? base.artifactId ?? base.documentId)
     .normalize("NFKC")
     .replace(/[^\p{L}\p{N}]+/gu, "-")
-    .replace(/^-+|-+$/g, "") || "artifact";
-  return `${base.kind.toLocaleUpperCase("en-US")}-${lineage}-${sourceChecksum.slice(7, 19)}`;
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 220) || "artifact";
+  const revisionDigest = digest({
+    baseArtifactId: base.artifactId,
+    sourceChecksum,
+    operationId,
+    integrationIdentity,
+  });
+  return `${base.kind.toLocaleUpperCase("en-US")}-${lineage}-${revisionDigest.slice(7, 31)}`;
 }
 
 function artifact(revision: MapRevision, artifactId: string): DocumentRecord | undefined {
@@ -220,7 +233,12 @@ export class ArtifactAmendmentService {
     }).slice(7, 39)}`;
     const existing = this.#store?.getByApproval(approvalReceiptId) as ArtifactAmendmentReceipt | undefined;
     if (existing !== undefined) {
-      if (existing.workspaceId !== input.workspaceId || existing.draftPath !== input.path || existing.draftChecksum !== sourceChecksum) {
+      if (
+        existing.workspaceId !== input.workspaceId ||
+        existing.draftPath !== input.path ||
+        existing.draftChecksum !== sourceChecksum ||
+        existing.baseChecksum !== input.baseChecksum
+      ) {
         throw new AbcmError("ARTIFACT_AMENDMENT_APPROVAL_REPLAY", "Integrated amendment identity was reused with different content.");
       }
       return existing;
@@ -261,10 +279,25 @@ export class ArtifactAmendmentService {
       throw new AbcmError("ARTIFACT_AMENDMENT_APPROVAL_REQUIRED", "Durable integrated amendment storage is not configured.");
     }
 
-    const artifactId = artifactIdForIntegratedAmendment(current, sourceChecksum);
+    const artifactId = artifactIdForIntegratedAmendment(
+      current,
+      sourceChecksum,
+      input.operationId,
+      input.integrationIdentity,
+    );
+    if (revision.documents.some(document => document.artifactId === artifactId)) {
+      throw new AbcmError("ARTIFACT_AMENDMENT_CONFLICT", "Generated integrated amendment artifact identity already exists.", {
+        artifactId,
+      });
+    }
     const accepted = integratedAcceptedBytes(input.content, current, artifactId);
-    const approvedAt = this.#clock().toISOString();
-    const approvedBy = `${this.#operatorIdentity}/obsidian/${input.integrationIdentity}`;
+    const configuredApprovedBy = `${this.#operatorIdentity}/obsidian/${input.integrationIdentity}`;
+    const approval = this.#store.getApproval(approvalReceiptId);
+    if (approval !== undefined && approval.approvedBy !== configuredApprovedBy) {
+      throw new AbcmError("ARTIFACT_AMENDMENT_APPROVAL_REPLAY", "Integrated amendment approval identity is already bound to another integration.");
+    }
+    const approvedAt = approval?.approvedAt ?? this.#clock().toISOString();
+    const approvedBy = approval?.approvedBy ?? configuredApprovedBy;
     const pending: PendingIntegratedArtifactAmendment = {
       workspaceId: input.workspaceId,
       path: input.path,
@@ -282,7 +315,6 @@ export class ArtifactAmendmentService {
     };
     const payloadDigest = digest(pending);
     const operationDigest = digest({ approvalReceiptId, pending });
-    const approval = this.#store.getApproval(approvalReceiptId);
     if (approval === undefined) {
       this.#store.issueApproval({
         receiptId: approvalReceiptId,
@@ -432,6 +464,7 @@ export class ArtifactAmendmentService {
         previewDigest: pending.preview.previewDigest,
         lineageId: pending.preview.lineageId,
         baseArtifactId: pending.preview.baseArtifactId,
+        baseChecksum: pending.preview.baseChecksum,
         artifactId: pending.preview.artifactId,
         supersedes: pending.preview.baseArtifactId,
         draftChecksum: pending.preview.draftChecksum,
@@ -524,6 +557,7 @@ export class ArtifactAmendmentService {
         }),
         lineageId: pending.lineageId,
         baseArtifactId: pending.baseArtifactId,
+        baseChecksum: pending.baseChecksum,
         artifactId: pending.artifactId,
         supersedes: pending.baseArtifactId,
         draftChecksum: pending.sourceChecksum,
