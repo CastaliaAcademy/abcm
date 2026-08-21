@@ -7,7 +7,7 @@ services:
     environment:
       ABCM_CONTEXT_LINK_GRAPH_STATE_ROOT: /state/link-graph
       ABCM_DOCUMENTATION_SOURCES: >-
-        [{"id":"castalia-public-import","workspaceId":"castalia-public","root":"/documentation-sources/public","targetBasePath":"abcm/artifacts/imports/operator-selected"},{"id":"castalia-private-backend-docs","workspaceId":"castalia-private-backend","root":"/documentation-sources/private-backend","targetBasePath":"artifacts/imports/operator-selected"}]
+        [{"id":"castalia-public-import","workspaceId":"castalia-public","root":"/documentation-sources/public","targetBasePath":"abcm/artifacts/imports/operator-selected"},{"id":"castalia-private-backend-docs","workspaceId":"castalia-private-backend","root":"/documentation-sources/private-backend","targetBasePath":"artifacts/imports/operator-selected","reconciliation":{"manifestPath":"config/documentation/castalia-private-backend-docs.yaml","unmappedPolicy":"conflict"}}]
       ABCM_ARTIFACT_AMENDMENT_OPERATOR_TOKEN: ${ABCM_ARTIFACT_AMENDMENT_OPERATOR_TOKEN:?required}
       ABCM_ARTIFACT_AMENDMENT_OPERATOR_IDENTITY: ${ABCM_ARTIFACT_AMENDMENT_OPERATOR_IDENTITY:-release-operator}
     volumes:

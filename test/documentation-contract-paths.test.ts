@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { CANONICAL_PLAN_0033_PATHS, CANONICAL_PLAN_0034_PATHS, CANONICAL_PLAN_0035_PATHS, CANONICAL_PLAN_0036_PATHS, CANONICAL_REMOTE_EVIDENCE_PATHS } from "../scripts/documentation-contract-paths.js";
+import { CANONICAL_PLAN_0033_PATHS, CANONICAL_PLAN_0034_PATHS, CANONICAL_PLAN_0035_PATHS, CANONICAL_PLAN_0036_PATHS, CANONICAL_PLAN_0037_PATHS, CANONICAL_REMOTE_EVIDENCE_PATHS } from "../scripts/documentation-contract-paths.js";
 
 describe("canonical remote documentation evidence", () => {
   test("business dataset, fixtures, baseline, protocol and recommendations remain in the pinned export", () => {
@@ -11,6 +11,7 @@ describe("canonical remote documentation evidence", () => {
       "artifacts/evals/fixtures/context-retrieval-business-fixtures-v1.yaml",
       "artifacts/evals/regression/context-bundle-business-regression-v1.md",
       "artifacts/reports/architecture/context-resolver-functional-recommendations-2026-08-18.md",
+      "docs/operations/audit-requirements.md",
     ]);
     expect(new Set(CANONICAL_REMOTE_EVIDENCE_PATHS).size).toBe(CANONICAL_REMOTE_EVIDENCE_PATHS.length);
   });
@@ -59,6 +60,17 @@ describe("canonical remote documentation evidence", () => {
     expect(new Set(CANONICAL_PLAN_0036_PATHS).size).toBe(CANONICAL_PLAN_0036_PATHS.length);
   });
 
+  test("PLAN-0037 specification, plan, verification, traceability and evidence stay in the pinned export", () => {
+    expect(CANONICAL_PLAN_0037_PATHS).toEqual([
+      "docs/spec/extensions/connector-safe-errors-and-documentation-reconciliation-v0.1.yaml",
+      "artifacts/plans/PLAN-0037/plan.md",
+      "artifacts/plans/PLAN-0037/verification-plan.md",
+      "artifacts/plans/PLAN-0037/traceability.yaml",
+      "artifacts/plans/PLAN-0037/evidence/implementation.md",
+    ]);
+    expect(new Set(CANONICAL_PLAN_0037_PATHS).size).toBe(CANONICAL_PLAN_0037_PATHS.length);
+  });
+
   test("sync tooling keeps normative plan evidence and threat controls in the canonical layout", async () => {
     const source = await Bun.file("scripts/sync-abcm-contracts.ts").text();
     for (const path of [
@@ -83,6 +95,7 @@ describe("canonical remote documentation evidence", () => {
     expect(source).toContain("CANONICAL_PLAN_0034_PATHS");
     expect(source).toContain("CANONICAL_PLAN_0035_PATHS");
     expect(source).toContain("CANONICAL_PLAN_0036_PATHS");
+    expect(source).toContain("CANONICAL_PLAN_0037_PATHS");
     expect(source).toContain('["docs/security/threat-model.md"');
   });
 });

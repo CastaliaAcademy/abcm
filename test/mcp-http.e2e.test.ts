@@ -166,7 +166,7 @@ describe("ABCM Streamable HTTP MCP endpoint", () => {
       ] as const;
       for (const [name, arguments_, code] of cases) {
         const failed = await client.callTool({ name, arguments: arguments_ });
-        expect(failed.isError).toBe(true);
+        expect(failed.isError).not.toBe(true);
         expect(JSON.parse((failed.content[0] as { text: string }).text)).toEqual(expect.objectContaining({ code }));
         expect(failed.structuredContent).toEqual(expect.objectContaining({ error_code: code }));
       }

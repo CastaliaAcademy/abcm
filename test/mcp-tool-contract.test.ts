@@ -61,11 +61,11 @@ describe("MCP tool contract", () => {
       expect(listed.tools).toHaveLength(39);
       expect(client.getNegotiatedProtocolVersion()).toBe("2025-11-25");
       expect(client.getServerCapabilities()?.experimental?.["abcm.dev/contract"]).toEqual({
-        contractVersion: "0.9.0",
+        contractVersion: "1.0.0",
         specificationVersion: "0.5.0",
         supportedProtocolVersions: ["2025-11-25"],
         operationTimeoutMs: 30000,
-        toolErrors: { encoding: "isError-json+structured", version: "2", structuredField: "error_code" },
+        toolErrors: { encoding: "completed-json+structured", version: "3", structuredField: "error_code" },
       });
       expect(listed.tools.map(tool => tool.name)).toEqual([
         "agent_instructions.get",
@@ -110,7 +110,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.21.0",
+        version: "1.22.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
@@ -176,7 +176,7 @@ describe("MCP tool contract", () => {
         name: "workspace.list_files",
         arguments: { workspaceId: "missing" },
       });
-      expect(missing.isError).toBe(true);
+      expect(missing.isError).not.toBe(true);
       expect(JSON.parse((missing.content[0] as { text: string }).text)).toEqual(expect.objectContaining({
         code: "WORKSPACE_NOT_FOUND",
         message: "Workspace 'missing' is not registered.",
@@ -217,7 +217,7 @@ describe("MCP tool contract", () => {
       ] as const;
       for (const [name, arguments_, code] of errorCases) {
         const failed = await client.callTool({ name, arguments: arguments_ });
-        expect(failed.isError).toBe(true);
+        expect(failed.isError).not.toBe(true);
         expect(JSON.parse((failed.content[0] as { text: string }).text)).toEqual(expect.objectContaining({ code }));
         expect(failed.structuredContent).toEqual(expect.objectContaining({ error_code: code }));
       }
@@ -230,7 +230,7 @@ describe("MCP tool contract", () => {
       ] as const;
       for (const [name, arguments_, code] of stableDomainErrors) {
         const failed = await client.callTool({ name, arguments: arguments_ });
-        expect(failed.isError).toBe(true);
+        expect(failed.isError).not.toBe(true);
         expect(JSON.parse((failed.content[0] as { text: string }).text)).toEqual(expect.objectContaining({ code }));
         expect(failed.structuredContent).toEqual(expect.objectContaining({ error_code: code }));
       }
@@ -251,13 +251,13 @@ describe("MCP tool contract", () => {
         name: "context.preview_task_context",
         arguments: { ...baseContext, canonicalTerms: ["UnknownTerm"] },
       });
-      expect(unknownTerm.isError).toBe(true);
+      expect(unknownTerm.isError).not.toBe(true);
       expect(unknownTerm.structuredContent).toEqual(expect.objectContaining({ error_code: "UNKNOWN_DOMAIN_TERM" }));
       const requiredOverflow = await client.callTool({
         name: "context.build_task_context",
         arguments: { ...baseContext, budgetProfile: "impossible" },
       });
-      expect(requiredOverflow.isError).toBe(true);
+      expect(requiredOverflow.isError).not.toBe(true);
       expect(requiredOverflow.structuredContent).toEqual(expect.objectContaining({ error_code: "REQUIRED_CONTEXT_EXCEEDS_LIMIT" }));
 
       const happy = await client.callTool({

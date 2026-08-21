@@ -184,7 +184,7 @@ describe("cooperative operation cancellation", () => {
     await client.connect(clientTransport);
     try {
       const result = await client.callTool({ name: "workspace.list_files", arguments: { workspaceId: "test" } });
-      expect(result.isError).toBe(true);
+      expect(result.isError).not.toBe(true);
       expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual(expect.objectContaining({ code: "MCP_OPERATION_TIMEOUT" }));
     } finally {
       await client.close();

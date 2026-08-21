@@ -5,6 +5,7 @@ export const CANONICAL_REMOTE_EVIDENCE_PATHS = Object.freeze([
   "artifacts/evals/fixtures/context-retrieval-business-fixtures-v1.yaml",
   "artifacts/evals/regression/context-bundle-business-regression-v1.md",
   "artifacts/reports/architecture/context-resolver-functional-recommendations-2026-08-18.md",
+  "docs/operations/audit-requirements.md",
 ] as const);
 
 export const CANONICAL_PLAN_0033_PATHS = Object.freeze([
@@ -37,4 +38,12 @@ export const CANONICAL_PLAN_0036_PATHS = Object.freeze([
   "artifacts/plans/PLAN-0036/verification-plan.md",
   "artifacts/plans/PLAN-0036/traceability.yaml",
   "artifacts/plans/PLAN-0036/evidence/implementation.md",
+] as const);
+
+export const CANONICAL_PLAN_0037_PATHS = Object.freeze([
+  "docs/spec/extensions/connector-safe-errors-and-documentation-reconciliation-v0.1.yaml",
+  "artifacts/plans/PLAN-0037/plan.md",
+  "artifacts/plans/PLAN-0037/verification-plan.md",
+  "artifacts/plans/PLAN-0037/traceability.yaml",
+  "artifacts/plans/PLAN-0037/evidence/implementation.md",
 ] as const);

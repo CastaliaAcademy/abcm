@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { posix, relative, resolve, sep } from "node:path";
+import { z } from "zod/v4";
 
 import { AbcmError } from "../core/errors.js";
 import { observeOperation, type AbcmObservability } from "../core/observability.js";
 import { throwIfAborted } from "../core/operation.js";
+import { parseSafeYaml } from "../core/safe-yaml.js";
 import type { ScopeMapService } from "../scope-map/scope-map-service.js";
 import type { WorkspaceFileService } from "../workspace/file-service.js";
 import type { WorkspaceRegistry } from "../workspace/registry.js";
@@ -45,6 +47,33 @@ interface MappedSourceFile {
   file: SourceFile;
   candidateTargetPaths: readonly string[];
 }
+
+interface DocumentationReconciliationEntry {
+  sourcePath: string;
+  targetPath: string;
+  sourceChecksum: string;
+  targetChecksum: string;
+  disposition: "adopt-existing";
+}
+
+interface DocumentationReconciliationManifest {
+  entries: ReadonlyMap<string, DocumentationReconciliationEntry>;
+}
+
+const checksumSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+const reconciliationManifestSchema = z.object({
+  apiVersion: z.literal("abcm/v1"),
+  kind: z.literal("documentation-reconciliation"),
+  workspaceId: z.string().min(1),
+  sourceId: z.string().min(1),
+  entries: z.array(z.object({
+    sourcePath: z.string().min(1),
+    targetPath: z.string().min(1),
+    sourceChecksum: checksumSchema,
+    targetChecksum: checksumSchema,
+    disposition: z.literal("adopt-existing"),
+  }).strict()).min(1),
+}).strict();
 
 function sha256(content: Uint8Array | string): string {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
@@ -142,6 +171,7 @@ export class DirectoryDocumentationSyncService {
         validateGlob(rule.match);
         validateTargetBasePath(rule.target.endsWith("/") ? rule.target.slice(0, -1) : rule.target);
       }
+      if (source.reconciliation !== undefined) validateTargetBasePath(source.reconciliation.manifestPath);
       const workspace = this.#registry.get(source.workspaceId);
       const sourceRoot = resolve(source.root);
       if (pathsOverlap(sourceRoot, workspace.root)) {
@@ -177,12 +207,18 @@ export class DirectoryDocumentationSyncService {
       throw new AbcmError("SOURCE_CONNECTOR_UNAVAILABLE", `Documentation source '${sourceId}' is not configured for workspace '${workspaceId}'.`);
     }
     const snapshot = await this.#snapshot(source, signal);
+    const reconciliation = await this.#reconciliation(source, signal);
     await this.#recoverPending(source, snapshot);
     const provenance = this.#state.listDocumentProvenance(workspaceId, sourceId);
     const activeBySourcePath = new Map(provenance.filter(record => record.active).map(record => [record.sourcePath, record]));
     const sourcePaths = new Set(snapshot.map(file => file.sourcePath));
     const removed = provenance.filter(record => record.active && !sourcePaths.has(record.sourcePath));
-    const mapped = snapshot.map(file => ({ file, candidateTargetPaths: this.#mapTargets(source, file.sourcePath) }));
+    const mapped = snapshot.map(file => ({
+      file,
+      candidateTargetPaths: reconciliation?.entries.get(file.sourcePath) === undefined
+        ? this.#mapTargets(source, file.sourcePath)
+        : [reconciliation.entries.get(file.sourcePath)!.targetPath],
+    }));
     const targetUseCount = new Map<string, number>();
     for (const entry of mapped) {
       if (entry.candidateTargetPaths.length !== 1) continue;
@@ -195,6 +231,7 @@ export class DirectoryDocumentationSyncService {
     for (const { file, candidateTargetPaths } of mapped) {
       throwIfAborted(signal);
       const targetPath = candidateTargetPaths[0] ?? posix.join(source.targetBasePath, file.sourcePath);
+      const reconciliationEntry = reconciliation?.entries.get(file.sourcePath);
       if (candidateTargetPaths.length > 1 || (targetUseCount.get(targetPath) ?? 0) > 1) {
         operations.push({
           operation: "conflict",
@@ -203,6 +240,17 @@ export class DirectoryDocumentationSyncService {
           sourceChecksum: file.checksum,
           conflictCode: "DOCUMENTATION_MAPPING_AMBIGUOUS",
           candidateTargetPaths,
+        });
+        continue;
+      }
+      if (reconciliationEntry !== undefined && reconciliationEntry.sourceChecksum !== file.checksum) {
+        operations.push({
+          operation: "conflict",
+          sourcePath: file.sourcePath,
+          targetPath,
+          sourceChecksum: file.checksum,
+          conflictCode: "DOCUMENTATION_RECONCILIATION_STALE",
+          reconciliationDisposition: reconciliationEntry.disposition,
         });
         continue;
       }
@@ -231,6 +279,40 @@ export class DirectoryDocumentationSyncService {
               },
         );
       } else if (previous === undefined) {
+        if (reconciliationEntry !== undefined) {
+          const current = await this.#readTarget(workspaceId, targetPath, signal);
+          operations.push(
+            current?.checksum === reconciliationEntry.targetChecksum
+              ? {
+                  operation: "unchanged",
+                  sourcePath: file.sourcePath,
+                  targetPath,
+                  sourceChecksum: file.checksum,
+                  targetChecksum: current.checksum,
+                  reconciliationDisposition: reconciliationEntry.disposition,
+                }
+              : {
+                  operation: "conflict",
+                  sourcePath: file.sourcePath,
+                  targetPath,
+                  sourceChecksum: file.checksum,
+                  ...(current === undefined ? {} : { targetChecksum: current.checksum }),
+                  conflictCode: "DOCUMENTATION_RECONCILIATION_STALE",
+                  reconciliationDisposition: reconciliationEntry.disposition,
+                },
+          );
+          continue;
+        }
+        if (reconciliation !== undefined) {
+          operations.push({
+            operation: "conflict",
+            sourcePath: file.sourcePath,
+            targetPath,
+            sourceChecksum: file.checksum,
+            conflictCode: "DOCUMENTATION_RECONCILIATION_REQUIRED",
+          });
+          continue;
+        }
         const moveCandidates = removed.filter(record => !movedSources.has(record.sourcePath) && record.sourceChecksum === file.checksum);
         if (moveCandidates.length === 1) {
           const move = moveCandidates[0]!;
@@ -284,6 +366,18 @@ export class DirectoryDocumentationSyncService {
           });
         }
       }
+    }
+    for (const entry of reconciliation?.entries.values() ?? []) {
+      if (sourcePaths.has(entry.sourcePath)) continue;
+      operations.push({
+        operation: "conflict",
+        sourcePath: entry.sourcePath,
+        targetPath: entry.targetPath,
+        sourceChecksum: entry.sourceChecksum,
+        targetChecksum: entry.targetChecksum,
+        conflictCode: "DOCUMENTATION_RECONCILIATION_STALE",
+        reconciliationDisposition: entry.disposition,
+      });
     }
     for (const previous of removed.filter(record => !movedSources.has(record.sourcePath))) {
       throwIfAborted(signal);
@@ -339,10 +433,14 @@ export class DirectoryDocumentationSyncService {
     }
     const conflicts = plan.operations.filter(operation => operation.operation === "conflict");
     if (conflicts.length > 0) {
-      const code = conflicts.some(operation => operation.conflictCode === "DOCUMENTATION_MAPPING_AMBIGUOUS")
-        ? "DOCUMENTATION_MAPPING_AMBIGUOUS"
-        : "SOURCE_TARGET_CONFLICT";
-      throw new AbcmError(code, "Documentation import contains mapping or source-target conflicts.", {
+      const code = conflicts.some(operation => operation.conflictCode === "DOCUMENTATION_RECONCILIATION_STALE")
+        ? "DOCUMENTATION_RECONCILIATION_STALE"
+        : conflicts.some(operation => operation.conflictCode === "DOCUMENTATION_RECONCILIATION_REQUIRED")
+          ? "DOCUMENTATION_RECONCILIATION_REQUIRED"
+          : conflicts.some(operation => operation.conflictCode === "DOCUMENTATION_MAPPING_AMBIGUOUS")
+            ? "DOCUMENTATION_MAPPING_AMBIGUOUS"
+            : "SOURCE_TARGET_CONFLICT";
+      throw new AbcmError(code, "Documentation import contains unresolved reconciliation, mapping, or source-target conflicts.", {
         importId,
         paths: conflicts.map(operation => operation.targetPath),
       });
@@ -416,7 +514,7 @@ export class DirectoryDocumentationSyncService {
             sourcePath: operation.sourcePath,
             targetPath: operation.targetPath,
             sourceChecksum: file.checksum,
-            targetChecksum: file.checksum,
+            targetChecksum: operation.operation === "unchanged" ? operation.targetChecksum! : file.checksum,
             lastSynchronizedAt: synchronizedAt,
             active: true,
           });
@@ -579,14 +677,20 @@ export class DirectoryDocumentationSyncService {
       });
     }
     const sourceFiles = new Map(snapshot.map(file => [file.sourcePath, file]));
+    const reconciliation = await this.#reconciliation(source, signal);
     const provenance = this.#state.listDocumentProvenance(source.workspaceId, sourceId).filter(record => record.active);
     for (const record of provenance) {
       const external = sourceFiles.get(record.sourcePath);
       const target = await this.#readTarget(source.workspaceId, record.targetPath, signal);
+      const reconciliationEntry = reconciliation?.entries.get(record.sourcePath);
+      const adoptedExisting = reconciliationEntry?.disposition === "adopt-existing"
+        && reconciliationEntry.targetPath === record.targetPath
+        && external?.checksum === reconciliationEntry.sourceChecksum
+        && target?.checksum === reconciliationEntry.targetChecksum;
       if (
         external?.checksum !== record.sourceChecksum ||
         target?.checksum !== record.targetChecksum ||
-        external.checksum !== target.checksum
+        (!adoptedExisting && external.checksum !== target.checksum)
       ) {
         throw new AbcmError("CUTOVER_CHECKSUM_MISMATCH", "Source and mirror checksums do not match for cutover.", {
           sourcePath: record.sourcePath,
@@ -767,6 +871,46 @@ export class DirectoryDocumentationSyncService {
     return [...new Set(matches.map(rule => mappingTarget(sourcePath, rule.match, rule.target)))].sort((left, right) =>
       left.localeCompare(right),
     );
+  }
+
+  async #reconciliation(source: ResolvedSource, signal?: AbortSignal): Promise<DocumentationReconciliationManifest | undefined> {
+    if (source.reconciliation === undefined) return undefined;
+    let content: Uint8Array;
+    try {
+      content = (await this.#files.read(source.workspaceId, source.reconciliation.manifestPath, signal)).content;
+    } catch (error) {
+      if (error instanceof AbcmError && error.code === "FILE_NOT_FOUND") {
+        throw new AbcmError(
+          "DOCUMENTATION_RECONCILIATION_REQUIRED",
+          `Documentation reconciliation manifest '${source.reconciliation.manifestPath}' was not found.`,
+        );
+      }
+      throw error;
+    }
+    let parsed: z.infer<typeof reconciliationManifestSchema>;
+    try {
+      parsed = reconciliationManifestSchema.parse(parseSafeYaml(new TextDecoder().decode(content)));
+    } catch (error) {
+      throw new AbcmError("DOCUMENTATION_RECONCILIATION_REQUIRED", "Documentation reconciliation manifest is invalid.", {
+        path: source.reconciliation.manifestPath,
+        cause: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if (parsed.workspaceId !== source.workspaceId || parsed.sourceId !== source.id) {
+      throw new AbcmError("DOCUMENTATION_RECONCILIATION_REQUIRED", "Documentation reconciliation manifest identity does not match the source.");
+    }
+    const entries = new Map<string, DocumentationReconciliationEntry>();
+    const targets = new Set<string>();
+    for (const entry of parsed.entries) {
+      validateTargetBasePath(entry.sourcePath);
+      validateTargetBasePath(entry.targetPath);
+      if (entries.has(entry.sourcePath) || targets.has(entry.targetPath)) {
+        throw new AbcmError("DOCUMENTATION_MAPPING_AMBIGUOUS", "Documentation reconciliation manifest must be one-to-one.");
+      }
+      entries.set(entry.sourcePath, entry);
+      targets.add(entry.targetPath);
+    }
+    return { entries };
   }
 
   #snapshotDigest(snapshot: readonly SourceFile[]): string {

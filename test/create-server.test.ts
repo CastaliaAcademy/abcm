@@ -14,10 +14,10 @@ describe("ABCM MCP server library", () => {
   test("exposes stable package and specification metadata", () => {
     expect(ABCM_SERVER_INFO).toEqual({
       name: "abcm-mcp-server",
-      version: "0.1.4",
+      version: "0.1.5",
     });
-    expect(ABCM_AGENT_INSTRUCTIONS_VERSION).toBe("1.21.0");
-    expect(ABCM_MCP_CONTRACT_VERSION).toBe("0.9.0");
+    expect(ABCM_AGENT_INSTRUCTIONS_VERSION).toBe("1.22.0");
+    expect(ABCM_MCP_CONTRACT_VERSION).toBe("1.0.0");
     expect(ABCM_SPEC_VERSION).toBe("0.5.0");
     expect(Object.keys(ABCM_MCP_TOOL_SCHEMAS)).toHaveLength(34);
   });

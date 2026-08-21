@@ -125,7 +125,7 @@ describe("MCP upload and atomic batch file tools", () => {
         name: "workspace.upload_chunk",
         arguments: { ...chunkArguments, content: Buffer.from(conflictBytes).toString("base64"), checksum: checksum(conflictBytes) },
       });
-      expect(conflict.isError).toBe(true);
+      expect(conflict.isError).not.toBe(true);
       expect(JSON.parse((conflict.content[0] as { text: string }).text)).toEqual(expect.objectContaining({ code: "UPLOAD_CHUNK_CONFLICT" }));
       await client.callTool({ name: "workspace.upload_complete", arguments: { workspaceId: "test", uploadId } });
 
@@ -142,7 +142,7 @@ describe("MCP upload and atomic batch file tools", () => {
           ],
         },
       });
-      expect(invalid.isError).toBe(true);
+      expect(invalid.isError).not.toBe(true);
       expect(JSON.parse((invalid.content[0] as { text: string }).text)).toEqual(expect.objectContaining({ code: "FILE_CHECKSUM_MISMATCH" }));
       await expect(runtime.files.read("test", "batch/never-created.md")).rejects.toMatchObject({ code: "FILE_NOT_FOUND" });
       expect(new TextDecoder().decode((await runtime.files.read("test", "batch/delete.md")).content)).toBe("delete-me");

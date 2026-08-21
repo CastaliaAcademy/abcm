@@ -131,11 +131,16 @@ function success(structuredContent: Record<string, unknown>) {
 const DEFAULT_MCP_OPERATION_TIMEOUT_MS = 30_000;
 
 function toolError(error: unknown) {
-  const result = (errorCode: string, message: string, details?: Readonly<Record<string, unknown>>) => {
+  const result = (
+    errorCode: string,
+    message: string,
+    details?: Readonly<Record<string, unknown>>,
+    isError = false,
+  ) => {
     const textPayload = { code: errorCode, message, ...(details === undefined ? {} : { details }) };
     const structuredContent = { error_code: errorCode, message, ...(details === undefined ? {} : { details }) };
     return {
-      isError: true,
+      ...(isError ? { isError: true as const } : {}),
       content: [{ type: "text" as const, text: JSON.stringify(textPayload) }],
       structuredContent,
     };
@@ -143,7 +148,7 @@ function toolError(error: unknown) {
   if (error instanceof AbcmError) {
     return result(error.code, error.message, error.details);
   }
-  return result("INTERNAL_ERROR", "An unexpected server error occurred.");
+  return result("INTERNAL_ERROR", "An unexpected server error occurred.", undefined, true);
 }
 
 async function toolResult(
@@ -186,7 +191,7 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
           specificationVersion: ABCM_SPEC_VERSION,
           supportedProtocolVersions: [...ABCM_MCP_PROTOCOL_VERSIONS],
           operationTimeoutMs,
-          toolErrors: { encoding: "isError-json+structured", version: "2", structuredField: "error_code" },
+          toolErrors: { encoding: "completed-json+structured", version: "3", structuredField: "error_code" },
         },
       },
     },

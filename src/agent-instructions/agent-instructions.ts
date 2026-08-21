@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.21.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.22.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
@@ -250,7 +250,7 @@ Fallback при недостаточном автоматическом конт
 
 Ошибки различаются: malformed input — REQUEST_INVALID на границе схемы; отсутствующий selector — CONTEXT_DOCUMENT_NOT_FOUND; недоступный — CONTEXT_DOCUMENT_ACCESS_DENIED без раскрытия тела; несовпавший expectedKind — CONTEXT_DOCUMENT_KIND_MISMATCH; изменение после MapRevision — DOMAIN_LANGUAGE_BOOTSTRAP_STALE; обязательный контекст вне hard limit — REQUIRED_CONTEXT_EXCEEDS_LIMIT.
 
-Для MCP предметная ошибка всегда имеет isError=true. Совместимое текстовое содержимое содержит JSON с полем code, а structuredContent содержит тот же стабильный код в error_code и сообщение в message. Объявленная outputSchema каждого tool является объединением успешного результата и общей схемы предметной ошибки, поэтому строгий клиент обязан сохранить error_code. Не классифицируйте предметную ошибку по тексту и не заменяйте UNKNOWN_DOMAIN_TERM, CONTEXT_DOCUMENT_NOT_FOUND или REQUIRED_CONTEXT_EXCEEDS_LIMIT общим INVALID_ARGUMENT.
+Для MCP предметная ошибка является завершённым типизированным результатом, а не транспортной ошибкой: isError отсутствует, совместимое текстовое содержимое содержит JSON с полем code, а structuredContent содержит тот же стабильный код в error_code и сообщение в message. Это не успешный предметный результат: наличие error_code требует обработать операцию как отклонённую. Такой wire-контракт не позволяет connector заменить предметный код общим INVALID_ARGUMENT. isError=true зарезервирован для ошибок входной схемы, протокола и непредвиденных серверных сбоев. Объявленная outputSchema каждого tool является объединением успешного результата и общей схемы предметной ошибки, поэтому строгий клиент обязан сохранить error_code. Не классифицируйте предметную ошибку по тексту и не заменяйте UNKNOWN_DOMAIN_TERM, CONTEXT_DOCUMENT_NOT_FOUND или REQUIRED_CONTEXT_EXCEEDS_LIMIT общим INVALID_ARGUMENT.
 
 canonicalTerms принимает canonical concept id, основной term, alias или однозначный homonym. Например, если glossary объявляет id=abcm.scope-map и term=ScopeMap, оба значения допустимы и нормализуются к abcm.scope-map; неизвестный term обязан завершиться UNKNOWN_DOMAIN_TERM.
 
@@ -543,6 +543,8 @@ REST-эквиваленты:
 
 Для внешнего хранилища настройте источник документации. Сначала выполните preview, изучите операции create/update/move/delete/conflict, затем примените зафиксированный preview. Выполняйте cutover только после явного одобрения оператора и с ожидаемым snapshot digest. После cutover хранилище ABCM становится каноническим, а прежний источник не должен оставаться независимым писателем.
 
+Если внешний legacy-корпус уже был преобразован в каноническую архитектуру ABCM, включите fail-closed reconciliation с unmappedPolicy=conflict. Workspace-owned manifest обязан закрепить каждый sourcePath за единственным canonical targetPath и обеими контрольными суммами. disposition=adopt-existing сохраняет канонические байты и только фиксирует provenance. Отсутствующая запись, повторный target, изменившийся source/target либо отсутствующий target возвращают DOCUMENTATION_RECONCILIATION_REQUIRED или DOCUMENTATION_RECONCILIATION_STALE и блокируют apply, sync и cutover. Нельзя заменять такой conflict записью в fallback import subtree.
+
 Каталог внешнего источника выбирает оператор при запуске сервера. Агент передаёт только зарегистрированные workspaceId и sourceId и не может задать абсолютный путь через REST или MCP. Выбранный каталог обязан быть отдельным: он не может совпадать с canonical workspace, находиться внутри него или содержать его; граница повторно проверяется после раскрытия симлинков.
 
 Правильно: выбрать отдельный каталог заметок, смонтировать его read-only как documentation source, выполнить preview и только затем apply/sync. Контрпример: выбрать каталог canonical workspace либо его родителя и тем самым организовать импорт источника в самого себя.
@@ -554,9 +556,9 @@ REST-эквиваленты:
 ## Политика ошибок и завершения
 
 - Стабильные ошибки ABCM являются данными контракта. Сообщите код, устраните причину и сохраните диагностические подробности.
-- Для MCP-ошибки используйте structuredContent.error_code как машиночитаемый код; JSON в текстовой части обязан содержать тот же code. Значения CONTEXT_DOCUMENT_NOT_FOUND, REQUIRED_CONTEXT_EXCEEDS_LIMIT и UNKNOWN_DOMAIN_TERM не должны заменяться общим INVALID_ARGUMENT.
+- Для предметной MCP-ошибки используйте structuredContent.error_code как машиночитаемый код; JSON в текстовой части обязан содержать тот же code, а isError отсутствует. Значения CONTEXT_DOCUMENT_NOT_FOUND, REQUIRED_CONTEXT_EXCEEDS_LIMIT и UNKNOWN_DOMAIN_TERM не должны заменяться общим INVALID_ARGUMENT. isError=true означает ошибку схемы, протокола либо непредвиденный сбой, а не предметный отказ ABCM.
 - Ошибка валидации означает неверную форму запроса. Ошибка доступа означает отсутствие разрешения. Ошибка готовности карты означает, что контекст запрещено выдумывать.
-- MCP initialize.serverInfo.version — версия пакета/сервера, а версия этой инструкции — версия эксплуатационного контракта. После изменения любой из них или серверной конфигурации переподключите connector/tunnel, заново получите tools/list и не используйте закэшированный manifest. Полный настроенный контур сервера 0.1.4 с инструкцией 1.21.0 содержит 39 операций; четыре documentation-source операции присутствуют только при настроенных оператором каталогах. Централизованные outcome, feedback, business-evaluation и task-success операции намеренно отсутствуют.
+- MCP initialize.serverInfo.version — версия пакета/сервера, а версия этой инструкции — версия эксплуатационного контракта. После изменения любой из них или серверной конфигурации переподключите connector/tunnel, заново получите tools/list и не используйте закэшированный manifest. Полный настроенный контур сервера 0.1.5 с инструкцией 1.22.0 содержит 39 операций; четыре documentation-source операции присутствуют только при настроенных оператором каталогах. Централизованные outcome, feedback, business-evaluation и task-success операции намеренно отсутствуют.
 - Текущий локальный dev-контур является single-version и не является production. После того как новый ABCM-контейнер получил healthy, прошёл runtime inspector и connector/tunnel был переподключён, агент ОБЯЗАН (MUST) удалить остановленные контейнеры предыдущей версии и её versioned image. Не удаляйте текущий контейнер/image, \`abcm-state\`, tunnel и отдельный benchmark image. Хранить предыдущий Docker runtime для rollback разрешено только после явного введения parallel-version или production deployment policy.
 - Запрещено заявлять об успешном развёртывании, синхронизации, миграции, тестировании или паритете документации без доказательств.
 - Итоговый отчёт ОБЯЗАН (MUST) разделять завершённую работу, выполненные проверки, пропущенные проверки, блокеры и невыполненные внешние действия.

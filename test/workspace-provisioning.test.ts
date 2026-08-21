@@ -163,7 +163,7 @@ describe("WorkspaceProvisioningService", () => {
         name: "workspace.create",
         arguments: { id: "castalia-public", language: "ru" },
       });
-      expect(duplicate.isError).toBe(true);
+      expect(duplicate.isError).not.toBe(true);
       expect(JSON.parse((duplicate.content[0] as { text: string }).text)).toEqual(
         expect.objectContaining({ code: "WORKSPACE_ALREADY_EXISTS" }),
       );

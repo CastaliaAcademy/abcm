@@ -359,8 +359,14 @@ const documentationOperationSchema = z.object({
   previousTargetPath: z.string().optional(),
   sourceChecksum: checksum.optional(),
   targetChecksum: checksum.optional(),
-  conflictCode: z.enum(["SOURCE_TARGET_CONFLICT", "DOCUMENTATION_MAPPING_AMBIGUOUS"]).optional(),
+  conflictCode: z.enum([
+    "SOURCE_TARGET_CONFLICT",
+    "DOCUMENTATION_MAPPING_AMBIGUOUS",
+    "DOCUMENTATION_RECONCILIATION_REQUIRED",
+    "DOCUMENTATION_RECONCILIATION_STALE",
+  ]).optional(),
   candidateTargetPaths: z.array(z.string()).optional(),
+  reconciliationDisposition: z.literal("adopt-existing").optional(),
 }).strict();
 export const documentationPreviewInputSchema = z.object({ workspaceId, sourceId: z.string().min(1) }).strict();
 export const documentationPreviewOutputSchema = z.object({

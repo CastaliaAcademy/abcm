@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { ABCM_AGENT_INSTRUCTIONS } from "../src/agent-instructions/agent-instructions.js";
-import { CANONICAL_PLAN_0033_PATHS, CANONICAL_PLAN_0034_PATHS, CANONICAL_PLAN_0035_PATHS, CANONICAL_PLAN_0036_PATHS, CANONICAL_REMOTE_EVIDENCE_PATHS } from "./documentation-contract-paths.js";
+import { CANONICAL_PLAN_0033_PATHS, CANONICAL_PLAN_0034_PATHS, CANONICAL_PLAN_0035_PATHS, CANONICAL_PLAN_0036_PATHS, CANONICAL_PLAN_0037_PATHS, CANONICAL_REMOTE_EVIDENCE_PATHS } from "./documentation-contract-paths.js";
 
 const baseUrl = (process.env.ABCM_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 const token = process.env.ABCM_API_TOKEN;
@@ -60,6 +60,8 @@ const files = new Map<string, Uint8Array>([
   ["artifacts/plans/ABCM-MVP/development-plan.md", await localBytes(".abcm-documentation/artifacts/plans/ABCM-MVP/development-plan.md")],
   ["docs/release/known-gaps-v0.1.0.md", await localBytes(".abcm-documentation/docs/release/known-gaps-v0.1.0.md")],
   ["docs/release/traceability-v0.1.0.yaml", await localBytes(".abcm-documentation/docs/release/traceability-v0.1.0.yaml")],
+  ["docs/spec/extensions/directory-documentation-sync-v0.1.yaml", await localBytes(".abcm-documentation/docs/spec/extensions/directory-documentation-sync-v0.1.yaml")],
+  ["docs/spec/extensions/mcp-tool-contract-v0.1.yaml", await localBytes(".abcm-documentation/docs/spec/extensions/mcp-tool-contract-v0.1.yaml")],
   ["artifacts/plans/PLAN-0028/plan.md", await localBytes(".abcm-documentation/artifacts/plans/PLAN-0028/plan.md")],
   ["artifacts/plans/PLAN-0028/traceability.yaml", await localBytes(".abcm-documentation/artifacts/plans/PLAN-0028/traceability.yaml")],
   ["artifacts/plans/PLAN-0028/features/obsidian-bidirectional-sync.md", await localBytes(".abcm-documentation/artifacts/plans/PLAN-0028/features/obsidian-bidirectional-sync.md")],
@@ -81,6 +83,7 @@ for (const path of CANONICAL_PLAN_0033_PATHS) files.set(path, await localBytes(`
 for (const path of CANONICAL_PLAN_0034_PATHS) files.set(path, await localBytes(`.abcm-documentation/${path}`));
 for (const path of CANONICAL_PLAN_0035_PATHS) files.set(path, await localBytes(`.abcm-documentation/${path}`));
 for (const path of CANONICAL_PLAN_0036_PATHS) files.set(path, await localBytes(`.abcm-documentation/${path}`));
+for (const path of CANONICAL_PLAN_0037_PATHS) files.set(path, await localBytes(`.abcm-documentation/${path}`));
 
 for (const [path, bytes] of files) await putRemote(path, bytes);
 
