@@ -52,6 +52,9 @@ describe("контракт Docker benchmark эффективности", () => {
     expect(compose).not.toContain("ABCM_BUSINESS_EVALUATION_PROFILES");
     expect(compose).not.toContain("server-owned-profile.yaml");
     expect(compose).toContain("ABCM_DERIVED_STORE_ENABLED: \"true\"");
+    expect(compose).toContain("target: /workspace\n        read_only: true");
+    expect(compose).toContain("/workspace/.abcm:size=64m,mode=0700,uid=1000,gid=1000");
+    expect(await Bun.file("benchmarks/fixtures/context-efficiency-v1/workspace/.abcm/.gitkeep").exists()).toBe(true);
     expect(benchmark).not.toContain("/v1/context/business-evaluations");
     expect(benchmark).not.toContain("serverOwnedBusinessEvaluation");
   });
