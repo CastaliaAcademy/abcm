@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const compose = ["docker", "compose", "-p", "abcm-context-efficiency-benchmark", "-f", "deploy/compose.context-efficiency-benchmark.yaml"];
@@ -70,5 +70,4 @@ try {
   throw error;
 } finally {
   await run([...compose, "down", "--remove-orphans"], { allowFailure: true });
-  await rm(resolve("benchmarks/fixtures/context-efficiency-v1/workspace/.abcm"), { recursive: true, force: true });
 }
