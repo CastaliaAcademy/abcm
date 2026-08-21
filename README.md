@@ -37,6 +37,8 @@ When the selected directory is a legacy corpus that has already been normalized 
 
 Centralized outcome, feedback, business-evaluation, and task-success APIs are intentionally absent. ABCM does not collect package ratings or model outputs. Repository-local fixtures and Docker benchmark runners remain available to ABCM developers and do not persist data in the service. Documentation lifecycle tools appear only when operator-selected directories are configured.
 
+Every pull request merged into `main` starts the repository-owned `Feature completion context benchmark` workflow. It builds an isolated Docker fixture, compares direct file search with ABCM under the ordered relevance, fallback, determinism, isolation, and context-efficiency gates, and retains a machine-readable receipt for 30 days. A failed gate marks the post-merge workflow as failed; operators can rerun the same workflow manually. The benchmark never reads the live ABCM workspace or stores client feedback in the service.
+
 To publish the complete 41-tool runtime, including versioned context-selection/v4 entrypoints and documentation lifecycle for both managed workspaces, use the full-capabilities overlay instead of the documentation-only overlay:
 
 ```bash

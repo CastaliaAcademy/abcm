@@ -1,0 +1,41 @@
+name: Feature completion context benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  direct-search-vs-abcm:
+    name: Direct search vs ABCM
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Run reproducible direct-search vs ABCM benchmark
+        id: benchmark
+        env:
+          ABCM_BENCH_ENFORCE: "true"
+          ABCM_BENCH_OUTPUT_PATH: .abcm-generated/benchmarks/context-efficiency.json
+          ABCM_BENCH_TRIGGER: feature-completion
+          ABCM_BENCH_SOURCE_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+        run: bun run benchmark:context-efficiency:docker
+      - name: Upload benchmark receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: context-efficiency-${{ github.event.pull_request.number || github.run_id }}
+          path: .abcm-generated/benchmarks/context-efficiency.json
+          if-no-files-found: warn
+          retention-days: 30
