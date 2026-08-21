@@ -47,15 +47,20 @@ describe("контракт Docker benchmark эффективности", () => {
   });
 
   test("поднимает runtime без централизованного evaluation-профиля", async () => {
-    const profile = parseSafeYaml(
-      await Bun.file("benchmarks/fixtures/context-efficiency-v1/server-owned-profile.yaml").text(),
-    ) as { dataset: { scenarios: unknown[] }; scenarios: Array<{ directSearch: { allowedPathPrefixes: string[] } }> };
-    expect(profile.dataset.scenarios).toHaveLength(16);
-    expect(profile.scenarios).toHaveLength(16);
-    expect(profile.scenarios.every(scenario => scenario.directSearch.allowedPathPrefixes.every(path => !path.startsWith("/") && !path.includes("..")))).toBe(true);
     const compose = await Bun.file("deploy/compose.context-efficiency-benchmark.yaml").text();
+    const benchmark = await Bun.file("benchmarks/context-efficiency.ts").text();
     expect(compose).not.toContain("ABCM_BUSINESS_EVALUATION_PROFILES");
     expect(compose).not.toContain("server-owned-profile.yaml");
     expect(compose).toContain("ABCM_DERIVED_STORE_ENABLED: \"true\"");
+    expect(benchmark).not.toContain("/v1/context/business-evaluations");
+    expect(benchmark).not.toContain("serverOwnedBusinessEvaluation");
+  });
+
+  test("принимает traversal denial только как стабильный typed domain result", async () => {
+    const benchmark = await Bun.file("benchmarks/context-efficiency.ts").text();
+    expect(benchmark).toContain('traversalErrorCode !== "FILE_PATH_INVALID"');
+    expect(benchmark).toContain("traversal.isError ||");
+    expect(benchmark).toContain("judgeProtocolDigest: null");
+    expect(benchmark).not.toContain('if (!traversal.isError) throw new Error("Workspace traversal unexpectedly succeeded.")');
   });
 });

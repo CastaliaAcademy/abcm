@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { CANONICAL_PLAN_0033_PATHS, CANONICAL_PLAN_0034_PATHS, CANONICAL_PLAN_0035_PATHS, CANONICAL_PLAN_0036_PATHS, CANONICAL_PLAN_0037_PATHS, CANONICAL_PLAN_0038_PATHS, CANONICAL_REMOTE_EVIDENCE_PATHS } from "../scripts/documentation-contract-paths.js";
+import { CANONICAL_PLAN_0033_PATHS, CANONICAL_PLAN_0034_PATHS, CANONICAL_PLAN_0035_PATHS, CANONICAL_PLAN_0036_PATHS, CANONICAL_PLAN_0037_PATHS, CANONICAL_PLAN_0038_PATHS, CANONICAL_PLAN_0039_PATHS, CANONICAL_REMOTE_EVIDENCE_PATHS } from "../scripts/documentation-contract-paths.js";
 
 describe("canonical remote documentation evidence", () => {
   test("business dataset, fixtures, baseline, protocol and recommendations remain in the pinned export", () => {
@@ -82,6 +82,17 @@ describe("canonical remote documentation evidence", () => {
     expect(new Set(CANONICAL_PLAN_0038_PATHS).size).toBe(CANONICAL_PLAN_0038_PATHS.length);
   });
 
+  test("PLAN-0039 feature-completion benchmark contract stays in the pinned export", () => {
+    expect(CANONICAL_PLAN_0039_PATHS).toEqual([
+      "docs/spec/extensions/feature-completion-context-benchmark-v0.1.yaml",
+      "artifacts/plans/PLAN-0039/plan.md",
+      "artifacts/plans/PLAN-0039/verification-plan.md",
+      "artifacts/plans/PLAN-0039/traceability.yaml",
+      "artifacts/plans/PLAN-0039/evidence/implementation.md",
+    ]);
+    expect(new Set(CANONICAL_PLAN_0039_PATHS).size).toBe(CANONICAL_PLAN_0039_PATHS.length);
+  });
+
   test("sync tooling keeps normative plan evidence and threat controls in the canonical layout", async () => {
     const source = await Bun.file("scripts/sync-abcm-contracts.ts").text();
     for (const path of [
@@ -108,6 +119,7 @@ describe("canonical remote documentation evidence", () => {
     expect(source).toContain("CANONICAL_PLAN_0036_PATHS");
     expect(source).toContain("CANONICAL_PLAN_0037_PATHS");
     expect(source).toContain("CANONICAL_PLAN_0038_PATHS");
+    expect(source).toContain("CANONICAL_PLAN_0039_PATHS");
     expect(source).toContain('["docs/security/threat-model.md"');
   });
 });

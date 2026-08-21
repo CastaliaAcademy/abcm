@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod/v4";
@@ -173,7 +174,10 @@ try {
   const traversal = await client.callTool({ name: "workspace.read_file", arguments: { workspaceId: fixtureManifest.workspaceId, path: "../foreign/secret.md" } });
   const traversalSerialized = JSON.stringify(traversal);
   const unauthorizedDisclosureCount = fixtureManifest.forbiddenMarkers.some(marker => serialized.includes(marker) || traversalSerialized.includes(marker)) ? 1 : 0;
-  if (!traversal.isError) throw new Error("Workspace traversal unexpectedly succeeded.");
+  const traversalErrorCode = (traversal.structuredContent as { error_code?: unknown } | undefined)?.error_code;
+  if (traversal.isError || traversalErrorCode !== "FILE_PATH_INVALID") {
+    throw new Error(`Workspace traversal did not return the expected typed denial: ${traversalErrorCode ?? "missing"}.`);
+  }
   const selectedIds = first.selectedDocuments.map(document => document.documentId);
   const projectedCorpus = first.selectedDocuments.map(document => document.projection.content ?? "").join("\n").toLocaleLowerCase("ru-RU");
   const retrievedClaimIds = fixtureManifest.claims.filter(claim => claim.allTerms.every(term => projectedCorpus.includes(term.toLocaleLowerCase("ru-RU")))).map(claim => claim.id);
@@ -425,19 +429,31 @@ try {
       measurementWindowDigest: sha({ measurementStartedAt }),
       modelIdentityDigest: null,
       judgeRubricDigest: null,
+      judgeProtocolDigest: null,
       judgeIdentityClass: null,
     },
     gatePolicy: businessQualification.gatePolicy,
   });
-  const serverOwnedResponse = await fetch(new URL("/v1/context/business-evaluations", baseUrl), {
-    method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ profileId: "docker-known-data-server-owned-v1" }),
-  });
-  if (!serverOwnedResponse.ok) throw new Error(`Server-owned business evaluation failed: ${serverOwnedResponse.status} ${await serverOwnedResponse.text()}`);
-  const serverOwnedReceipt = await serverOwnedResponse.json() as typeof businessReceipt;
+  const enforcementPassed = !(
+    report.variants.abcmAutomatic?.overall !== "pass" ||
+    !linkGraphOverallPass ||
+    !graphRuns.every(run => run.result.receipt.steps.length === 2) ||
+    graphRuns.some(run => run.result.receipt.bundleDigest !== run.result.bundle.bundleDigest) ||
+    cacheStates[0] !== "miss" ||
+    cacheStates.slice(1).some(state => state !== "hit") ||
+    businessReceipt.variantAggregates.some(aggregate => aggregate.variant !== "V0" && aggregate.gates.overall !== "pass")
+  );
   const output = {
+    schemaVersion: "abcm.benchmark.feature-completion/v1",
     benchmark: "context-efficiency-docker-v1",
+    status: enforcementPassed ? "pass" : "fail",
+    execution: {
+      trigger: process.env.ABCM_BENCH_TRIGGER ?? "local",
+      sourceSha: process.env.ABCM_BENCH_SOURCE_SHA ?? null,
+      repository: process.env.GITHUB_REPOSITORY ?? null,
+      workflowRunId: process.env.GITHUB_RUN_ID ?? null,
+      generatedAt: new Date().toISOString(),
+    },
     fixture: { workspaceId: fixtureManifest.workspaceId, goldDocumentIds: fixtureManifest.goldDocumentIds, repetitions: fixtureManifest.repetitions },
     direct: { durationMs: directMs, candidateReads: direct.trace.reads.length, selectedDocumentIds: direct.selectedDocuments.map(document => document.documentId), inputTokens: direct.totalInputTokens, digest: direct.resultDigest },
     abcm: { bootstrapMs, coldBuildMs: buildTimes[0], warmBuildP50Ms: percentile(buildTimes.slice(1), 0.5), warmBuildP95Ms: percentile(buildTimes.slice(1), 0.95), cacheStates, selectedDocumentIds: selectedIds, inputTokens: first.tokenEstimate, bundleDigest: first.bundleDigest, identicalBundleRate: new Set(bundles.map(bundle => bundle.bundleDigest)).size === 1 ? 1 : 0, omissionCount: first.omissions.length },
@@ -464,26 +480,16 @@ try {
       bodyFree: !JSON.stringify(businessReceipt).toLocaleLowerCase("ru-RU").includes("idempotency key"),
       variants: businessReceipt.variantAggregates,
     },
-    serverOwnedBusinessEvaluation: {
-      runId: serverOwnedReceipt.runId,
-      aggregateDigest: serverOwnedReceipt.aggregateDigest,
-      scenarios: new Set(serverOwnedReceipt.runs.map(run => run.scenarioId)).size,
-      observations: serverOwnedReceipt.runs.length,
-      bodyFree: !JSON.stringify(serverOwnedReceipt).includes("idempotency key"),
-      variants: serverOwnedReceipt.variantAggregates,
-    },
   };
-  console.log(JSON.stringify(output, null, 2));
-  if (process.env.ABCM_BENCH_ENFORCE === "true" && (
-    report.variants.abcmAutomatic?.overall !== "pass" ||
-    !linkGraphOverallPass ||
-    !graphRuns.every(run => run.result.receipt.steps.length === 2) ||
-    graphRuns.some(run => run.result.receipt.bundleDigest !== run.result.bundle.bundleDigest) ||
-    cacheStates[0] !== "miss" ||
-    cacheStates.slice(1).some(state => state !== "hit") ||
-    businessReceipt.variantAggregates.some(aggregate => aggregate.variant !== "V0" && aggregate.gates.overall !== "pass") ||
-    serverOwnedReceipt.variantAggregates.some(aggregate => ["V3", "V4", "V5"].includes(aggregate.variant) && aggregate.gates.overall !== "pass")
-  )) process.exitCode = 1;
+  const serializedOutput = `${JSON.stringify(output, null, 2)}\n`;
+  console.log(serializedOutput.trimEnd());
+  const outputPath = process.env.ABCM_BENCH_OUTPUT_PATH;
+  if (outputPath) {
+    const absoluteOutputPath = resolve(outputPath);
+    await mkdir(dirname(absoluteOutputPath), { recursive: true });
+    await Bun.write(absoluteOutputPath, serializedOutput);
+  }
+  if (process.env.ABCM_BENCH_ENFORCE === "true" && !enforcementPassed) process.exitCode = 1;
 } finally {
   await client.close();
 }

@@ -14,8 +14,8 @@ async function run(command: string[], options: { stdout?: "inherit" | "pipe"; en
   return child;
 }
 
-await run([...compose, "up", "-d", "--build"]);
 try {
+  await run([...compose, "up", "-d", "--build"]);
   const deadline = Date.now() + 60_000;
   while (true) {
     try {
@@ -30,9 +30,12 @@ try {
       ABCM_BENCH_BASE_URL: "http://127.0.0.1:8791",
       ABCM_BENCH_TOKEN: "benchmark-token-123456789",
       ABCM_BENCH_ENFORCE: process.env.ABCM_BENCH_ENFORCE,
+      ABCM_BENCH_OUTPUT_PATH: process.env.ABCM_BENCH_OUTPUT_PATH,
+      ABCM_BENCH_TRIGGER: process.env.ABCM_BENCH_TRIGGER,
+      ABCM_BENCH_SOURCE_SHA: process.env.ABCM_BENCH_SOURCE_SHA,
     },
   });
 } finally {
-  await run([...compose, "down"]);
+  await run([...compose, "down", "--remove-orphans"]);
   await rm(resolve("benchmarks/fixtures/context-efficiency-v1/workspace/.abcm"), { recursive: true, force: true });
 }
