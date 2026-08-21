@@ -44,7 +44,10 @@ describe("feature completion benchmark workflow", () => {
     expect(benchmark).toContain("ABCM_BENCH_SOURCE_SHA");
     expect(benchmark).toContain("ABCM_BENCH_OUTPUT_PATH");
     expect(benchmark).toContain("if (process.env.ABCM_BENCH_ENFORCE === \"true\" && !enforcementPassed)");
-    expect(runner).toContain("ABCM_BENCH_OUTPUT_PATH: process.env.ABCM_BENCH_OUTPUT_PATH");
+    expect(runner).toContain("ABCM_BENCH_OUTPUT_PATH: outputPath");
+    expect(runner).toContain('"--wait", "--wait-timeout", "180"');
+    expect(runner).toContain('status: "infrastructure_error"');
+    expect(runner).toContain('"logs", "--no-color"');
     expect(runner).toContain('"down", "--remove-orphans"');
   });
 });
