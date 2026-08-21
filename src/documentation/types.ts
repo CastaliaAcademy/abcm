@@ -6,6 +6,12 @@ export interface DirectoryDocumentationSourceDefinition {
   include?: readonly string[];
   exclude?: readonly string[];
   mapping?: readonly DocumentationMappingRule[];
+  reconciliation?: DocumentationReconciliationDefinition;
+}
+
+export interface DocumentationReconciliationDefinition {
+  manifestPath: string;
+  unmappedPolicy: "conflict";
 }
 
 export interface DocumentationMappingRule {
@@ -23,8 +29,13 @@ export interface DocumentationImportOperation {
   previousTargetPath?: string;
   sourceChecksum?: string;
   targetChecksum?: string;
-  conflictCode?: "SOURCE_TARGET_CONFLICT" | "DOCUMENTATION_MAPPING_AMBIGUOUS";
+  conflictCode?:
+    | "SOURCE_TARGET_CONFLICT"
+    | "DOCUMENTATION_MAPPING_AMBIGUOUS"
+    | "DOCUMENTATION_RECONCILIATION_REQUIRED"
+    | "DOCUMENTATION_RECONCILIATION_STALE";
   candidateTargetPaths?: readonly string[];
+  reconciliationDisposition?: "adopt-existing";
 }
 
 export interface DocumentationImportPlan {

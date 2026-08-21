@@ -6,6 +6,8 @@ const workspaceId = process.env.ABCM_WORKSPACE_ID ?? "castalia-public";
 const projectId = process.env.ABCM_PROJECT_ID ?? "abcm";
 const expectedToolCount = Number(process.env.ABCM_EXPECTED_MCP_TOOL_COUNT ?? "39");
 const documentationSourceId = process.env.ABCM_DOCUMENTATION_SOURCE_ID ?? "castalia-public-import";
+const privateWorkspaceId = process.env.ABCM_PRIVATE_WORKSPACE_ID ?? "castalia-private-backend";
+const privateDocumentationSourceId = process.env.ABCM_PRIVATE_DOCUMENTATION_SOURCE_ID ?? "castalia-private-backend-docs";
 
 if (!token) throw new Error("ABCM_API_TOKEN is required.");
 if (!Number.isSafeInteger(expectedToolCount) || expectedToolCount < 1) {
@@ -63,6 +65,7 @@ try {
   });
   const missingPackageTextError = JSON.parse((missingPackage.content[0] as { text: string }).text) as { code?: string };
   const missingPackageStructuredError = missingPackage.structuredContent as { error_code?: string } | undefined;
+  const malformed = await client.callTool({ name: "context.get_link_package", arguments: { unexpected: true } });
   const serverVersion = client.getServerVersion()?.version;
   const instructionVersion = (instructions.structuredContent as { version?: string } | undefined)?.version;
   const instructionContent = (instructions.structuredContent as { content?: string } | undefined)?.content;
@@ -71,11 +74,20 @@ try {
     arguments: { workspaceId, sourceId: documentationSourceId },
   });
   const documentation = documentationResult.structuredContent as { sourceId?: string; operations?: unknown[] } | undefined;
+  const privateDocumentationResult = await client.callTool({
+    name: "documentation_source.preview",
+    arguments: { workspaceId: privateWorkspaceId, sourceId: privateDocumentationSourceId },
+  });
+  const privateDocumentation = privateDocumentationResult.structuredContent as {
+    sourceId?: string;
+    snapshotDigest?: string;
+    operations?: Array<{ operation?: string; targetPath?: string; reconciliationDisposition?: string }>;
+  } | undefined;
 
   if (names.length !== expectedToolCount || new Set(names).size !== names.length) {
     throw new Error(`Expected ${expectedToolCount} unique MCP tools, received ${names.length}.`);
   }
-  if (serverVersion !== "0.1.4" || instructionVersion !== "1.21.0") {
+  if (serverVersion !== "0.1.5" || instructionVersion !== "1.22.0") {
     throw new Error(`Unexpected server/instruction versions: server='${serverVersion}', instructions='${instructionVersion}'.`);
   }
   if (!instructionContent?.includes("не добавляет pairing, device, cursor или conflict операции в MCP manifest")) {
@@ -90,10 +102,26 @@ try {
   if (missingPackageTextError.code !== "CONTEXT_LINK_PACKAGE_NOT_FOUND" || missingPackageStructuredError?.error_code !== missingPackageTextError.code) {
     throw new Error(`LinkPackage error mismatch: text='${missingPackageTextError.code}', structured='${missingPackageStructuredError?.error_code}'.`);
   }
+  if (missingPackage.isError || !malformed.isError) {
+    throw new Error("Domain failures must be completed typed outcomes while malformed input remains an MCP error.");
+  }
   const forbiddenEvaluationTools = names.filter(name => /outcome|feedback|business_evaluation|task_success/.test(name));
   if (forbiddenEvaluationTools.length > 0) throw new Error(`Centralized evaluation tools are still published: ${forbiddenEvaluationTools.join(", ")}`);
   if (documentationResult.isError || documentation?.sourceId !== documentationSourceId) {
     throw new Error("The operator-selected documentation source preview is unavailable.");
+  }
+  const privateOperations = privateDocumentation?.operations ?? [];
+  if (
+    privateDocumentationResult.isError ||
+    privateDocumentation?.sourceId !== privateDocumentationSourceId ||
+    privateOperations.length !== 89 ||
+    privateOperations.some(operation =>
+      operation.operation !== "unchanged" ||
+      operation.reconciliationDisposition !== "adopt-existing" ||
+      operation.targetPath?.startsWith("artifacts/imports/operator-selected/") === true
+    )
+  ) {
+    throw new Error("Private documentation reconciliation is incomplete or would create a parallel corpus.");
   }
 
   console.log(JSON.stringify({
@@ -107,6 +135,12 @@ try {
     missingLinkPackageError: { text: missingPackageTextError.code, structured: missingPackageStructuredError.error_code },
     centralizedEvaluationTools: [],
     documentationSource: { id: documentation.sourceId, operationCount: documentation.operations?.length ?? 0 },
+    privateDocumentationSource: {
+      id: privateDocumentation.sourceId,
+      snapshotDigest: privateDocumentation.snapshotDigest,
+      operationCount: privateOperations.length,
+      operations: { unchanged: privateOperations.length, conflicts: 0, fallbackCreates: 0 },
+    },
   }, null, 2));
 } finally {
   await client.close();

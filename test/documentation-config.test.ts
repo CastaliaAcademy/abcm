@@ -37,6 +37,14 @@ describe("documentation source configuration", () => {
     ]);
   });
 
+  test("parses fail-closed reconciliation configuration", () => {
+    expect(parseDocumentationSources(
+      '[{"id":"docs","workspaceId":"castalia-private-backend","root":"/source","targetBasePath":"artifacts/import","reconciliation":{"manifestPath":"config/documentation/docs.yaml","unmappedPolicy":"conflict"}}]',
+    )).toEqual([expect.objectContaining({
+      reconciliation: { manifestPath: "config/documentation/docs.yaml", unmappedPolicy: "conflict" },
+    })]);
+  });
+
   test("requires SQLite when a documentation source is configured", () => {
     expect(() =>
       createAbcmRuntime(

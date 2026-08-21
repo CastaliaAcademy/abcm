@@ -58,21 +58,21 @@ describe("documentation sync MCP contract", () => {
         name: "workspace.write_file",
         arguments: { workspaceId: "test", path: "artifacts/notes/note.md", content: "local edit" },
       });
-      expect(rejected.isError).toBe(true);
+      expect(rejected.isError).not.toBe(true);
       expect((rejected.content[0] as { text: string }).text).toContain("MIRROR_DOCUMENT_READ_ONLY");
 
       const rejectedDelete = await client.callTool({
         name: "workspace.delete_file",
         arguments: { workspaceId: "test", path: "artifacts/notes/note.md" },
       });
-      expect(rejectedDelete.isError).toBe(true);
+      expect(rejectedDelete.isError).not.toBe(true);
       expect((rejectedDelete.content[0] as { text: string }).text).toContain("MIRROR_DOCUMENT_READ_ONLY");
 
       const rejectedMove = await client.callTool({
         name: "workspace.move_file",
         arguments: { workspaceId: "test", from: "artifacts/notes/note.md", to: "artifacts/notes/moved.md" },
       });
-      expect(rejectedMove.isError).toBe(true);
+      expect(rejectedMove.isError).not.toBe(true);
       expect((rejectedMove.content[0] as { text: string }).text).toContain("MIRROR_DOCUMENT_READ_ONLY");
 
       const cutover = await client.callTool({

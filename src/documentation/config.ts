@@ -11,6 +11,10 @@ const sourceSchema = z
     include: z.array(z.string().min(1)).min(1).optional(),
     exclude: z.array(z.string().min(1)).optional(),
     mapping: z.array(z.object({ match: z.string().min(1), target: z.string().min(1) }).strict()).optional(),
+    reconciliation: z.object({
+      manifestPath: z.string().min(1),
+      unmappedPolicy: z.literal("conflict"),
+    }).strict().optional(),
   })
   .strict();
 
@@ -32,5 +36,6 @@ export function parseDocumentationSources(value: string | undefined): readonly D
     ...(source.include === undefined ? {} : { include: source.include }),
     ...(source.exclude === undefined ? {} : { exclude: source.exclude }),
     ...(source.mapping === undefined ? {} : { mapping: source.mapping }),
+    ...(source.reconciliation === undefined ? {} : { reconciliation: source.reconciliation }),
   }));
 }

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture() {
+async function fixture(reconcile = false) {
   const workspaceRoot = await mkdtemp(join(tmpdir(), "abcm-sync-workspace-"));
   const sourceRoot = await mkdtemp(join(tmpdir(), "abcm-sync-source-"));
   roots.push(workspaceRoot, sourceRoot);
@@ -36,12 +37,21 @@ async function fixture() {
     files,
     scopeMap,
     state: store,
-    sources: [{ id: "obsidian", workspaceId: "test", root: sourceRoot, targetBasePath: "artifacts/notes" }],
+    sources: [{
+      id: "obsidian",
+      workspaceId: "test",
+      root: sourceRoot,
+      targetBasePath: "artifacts/notes",
+      ...(reconcile
+        ? { reconciliation: { manifestPath: "config/documentation/obsidian.yaml", unmappedPolicy: "conflict" as const } }
+        : {}),
+    }],
   });
   return { workspaceRoot, sourceRoot, store, scopeMap, files, documentation };
 }
 
 const note = (body: string) => `---\nid: OBS-0001\nkind: note\ntitle: Obsidian note\n---\n${body}\n`;
+const checksum = (body: string) => `sha256:${createHash("sha256").update(body).digest("hex")}`;
 
 describe("DirectoryDocumentationSyncService", () => {
   test("previews without mutation, ignores Obsidian metadata and applies exact mirror bytes", async () => {
@@ -130,6 +140,82 @@ describe("DirectoryDocumentationSyncService", () => {
       expect.objectContaining({ formerPath: "artifacts/notes/note.md", reason: "canonical_source_deleted" }),
     ]);
     expect(store.getActive("test")?.documents.some(document => document.documentId === "OBS-0001")).toBe(false);
+    store.close();
+  });
+
+  test("adopts an explicitly checksum-pinned canonical target without overwriting its bytes", async () => {
+    const { workspaceRoot, sourceRoot, store, documentation } = await fixture(true);
+    const source = note("legacy source bytes");
+    const canonical = note("normalized canonical bytes");
+    await writeFile(join(sourceRoot, "note.md"), source);
+    await writeFile(join(workspaceRoot, "artifacts/notes/note.md"), canonical);
+    await mkdir(join(workspaceRoot, "config", "documentation"), { recursive: true });
+    await writeFile(join(workspaceRoot, "config/documentation/obsidian.yaml"), [
+      "apiVersion: abcm/v1",
+      "kind: documentation-reconciliation",
+      "workspaceId: test",
+      "sourceId: obsidian",
+      "entries:",
+      "  - sourcePath: note.md",
+      "    targetPath: artifacts/notes/note.md",
+      `    sourceChecksum: ${checksum(source)}`,
+      `    targetChecksum: ${checksum(canonical)}`,
+      "    disposition: adopt-existing",
+      "",
+    ].join("\n"));
+
+    const preview = await documentation.preview("test", "obsidian");
+    expect(preview.operations).toEqual([expect.objectContaining({
+      operation: "unchanged",
+      sourcePath: "note.md",
+      targetPath: "artifacts/notes/note.md",
+      sourceChecksum: checksum(source),
+      targetChecksum: checksum(canonical),
+      reconciliationDisposition: "adopt-existing",
+    })]);
+    const result = await documentation.apply(preview.importId);
+    expect(result).toEqual(expect.objectContaining({ created: 0, updated: 0, moved: 0, deleted: 0 }));
+    expect(await readFile(join(workspaceRoot, "artifacts/notes/note.md"), "utf8")).toBe(canonical);
+    expect(store.listDocumentProvenance("test", "obsidian")).toEqual([
+      expect.objectContaining({ sourceChecksum: checksum(source), targetChecksum: checksum(canonical), active: true }),
+    ]);
+    expect((await documentation.preview("test", "obsidian")).operations).toEqual([
+      expect.objectContaining({ operation: "unchanged", targetChecksum: checksum(canonical) }),
+    ]);
+    expect(await documentation.cutover("obsidian", {
+      operatorApproved: true,
+      expectedSnapshotDigest: preview.snapshotDigest,
+    })).toEqual(expect.objectContaining({ storageMode: "managed", documentCount: 1, status: "completed" }));
+    store.close();
+  });
+
+  test("fails closed for unmapped and stale reconciliation entries", async () => {
+    const { workspaceRoot, sourceRoot, store, documentation } = await fixture(true);
+    const source = note("source bytes");
+    await writeFile(join(sourceRoot, "note.md"), source);
+    await mkdir(join(workspaceRoot, "config", "documentation"), { recursive: true });
+    await writeFile(join(workspaceRoot, "config/documentation/obsidian.yaml"), [
+      "apiVersion: abcm/v1",
+      "kind: documentation-reconciliation",
+      "workspaceId: test",
+      "sourceId: obsidian",
+      "entries:",
+      "  - sourcePath: missing.md",
+      "    targetPath: artifacts/notes/missing.md",
+      `    sourceChecksum: ${checksum("missing")}`,
+      `    targetChecksum: ${checksum("target")}`,
+      "    disposition: adopt-existing",
+      "",
+    ].join("\n"));
+
+    const preview = await documentation.preview("test", "obsidian");
+    expect(preview.operations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourcePath: "note.md", conflictCode: "DOCUMENTATION_RECONCILIATION_REQUIRED" }),
+      expect.objectContaining({ sourcePath: "missing.md", conflictCode: "DOCUMENTATION_RECONCILIATION_STALE" }),
+    ]));
+    expect(preview.operations.some(operation => operation.operation === "create")).toBe(false);
+    await expect(documentation.apply(preview.importId)).rejects.toMatchObject({ code: "DOCUMENTATION_RECONCILIATION_STALE" });
+    expect(await Bun.file(join(workspaceRoot, "artifacts/notes/note.md")).exists()).toBe(false);
     store.close();
   });
 });
