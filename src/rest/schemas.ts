@@ -26,6 +26,7 @@ import {
   contextLinkPackageBuildInputSchema,
   contextLinkPackageGetInputSchema,
   contextLinkPackageListOutputSchema,
+  contextLinkPackageMemberDispositionSchema,
   contextLinkPackageViewSchema,
 } from "../context/link-package-schema.js";
 import {
@@ -106,7 +107,11 @@ export const REST_SHARED_SCHEMAS = {
   ContextLinkPackage: contextLinkPackageViewSchema,
   ContextLinkPackageListResult: contextLinkPackageListOutputSchema,
   ContextLinkPackageBuildRequest: contextLinkPackageBuildInputSchema,
-  ContextLinkPackageBuildResult: z.object({ bundle: contextBuildOutputSchema, package: contextLinkPackageViewSchema }).strict(),
+  ContextLinkPackageBuildResult: z.object({
+    bundle: contextBuildOutputSchema,
+    package: contextLinkPackageViewSchema,
+    members: z.array(contextLinkPackageMemberDispositionSchema),
+  }).strict(),
   ArtifactAmendmentPreviewRequest: artifactAmendmentPreviewInputSchema,
   ArtifactAmendmentPreview: artifactAmendmentPreviewOutputSchema,
   ArtifactAmendmentAcceptRequest: artifactAmendmentAcceptInputSchema,

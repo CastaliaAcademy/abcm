@@ -14,6 +14,7 @@ import {
   contextLinkPackageGetInputSchema,
   contextLinkPackageListInputSchema,
   contextLinkPackageListOutputSchema,
+  contextLinkPackageMemberDispositionSchema,
   contextLinkPackageViewSchema,
 } from "../context/link-package-schema.js";
 import {
@@ -309,7 +310,11 @@ export const contextLinkGraphFinalizeOutputSchema = z.object({
   bundle: contextBuildOutputSchema,
   receipt: contextLinkGraphRetrievalReceiptSchema,
 }).strict();
-export const contextLinkPackageBuildOutputSchema = z.object({ bundle: contextBuildOutputSchema, package: contextLinkPackageViewSchema }).strict();
+export const contextLinkPackageBuildOutputSchema = z.object({
+  bundle: contextBuildOutputSchema,
+  package: contextLinkPackageViewSchema,
+  members: z.array(contextLinkPackageMemberDispositionSchema),
+}).strict();
 
 const contextPreviewDocumentSchema = z.object({
   documentId: z.string(),

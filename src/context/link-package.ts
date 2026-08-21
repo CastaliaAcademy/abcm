@@ -20,6 +20,11 @@ export interface ContextLinkPackageView {
   source: "document-tags";
 }
 
+export interface ContextLinkPackageMemberDisposition {
+  documentId: string;
+  status: "selected" | "selector_mismatch" | "budget_omitted" | "lifecycle_omitted";
+}
+
 export interface ContextLinkPackageServiceDependencies {
   contextBuilder: ContextLinkGraphBuilder;
   scopeMap: ContextLinkGraphScopeMap;
@@ -73,7 +78,7 @@ export class ContextLinkPackageService {
   async build(
     input: { workspaceId: string; packageId: string; request: BuildTaskContextRequest },
     signal?: AbortSignal,
-  ): Promise<{ bundle: ContextBundle; package: ContextLinkPackageView }> {
+  ): Promise<{ bundle: ContextBundle; package: ContextLinkPackageView; members: readonly ContextLinkPackageMemberDisposition[] }> {
     const selectedPackage = this.get(input.workspaceId, input.packageId);
     const request = {
       ...input.request,
@@ -88,7 +93,16 @@ export class ContextLinkPackageService {
       throw new AbcmError("CONTEXT_LINK_PACKAGE_STALE", "Tag-derived link package changed during context build.");
     }
     const bundle = await this.#contextBuilder.build(request, this.#principal, signal);
-    return { bundle, package: current };
+    const selected = new Set(bundle.selectedDocuments.map(document => document.documentId));
+    const omissions = new Map(bundle.omissions.map(omission => [omission.documentId, omission.reason]));
+    const members = current.documentIds.map(documentId => {
+      if (selected.has(documentId)) return { documentId, status: "selected" as const };
+      const reason = omissions.get(documentId);
+      if (reason === "budget_exceeded") return { documentId, status: "budget_omitted" as const };
+      if (reason === "lifecycle_excluded") return { documentId, status: "lifecycle_omitted" as const };
+      return { documentId, status: "selector_mismatch" as const };
+    });
+    return { bundle, package: current, members };
   }
 
   #view(workspaceId: string, revision: MapRevision, tagPackage: LinkGraphTagPackage): ContextLinkPackageView {
@@ -98,14 +112,14 @@ export class ContextLinkPackageService {
       const document = documents.get(documentId);
       const node = document === undefined ? undefined : nodes.get(document.scopeId);
       return node !== undefined && hasDocumentAccess(this.#principal, node);
-    });
+    }).sort((left, right) => left.localeCompare(right));
     return {
       packageId: publicPackageId(workspaceId, tagPackage.tag),
       workspaceId,
       tag: tagPackage.tag,
       title: `#${tagPackage.tag}`,
       documentIds,
-      packageDigest: digest({ workspaceId, tag: tagPackage.tag, documentIds }),
+      packageDigest: digest({ workspaceId, mapRevision: revision.revision, tag: tagPackage.tag, documentIds }),
       mapRevision: revision.revision,
       mapDigest: revision.digest,
       linkGraphDigest: revision.linkGraph.digest,

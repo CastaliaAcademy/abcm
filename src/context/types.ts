@@ -84,7 +84,7 @@ export interface SelectedContextDocument {
 
 export interface ContextOmission {
   documentId: string;
-  reason: "access_denied" | "budget_exceeded" | "lifecycle_excluded";
+  reason: "access_denied" | "budget_exceeded" | "lifecycle_excluded" | "selector_mismatch";
   selectionReasons: readonly SelectionReason[];
 }
 

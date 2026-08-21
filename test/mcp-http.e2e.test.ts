@@ -22,6 +22,22 @@ async function fixture() {
   return root;
 }
 
+async function linkPackageWorkspace(id: string) {
+  const root = await mkdtemp(join(tmpdir(), `abcm-mcp-http-${id}-`));
+  roots.push(root);
+  await mkdir(join(root, "domain-language"), { recursive: true });
+  await mkdir(join(root, "project/config"), { recursive: true });
+  await mkdir(join(root, "project/domain-language"), { recursive: true });
+  await mkdir(join(root, "project/artifacts"), { recursive: true });
+  await writeFile(join(root, "scope.yaml"), `apiVersion: abcm/v1\nkind: workflow\nid: ${id}\nname: ${id}\n`);
+  await writeFile(join(root, "domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
+  await writeFile(join(root, "project/scope.yaml"), "apiVersion: abcm/v1\nkind: project\nid: project\nname: Project\n");
+  await writeFile(join(root, "project/config/context.yaml"), "apiVersion: abcm/v1\nkind: ContextConfig\nlanguage: ru\n");
+  await writeFile(join(root, "project/domain-language/DomainLanguageConvention.md"), "---\nmode: inherit-only\n---\n");
+  await writeFile(join(root, "project/artifacts/tagged.md"), "---\nid: tagged\nkind: guide\ntitle: Tagged\ntags: [transport]\n---\nTransport contract.\n");
+  return root;
+}
+
 describe("ABCM Streamable HTTP MCP endpoint", () => {
   test("can be disabled without disabling REST", async () => {
     const root = await fixture();
@@ -107,6 +123,53 @@ describe("ABCM Streamable HTTP MCP endpoint", () => {
       expect(resources.resources.map(resource => resource.uri)).toContain("abcm://map");
       const map = await client.readResource({ uri: "abcm://map" });
       expect(JSON.parse((map.contents[0] as { text: string }).text)).toEqual(expect.objectContaining({ view: "agent" }));
+    } finally {
+      await client.close();
+      server.stop(true);
+      await runtime.close();
+    }
+  });
+
+  test("preserves LinkPackage domain errors through Streamable HTTP", async () => {
+    const firstRoot = await linkPackageWorkspace("first");
+    const secondRoot = await linkPackageWorkspace("second");
+    const access = { workspacePermissions: ["scope.discover", "scope.read_metadata", "scope_map.read_full", "context.build", "document.read"] as const };
+    const principal = { principalId: "http-link-package", access };
+    const runtime = createAbcmRuntime([{ id: "first", root: firstRoot }, { id: "second", root: secondRoot }], {
+      bearerToken: token,
+      contextPrincipal: principal,
+      scopeMapAccess: access,
+    });
+    await runtime.scopeMap.scan("first");
+    await runtime.scopeMap.scan("second");
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: runtime.httpHandler });
+    const client = new Client({ name: "abcm-link-package-http-client", version: "0.1.0" }, { versionNegotiation: { mode: "auto" } });
+    const transport = new StreamableHTTPClientTransport(new URL("/mcp", server.url), {
+      authProvider: { token: async () => token },
+    });
+    try {
+      await client.connect(transport);
+      const firstPackage = runtime.contextLinkPackages!.list("first").find(candidate => candidate.tag === "transport")!;
+      const secondBootstrap = await runtime.domainLanguage.createBootstrap({ anchor: { workspaceId: "second", projectId: "project" } }, principal);
+      const cases = [
+        ["context.get_link_package", { workspaceId: "first", packageId: `tag-package-${"0".repeat(24)}` }, "CONTEXT_LINK_PACKAGE_NOT_FOUND"],
+        ["context.build_from_link_package", {
+          workspaceId: "first",
+          packageId: firstPackage.packageId,
+          request: { domainLanguageBootstrapId: secondBootstrap.bootstrapId, roleId: "agent", taskType: "research", goal: "Cross workspace", targetHints: { scopeIds: ["project"] } },
+        }, "CONTEXT_LINK_PACKAGE_STALE"],
+        ["context.build_from_link_package", {
+          workspaceId: "second",
+          packageId: firstPackage.packageId,
+          request: { domainLanguageBootstrapId: secondBootstrap.bootstrapId, roleId: "agent", taskType: "research", goal: "Wrong package identity", targetHints: { scopeIds: ["project"] } },
+        }, "CONTEXT_LINK_PACKAGE_NOT_FOUND"],
+      ] as const;
+      for (const [name, arguments_, code] of cases) {
+        const failed = await client.callTool({ name, arguments: arguments_ });
+        expect(failed.isError).toBe(true);
+        expect(JSON.parse((failed.content[0] as { text: string }).text)).toEqual(expect.objectContaining({ code }));
+        expect(failed.structuredContent).toEqual(expect.objectContaining({ error_code: code }));
+      }
     } finally {
       await client.close();
       server.stop(true);

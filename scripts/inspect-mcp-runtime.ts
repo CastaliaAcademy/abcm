@@ -57,6 +57,12 @@ try {
   });
   const overflowTextError = JSON.parse((overflow.content[0] as { text: string }).text) as { code?: string };
   const overflowStructuredError = overflow.structuredContent as { error_code?: string } | undefined;
+  const missingPackage = await client.callTool({
+    name: "context.get_link_package",
+    arguments: { workspaceId, packageId: `tag-package-${"0".repeat(24)}` },
+  });
+  const missingPackageTextError = JSON.parse((missingPackage.content[0] as { text: string }).text) as { code?: string };
+  const missingPackageStructuredError = missingPackage.structuredContent as { error_code?: string } | undefined;
   const serverVersion = client.getServerVersion()?.version;
   const instructionVersion = (instructions.structuredContent as { version?: string } | undefined)?.version;
   const instructionContent = (instructions.structuredContent as { content?: string } | undefined)?.content;
@@ -69,7 +75,7 @@ try {
   if (names.length !== expectedToolCount || new Set(names).size !== names.length) {
     throw new Error(`Expected ${expectedToolCount} unique MCP tools, received ${names.length}.`);
   }
-  if (serverVersion !== "0.1.3" || instructionVersion !== "1.20.0") {
+  if (serverVersion !== "0.1.4" || instructionVersion !== "1.21.0") {
     throw new Error(`Unexpected server/instruction versions: server='${serverVersion}', instructions='${instructionVersion}'.`);
   }
   if (!instructionContent?.includes("не добавляет pairing, device, cursor или conflict операции в MCP manifest")) {
@@ -80,6 +86,9 @@ try {
   }
   if (overflowTextError.code !== "REQUIRED_CONTEXT_EXCEEDS_LIMIT" || overflowStructuredError?.error_code !== overflowTextError.code) {
     throw new Error(`Budget error mismatch: text='${overflowTextError.code}', structured='${overflowStructuredError?.error_code}'.`);
+  }
+  if (missingPackageTextError.code !== "CONTEXT_LINK_PACKAGE_NOT_FOUND" || missingPackageStructuredError?.error_code !== missingPackageTextError.code) {
+    throw new Error(`LinkPackage error mismatch: text='${missingPackageTextError.code}', structured='${missingPackageStructuredError?.error_code}'.`);
   }
   const forbiddenEvaluationTools = names.filter(name => /outcome|feedback|business_evaluation|task_success/.test(name));
   if (forbiddenEvaluationTools.length > 0) throw new Error(`Centralized evaluation tools are still published: ${forbiddenEvaluationTools.join(", ")}`);
@@ -95,6 +104,7 @@ try {
     tools: names,
     missingDocumentError: { text: textError.code, structured: structuredError.error_code },
     requiredBudgetError: { text: overflowTextError.code, structured: overflowStructuredError.error_code },
+    missingLinkPackageError: { text: missingPackageTextError.code, structured: missingPackageStructuredError.error_code },
     centralizedEvaluationTools: [],
     documentationSource: { id: documentation.sourceId, operationCount: documentation.operations?.length ?? 0 },
   }, null, 2));
