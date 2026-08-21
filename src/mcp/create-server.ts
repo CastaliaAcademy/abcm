@@ -568,6 +568,36 @@ export function createAbcmMcpServer(dependencies?: AbcmMcpDependencies): McpServ
         signal,
       )) }), context.mcpReq.signal, operationTimeoutMs),
     );
+    server.registerTool(
+      "context.preview_task_context_v4",
+      {
+        title: "Preview task context selection v4",
+        description: "Versioned context-selection/v4 entrypoint. Explain focused or balanced deterministic selection without persisting a fingerprint or returning document bodies.",
+        annotations: { readOnlyHint: true, openWorldHint: false },
+        inputSchema: contextBuildInputSchema,
+        outputSchema: toolOutputSchema(contextPreviewOutputSchema),
+      },
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextBuilder!.preview(
+        normalizeBuildTaskContextInput(input),
+        dependencies.contextPrincipal!,
+        signal,
+      )) }), context.mcpReq.signal, operationTimeoutMs),
+    );
+    server.registerTool(
+      "context.build_task_context_v4",
+      {
+        title: "Build task context v4",
+        description: "Versioned context-selection/v4 entrypoint. Resolve focused or balanced selection and return one immutable, bounded, reproducible context bundle.",
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+        inputSchema: contextBuildInputSchema,
+        outputSchema: toolOutputSchema(contextBuildOutputSchema),
+      },
+      async (input, context) => toolResult(async signal => ({ ...(await dependencies.contextBuilder!.build(
+        normalizeBuildTaskContextInput(input),
+        dependencies.contextPrincipal!,
+        signal,
+      )) }), context.mcpReq.signal, operationTimeoutMs),
+    );
   }
   if (dependencies.contextLinkGraphSessions !== undefined) {
     server.registerTool(

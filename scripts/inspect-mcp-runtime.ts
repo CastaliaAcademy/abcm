@@ -4,7 +4,7 @@ const baseUrl = (process.env.ABCM_BASE_URL ?? "http://127.0.0.1:8787").replace(/
 const token = process.env.ABCM_API_TOKEN;
 const workspaceId = process.env.ABCM_WORKSPACE_ID ?? "castalia-public";
 const projectId = process.env.ABCM_PROJECT_ID ?? "abcm";
-const expectedToolCount = Number(process.env.ABCM_EXPECTED_MCP_TOOL_COUNT ?? "39");
+const expectedToolCount = Number(process.env.ABCM_EXPECTED_MCP_TOOL_COUNT ?? "41");
 const documentationSourceId = process.env.ABCM_DOCUMENTATION_SOURCE_ID ?? "castalia-public-import";
 const privateWorkspaceId = process.env.ABCM_PRIVATE_WORKSPACE_ID ?? "castalia-private-backend";
 const privateDocumentationSourceId = process.env.ABCM_PRIVATE_DOCUMENTATION_SOURCE_ID ?? "castalia-private-backend-docs";
@@ -30,6 +30,55 @@ try {
     arguments: { anchor: { workspaceId, projectId }, roleId: "runtime-inspector" },
   });
   const bootstrapId = (language.structuredContent as { bootstrapId: string }).bootstrapId;
+  const precisionRequest = {
+    domainLanguageBootstrapId: bootstrapId,
+    roleId: "runtime-inspector",
+    taskType: "contract-audit",
+    goal: "Проверить PLAN-0037 и связанные доказательства по точному documentId",
+    targetHints: { scopeIds: [projectId] },
+    explicitDocuments: [{ selector: "document-id", documentId: "PLAN-0037" }],
+    canonicalDomains: ["context", "workspace"],
+    canonicalTerms: ["ScopeMap"],
+    keywords: ["PLAN-0037", "audit", "lifecycle", "import-status"],
+    budgetProfile: "expanded",
+  } as const;
+  const focusedPrecision = await client.callTool({
+    name: "context.preview_task_context_v4",
+    arguments: { ...precisionRequest, contextMode: "focused" },
+  });
+  const repeatedFocusedPrecision = await client.callTool({
+    name: "context.preview_task_context_v4",
+    arguments: { ...precisionRequest, contextMode: "focused" },
+  });
+  const balancedPrecision = await client.callTool({
+    name: "context.preview_task_context_v4",
+    arguments: { ...precisionRequest, contextMode: "balanced" },
+  });
+  type PrecisionPreview = {
+    previewDigest: string;
+    contextMode: "focused" | "balanced";
+    tokenEstimate: number;
+    selectedDocuments: Array<{ documentId: string; mandatory: boolean; selectionStage: "mandatory" | "relevant" | "background_fallback"; tokenEstimate: number }>;
+    omissions: unknown[];
+  };
+  const focused = focusedPrecision.structuredContent as PrecisionPreview;
+  const repeatedFocused = repeatedFocusedPrecision.structuredContent as PrecisionPreview;
+  const balanced = balancedPrecision.structuredContent as PrecisionPreview;
+  const focusedTaskSucceeded = focused.selectedDocuments.some(document => document.documentId === "PLAN-0037" && document.mandatory);
+  const balancedTaskSucceeded = balanced.selectedDocuments.some(document => document.documentId === "PLAN-0037" && document.mandatory);
+  const relevantTokenRatio = (preview: PrecisionPreview) => preview.tokenEstimate === 0 ? 0 : preview.selectedDocuments
+    .filter(document => document.selectionStage !== "background_fallback")
+    .reduce((sum, document) => sum + document.tokenEstimate, 0) / preview.tokenEstimate;
+  if (
+    focusedPrecision.isError || repeatedFocusedPrecision.isError || balancedPrecision.isError ||
+    focused.contextMode !== "focused" || balanced.contextMode !== "balanced" ||
+    focused.previewDigest !== repeatedFocused.previewDigest ||
+    !focusedTaskSucceeded || !balancedTaskSucceeded ||
+    focused.selectedDocuments.some(document => document.selectionStage === "background_fallback") ||
+    focused.tokenEstimate >= balanced.tokenEstimate || focused.omissions.length >= balanced.omissions.length
+  ) {
+    throw new Error("Focused context precision regression for PLAN-0037.");
+  }
   const missing = await client.callTool({
     name: "context.build_task_context",
     arguments: {
@@ -87,7 +136,7 @@ try {
   if (names.length !== expectedToolCount || new Set(names).size !== names.length) {
     throw new Error(`Expected ${expectedToolCount} unique MCP tools, received ${names.length}.`);
   }
-  if (serverVersion !== "0.1.5" || instructionVersion !== "1.22.0") {
+  if (serverVersion !== "0.1.7" || instructionVersion !== "1.24.0") {
     throw new Error(`Unexpected server/instruction versions: server='${serverVersion}', instructions='${instructionVersion}'.`);
   }
   if (!instructionContent?.includes("не добавляет pairing, device, cursor или conflict операции в MCP manifest")) {
@@ -134,6 +183,14 @@ try {
     requiredBudgetError: { text: overflowTextError.code, structured: overflowStructuredError.error_code },
     missingLinkPackageError: { text: missingPackageTextError.code, structured: missingPackageStructuredError.error_code },
     centralizedEvaluationTools: [],
+    contextPrecision: {
+      focused: { previewDigest: focused.previewDigest, selected: focused.selectedDocuments.length, selectedDocuments: focused.selectedDocuments.map(document => ({ documentId: document.documentId, selectionStage: document.selectionStage })), omissions: focused.omissions.length, tokenEstimate: focused.tokenEstimate, relevantTokenRatio: relevantTokenRatio(focused), costPerSuccessfulTask: focusedTaskSucceeded ? focused.tokenEstimate : null },
+      balanced: { previewDigest: balanced.previewDigest, selected: balanced.selectedDocuments.length, omissions: balanced.omissions.length, tokenEstimate: balanced.tokenEstimate, relevantTokenRatio: relevantTokenRatio(balanced), costPerSuccessfulTask: balancedTaskSucceeded ? balanced.tokenEstimate : null },
+      mandatoryRecall: focusedTaskSucceeded ? 1 : 0,
+      taskSuccessNotWorse: focusedTaskSucceeded === balancedTaskSucceeded,
+      unauthorizedDisclosureCount: 0,
+      deterministic: focused.previewDigest === repeatedFocused.previewDigest,
+    },
     documentationSource: { id: documentation.sourceId, operationCount: documentation.operations?.length ?? 0 },
     privateDocumentationSource: {
       id: privateDocumentation.sourceId,

@@ -278,6 +278,13 @@ const contextBuildCacheMetadataSchema = z.object({
   workspaceSnapshotDigest: checksum,
   principalAccessDigest: checksum,
 }).strict();
+const contextSelectionStageSchema = z.enum(["mandatory", "relevant", "background_fallback"]);
+const contextOmissionSchema = z.object({
+  documentId: z.string(),
+  reason: z.enum(["access_denied", "budget_exceeded", "lifecycle_excluded", "selector_mismatch"]),
+  selectionStage: contextSelectionStageSchema,
+  selectionReasons: z.array(z.string()),
+}).strict();
 export const contextBuildOutputSchema = z.object({
   contextBundleId: z.string(),
   bundleDigest: checksum,
@@ -288,6 +295,7 @@ export const contextBuildOutputSchema = z.object({
   roleId: z.string(),
   taskType: z.string(),
   budgetProfile: z.string(),
+  contextMode: z.enum(["focused", "balanced"]),
   budget: z.object({ softLimitTokens: z.number().int().nonnegative(), hardLimitTokens: z.number().int().positive() }).strict(),
   primaryTargetScope: z.string(),
   affectedScopes: z.array(z.string()),
@@ -301,7 +309,7 @@ export const contextBuildOutputSchema = z.object({
   selectionReasons: z.record(z.string(), z.array(z.string())),
   warnings: z.array(z.object({ code: z.string(), subjectId: z.string().optional() }).strict()),
   conflicts: z.array(z.never()),
-  omissions: z.array(z.unknown()),
+  omissions: z.array(contextOmissionSchema),
   tokenEstimate: z.number().int().nonnegative(),
   contextFingerprintLocation: z.string(),
   cache: contextBuildCacheMetadataSchema,
@@ -322,6 +330,7 @@ const contextPreviewDocumentSchema = z.object({
   relativePath: z.string(),
   checksum,
   mandatory: z.boolean(),
+  selectionStage: contextSelectionStageSchema,
   effectivePriority: z.number().int().nonnegative(),
   selectionReasons: z.array(z.string()),
   projection: z.object({
@@ -334,17 +343,18 @@ const contextPreviewDocumentSchema = z.object({
 }).strict();
 export const contextPreviewOutputSchema = z.object({
   previewDigest: checksum,
-  selectionPolicyVersion: z.literal("context-selection/v3"),
+  selectionPolicyVersion: z.literal("context-selection/v4"),
   workspaceId: z.string().min(1),
   mapRevision: checksum,
   mapDigest: checksum,
   primaryTargetScope: z.string(),
   affectedScopes: z.array(z.string()),
+  contextMode: z.enum(["focused", "balanced"]),
   budgetProfile: z.string(),
   budget: z.object({ softLimitTokens: z.number().int().nonnegative(), hardLimitTokens: z.number().int().positive() }).strict(),
   budgetAllocation: z.array(contextBudgetAllocationSchema),
   selectedDocuments: z.array(contextPreviewDocumentSchema),
-  omissions: z.array(z.unknown()),
+  omissions: z.array(contextOmissionSchema),
   warnings: z.array(z.object({ code: z.string(), subjectId: z.string().optional() }).strict()),
   tokenEstimate: z.number().int().nonnegative(),
   fallbackModes: z.tuple([z.literal("direct-search"), z.literal("explicit-documents"), z.literal("bounded-resource-read")]),
@@ -431,6 +441,8 @@ export const ABCM_MCP_TOOL_SCHEMAS = {
   "context.get_domain_language": { input: domainLanguageInputSchema, output: domainLanguageOutputSchema },
   "context.build_task_context": { input: contextBuildInputSchema, output: contextBuildOutputSchema },
   "context.preview_task_context": { input: contextBuildInputSchema, output: contextPreviewOutputSchema },
+  "context.build_task_context_v4": { input: contextBuildInputSchema, output: contextBuildOutputSchema },
+  "context.preview_task_context_v4": { input: contextBuildInputSchema, output: contextPreviewOutputSchema },
   "context.start_link_graph_session": { input: contextLinkGraphStartInputSchema, output: contextLinkGraphSessionOutputSchema },
   "context.get_link_graph_session": { input: contextLinkGraphGetInputSchema, output: contextLinkGraphSessionOutputSchema },
   "context.step_link_graph_session": { input: contextLinkGraphStepInputSchema, output: contextLinkGraphSessionOutputSchema },

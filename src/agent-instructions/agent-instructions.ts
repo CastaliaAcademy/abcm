@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.22.0" as const;
+export const ABCM_AGENT_INSTRUCTIONS_VERSION = "1.24.0" as const;
 export const ABCM_AGENT_INSTRUCTIONS_CONTENT_TYPE = "text/markdown; charset=utf-8" as const;
 
 /** Каноническая самодостаточная инструкция, возвращаемая всеми адаптерами ABCM. */
@@ -20,8 +20,8 @@ ABCM (Agent Build Context Manager) предоставляет агентам о�
 4. Вызвать scope_map.scan, если актуальная ревизия карты отсутствует.
 5. Прочитать effective file architecture через workspace.get_architecture_policy и проверить её через workspace.check_architecture_compliance. При required и noncompliant запрещено строить контекст в обход ошибки.
 6. До толкования терминов проекта или определения пути задачи вызвать context.get_domain_language с якорем workspaceId и projectId.
-7. Если scope, причины выбора или ожидаемый размер спорны, сначала вызвать context.preview_task_context: preview не записывает fingerprint и не возвращает тела документов.
-8. Вызвать context.build_task_context либо, когда отбор требуется уточнять по связям документов, пройти context.start_link_graph_session → step/confirm → context.finalize_link_graph_session. Финализация графа обязана использовать тот же ContextBuilder.
+7. Если scope, причины выбора или ожидаемый размер спорны, сначала вызвать context.preview_task_context_v4: preview не записывает fingerprint и не возвращает тела документов.
+8. Вызвать context.build_task_context_v4 либо, когда отбор требуется уточнять по связям документов, пройти context.start_link_graph_session → step/confirm → context.finalize_link_graph_session. Финализация графа обязана использовать тот же ContextBuilder.
 9. Работать только с ограниченным контекстным пакетом и файлами, которые намеренно прочитаны для задачи. По умолчанию запрещено сканировать всё рабочее пространство.
 10. Сохранить в итоговом отчёте контрольные суммы, ревизии карты, доказательства и результаты проверок.
 
@@ -219,7 +219,7 @@ required означает соблюдение нормативных MUST/MUST_
 
 MCP-пример:
 
-    context.build_task_context({
+    context.build_task_context_v4({
       domainLanguageBootstrapId: "bootstrap-...",
       roleId: "executor-agent",
       taskType: "cross-service-migration",
@@ -233,7 +233,7 @@ MCP-пример:
 
 REST использует то же тело в POST /v1/context/build-task-context. Можно передать canonical id или URI abcm://scope/<id>. От одного до восьми exact scopes должны быть уникальны после canonicalization. Legacy array targetHints и componentNames остаются fuzzy hints и не объявляют дополнительные scopes.
 
-Для проверки выбора до materialization передайте то же тело в context.preview_task_context или POST /v1/context/preview-task-context. Ответ содержит selectionPolicyVersion, причины, effectivePriority, выбранную проекцию, tokenEstimate, omissions, fallbackModes и cache state, но не содержит тела документов и не создаёт ContextFingerprint.
+Для проверки выбора до materialization передайте то же тело в context.preview_task_context_v4 или POST /v1/context/preview-task-context. Ответ содержит selectionPolicyVersion, причины, effectivePriority, выбранную проекцию, tokenEstimate, omissions, fallbackModes и cache state, но не содержит тела документов и не создаёт ContextFingerprint. Неверсионированные MCP-имена сохранены для совместимости; connector, который кэшировал прежнюю схему, обязан использовать новые v4-имена, иначе он может отбросить contextMode до отправки серверу.
 
 Правильно: при неожиданном scope или шумном списке сначала изучить preview, затем уточнить exact scope, taskType, keywords или explicit document links и только после этого построить bundle.
 
@@ -241,12 +241,18 @@ Fallback при недостаточном автоматическом конт
 
 Для точного выбора документов используйте explicitDocuments. Поддерживаются selector \`document-id\`, \`uri\`, \`repository-file\`, \`repository-directory\` и \`repository-prefix\`; для проверки типа можно добавить expectedKind. Directory selector по умолчанию не рекурсивен, recursive=true должен быть явным. Все варианты разрешаются по одному active MapRevision index и становятся mandatory context.
 
+Selection policy \`context-selection/v4\` разделяет границу поиска и способ отбора через \`contextMode\`. Режим \`balanced\` сохраняет совместимое поведение: после mandatory/relevant кандидатов допускает общий scope background. Режим \`focused\` требует дополнительный сигнал для optional-документа: exact path/link, relation, domain/term/keyword match, skill requirement или LinkPackage membership; один только \`target_scope\` не является сигналом. \`targetHints.scopeIds\` в focused-режиме задаёт primary scope и разрешённую область поиска, а не запрашивает всё её содержимое. До завершения сравнительного benchmark значение по умолчанию — \`balanced\`; для точной работы агент ОБЯЗАН передать \`contextMode: "focused"\` явно.
+
+Preview публикует \`contextMode\` и \`selectionStage\` каждого выбранного/опущенного документа: \`mandatory\`, \`relevant\` или \`background_fallback\`. Режим входит в request digest, cache key, bundle digest и ContextFingerprint. Для явного fallback к широкому фону повторите preview с \`contextMode: "balanced"\`; не смешивайте результаты двух режимов и не скрывайте fallback в отчёте.
+
 Пример:
 
     explicitDocuments: [
       { selector: "document-id", documentId: "ADR-SEARCH", expectedKind: "adr" },
       { selector: "repository-directory", path: "project/search/artifacts/contracts", recursive: true }
     ]
+
+Focused-пример: \`contextMode: "focused"\`, \`targetHints.scopeIds: ["abcm"]\` и точный \`document-id: "PLAN-0037"\` выбирают PLAN-0037, mandatory и релевантные зависимости, но не все старые планы корневого scope. Контрпример: передать только exact scope и ожидать, что он автоматически означает точный набор документов. Для широкого обзора укажите \`contextMode: "balanced"\`, изучите \`background_fallback\` в preview и примите объём явно.
 
 Ошибки различаются: malformed input — REQUEST_INVALID на границе схемы; отсутствующий selector — CONTEXT_DOCUMENT_NOT_FOUND; недоступный — CONTEXT_DOCUMENT_ACCESS_DENIED без раскрытия тела; несовпавший expectedKind — CONTEXT_DOCUMENT_KIND_MISMATCH; изменение после MapRevision — DOMAIN_LANGUAGE_BOOTSTRAP_STALE; обязательный контекст вне hard limit — REQUIRED_CONTEXT_EXCEEDS_LIMIT.
 
@@ -514,8 +520,9 @@ REST-эквиваленты:
 - workspace.batch_apply: атомарная смешанная мутация до 100 операций с dry-run, MapRevision и idempotency receipt.
 - scope_map.scan: получение актуальной ревизии ScopeMap.
 - context.get_domain_language: обязательный bootstrap языка до толкования пути задачи.
-- context.preview_task_context: объяснимый выбор документов, проекций, бюджета и fallback без materialized bodies и производной записи.
-- context.build_task_context: ограниченный контекстный пакет задачи.
+- context.preview_task_context_v4: основной объяснимый выбор документов, проекций, бюджета и fallback без materialized bodies и производной записи; публикует contextMode и selectionStage.
+- context.build_task_context_v4: основной ограниченный контекстный пакет задачи с context-selection/v4.
+- context.preview_task_context и context.build_task_context: совместимые alias; не использовать через connector со старым закэшированным manifest.
 - context.start_link_graph_session, get_link_graph_session, step_link_graph_session: body-free интерактивный frontier с pinned revision, sequence и state digest.
 - context.issue_link_graph_ticket: новый короткоживущий одноразовый ticket для WebSocket reconnect; предыдущий ticket становится недействительным.
 - context.finalize_link_graph_session: финализация подтверждённых документов только через стандартный ContextBuilder.
@@ -558,7 +565,7 @@ REST-эквиваленты:
 - Стабильные ошибки ABCM являются данными контракта. Сообщите код, устраните причину и сохраните диагностические подробности.
 - Для предметной MCP-ошибки используйте structuredContent.error_code как машиночитаемый код; JSON в текстовой части обязан содержать тот же code, а isError отсутствует. Значения CONTEXT_DOCUMENT_NOT_FOUND, REQUIRED_CONTEXT_EXCEEDS_LIMIT и UNKNOWN_DOMAIN_TERM не должны заменяться общим INVALID_ARGUMENT. isError=true означает ошибку схемы, протокола либо непредвиденный сбой, а не предметный отказ ABCM.
 - Ошибка валидации означает неверную форму запроса. Ошибка доступа означает отсутствие разрешения. Ошибка готовности карты означает, что контекст запрещено выдумывать.
-- MCP initialize.serverInfo.version — версия пакета/сервера, а версия этой инструкции — версия эксплуатационного контракта. После изменения любой из них или серверной конфигурации переподключите connector/tunnel, заново получите tools/list и не используйте закэшированный manifest. Полный настроенный контур сервера 0.1.5 с инструкцией 1.22.0 содержит 39 операций; четыре documentation-source операции присутствуют только при настроенных оператором каталогах. Централизованные outcome, feedback, business-evaluation и task-success операции намеренно отсутствуют.
+- MCP initialize.serverInfo.version — версия пакета/сервера, а версия этой инструкции — версия эксплуатационного контракта. После изменения любой из них или серверной конфигурации переподключите connector/tunnel и заново получите tools/list. Полный настроенный контур сервера 0.1.7 с инструкцией 1.24.0 содержит 41 операцию: два versioned v4 entrypoint предотвращают молчаливое удаление новых полей connector-кэшем; четыре documentation-source операции присутствуют только при настроенных оператором каталогах. Централизованные outcome, feedback, business-evaluation и task-success операции намеренно отсутствуют.
 - Текущий локальный dev-контур является single-version и не является production. После того как новый ABCM-контейнер получил healthy, прошёл runtime inspector и connector/tunnel был переподключён, агент ОБЯЗАН (MUST) удалить остановленные контейнеры предыдущей версии и её versioned image. Не удаляйте текущий контейнер/image, \`abcm-state\`, tunnel и отдельный benchmark image. Хранить предыдущий Docker runtime для rollback разрешено только после явного введения parallel-version или production deployment policy.
 - Запрещено заявлять об успешном развёртывании, синхронизации, миграции, тестировании или паритете документации без доказательств.
 - Итоговый отчёт ОБЯЗАН (MUST) разделять завершённую работу, выполненные проверки, пропущенные проверки, блокеры и невыполненные внешние действия.

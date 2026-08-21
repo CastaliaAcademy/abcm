@@ -1,6 +1,6 @@
 {
   "name": "abcm-mcp-server",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "description": "MCP and REST server library for Agent Build Context Manager workspaces",
   "type": "module",
   "license": "MIT",

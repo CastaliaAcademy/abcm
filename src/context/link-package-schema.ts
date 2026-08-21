@@ -16,7 +16,7 @@ export const contextLinkPackageViewSchema = z.object({
   mapRevision: checksum,
   mapDigest: checksum,
   linkGraphDigest: checksum,
-  selectionPolicyVersion: z.literal("context-selection/v3"),
+  selectionPolicyVersion: z.literal("context-selection/v4"),
   source: z.literal("document-tags"),
 }).strict();
 export const contextLinkPackageListInputSchema = z.object({ workspaceId: id }).strict();

@@ -37,7 +37,7 @@ When the selected directory is a legacy corpus that has already been normalized 
 
 Centralized outcome, feedback, business-evaluation, and task-success APIs are intentionally absent. ABCM does not collect package ratings or model outputs. Repository-local fixtures and Docker benchmark runners remain available to ABCM developers and do not persist data in the service. Documentation lifecycle tools appear only when operator-selected directories are configured.
 
-To publish the complete 39-tool runtime, including documentation lifecycle for both managed workspaces, use the full-capabilities overlay instead of the documentation-only overlay:
+To publish the complete 41-tool runtime, including versioned context-selection/v4 entrypoints and documentation lifecycle for both managed workspaces, use the full-capabilities overlay instead of the documentation-only overlay:
 
 ```bash
 docker compose \

@@ -58,7 +58,7 @@ describe("MCP tool contract", () => {
     const { runtime, server, client } = await fixture();
     try {
       const listed = await client.listTools();
-      expect(listed.tools).toHaveLength(39);
+      expect(listed.tools).toHaveLength(41);
       expect(client.getNegotiatedProtocolVersion()).toBe("2025-11-25");
       expect(client.getServerCapabilities()?.experimental?.["abcm.dev/contract"]).toEqual({
         contractVersion: "1.0.0",
@@ -92,6 +92,8 @@ describe("MCP tool contract", () => {
         "context.get_domain_language",
         "context.preview_task_context",
         "context.build_task_context",
+        "context.preview_task_context_v4",
+        "context.build_task_context_v4",
         "context.start_link_graph_session",
         "context.get_link_graph_session",
         "context.step_link_graph_session",
@@ -110,7 +112,7 @@ describe("MCP tool contract", () => {
       ]);
       const instructions = await client.callTool({ name: "agent_instructions.get", arguments: {} });
       expect(instructions.structuredContent).toEqual(expect.objectContaining({
-        version: "1.22.0",
+        version: "1.24.0",
         contentType: "text/markdown; charset=utf-8",
         checksum: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
         content: expect.stringContaining("# Инструкция для агента ABCM"),
@@ -133,8 +135,11 @@ describe("MCP tool contract", () => {
         }));
         expect(tool.annotations?.openWorldHint).toBe(false);
       }
-      const contextTool = listed.tools.find(tool => tool.name === "context.build_task_context") as unknown as {
-        inputSchema: { properties: { targetHints: { anyOf: Array<{ properties?: { scopeIds?: { minItems?: number; maxItems?: number; items?: unknown } } }> } } };
+      const contextTool = listed.tools.find(tool => tool.name === "context.build_task_context_v4") as unknown as {
+        inputSchema: { properties: {
+          targetHints: { anyOf: Array<{ properties?: { scopeIds?: { minItems?: number; maxItems?: number; items?: unknown } } }> };
+          contextMode: { enum?: string[] };
+        } };
         outputSchema: { anyOf: Array<{ required?: string[]; properties?: Record<string, unknown> }> };
       };
       const structuredHints = contextTool.inputSchema.properties.targetHints.anyOf.find(option => option.properties?.scopeIds !== undefined);
@@ -143,18 +148,23 @@ describe("MCP tool contract", () => {
         maxItems: 8,
         items: expect.objectContaining({ anyOf: expect.any(Array) }),
       }));
+      expect(contextTool.inputSchema.properties.contextMode.enum).toEqual(["focused", "balanced"]);
       const contextSuccessSchema = contextTool.outputSchema.anyOf.find(option => option.properties?.bundleDigest !== undefined);
       expect(contextSuccessSchema?.required).toEqual(expect.arrayContaining([
         "multiScopePolicyDigest",
         "affectedScopeDetails",
         "budgetAllocation",
+        "contextMode",
         "cache",
       ]));
       expect(contextSuccessSchema?.properties).toEqual(expect.objectContaining({
         multiScopePolicyDigest: expect.any(Object),
         affectedScopeDetails: expect.any(Object),
         budgetAllocation: expect.any(Object),
+        contextMode: expect.objectContaining({ enum: ["focused", "balanced"] }),
       }));
+      const previewTool = listed.tools.find(tool => tool.name === "context.preview_task_context_v4")!;
+      expect(JSON.stringify(previewTool.outputSchema)).toContain("background_fallback");
     } finally {
       await client.close();
       await server.close();
