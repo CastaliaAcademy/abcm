@@ -161,6 +161,107 @@ export class WorkspaceFileService {
     return this.#write(workspaceId, path, content, preconditions, false, false, signal);
   }
 
+  /**
+   * Commits one integration-approved artifact revision while keeping the user-facing head path stable.
+   * The two renames share the workspace mutation lock; a failed second rename restores the exact base bytes.
+   */
+  async amendAcceptedArtifact(
+    workspaceId: string,
+    headPath: string,
+    archivePath: string,
+    content: Uint8Array,
+    baseChecksum: string,
+    signal?: AbortSignal,
+  ): Promise<{ head: FileEntry & { checksum: string }; archive: FileEntry & { checksum: string } }> {
+    throwIfAborted(signal);
+    const workspace = this.#registry.get(workspaceId);
+    if (content.byteLength > workspace.maxWriteBytes) {
+      throw new AbcmError("FILE_TOO_LARGE", "Content exceeds the configured write limit.", {
+        size: content.byteLength,
+        maxWriteBytes: workspace.maxWriteBytes,
+      });
+    }
+    return this.#mutate(workspaceId, async () => {
+      await this.#authorize(workspaceId, [headPath, archivePath], "amend");
+      throwIfAborted(signal);
+      const safePath = await this.#safePath(workspace);
+      const head = await safePath.resolve(headPath, { allowMissing: true });
+      let archive = await safePath.resolve(archivePath, { allowMissing: true });
+      const [headExists, archiveExists] = await Promise.all([
+        this.#exists(head.absolutePath),
+        this.#exists(archive.absolutePath),
+      ]);
+      const [currentChecksum, archiveChecksum] = await Promise.all([
+        headExists ? this.#currentChecksum(head.absolutePath) : Promise.resolve(undefined),
+        archiveExists ? this.#currentChecksum(archive.absolutePath) : Promise.resolve(undefined),
+      ]);
+      const acceptedChecksum = sha256Bytes(content);
+      if (headExists && archiveExists && currentChecksum === acceptedChecksum && archiveChecksum === baseChecksum) {
+        const [headMetadata, archiveMetadata] = await Promise.all([stat(head.absolutePath), stat(archive.absolutePath)]);
+        return {
+          head: { path: head.relativePath, name: basename(head.relativePath), kind: "file", size: content.byteLength, modifiedAt: headMetadata.mtime.toISOString(), checksum: acceptedChecksum },
+          archive: { path: archive.relativePath, name: basename(archive.relativePath), kind: "file", size: archiveMetadata.size, modifiedAt: archiveMetadata.mtime.toISOString(), checksum: baseChecksum },
+        };
+      }
+      if (headExists) this.#validateMatch(currentChecksum, baseChecksum);
+      else if (!archiveExists || archiveChecksum !== baseChecksum) {
+        throw new AbcmError("FILE_CHECKSUM_MISMATCH", "Artifact amendment base revision is unavailable for recovery.", {
+          expected: baseChecksum,
+          actual: archiveChecksum,
+        });
+      }
+      if (headExists && archiveExists) {
+        throw new AbcmError("FILE_ALREADY_EXISTS", "Artifact revision archive already exists.", { path: archive.relativePath });
+      }
+      await mkdir(dirname(archive.absolutePath), { recursive: true });
+      archive = await safePath.resolve(archivePath, { allowMissing: true });
+
+      const temporaryPath = `${dirname(head.absolutePath)}/.${basename(headPath)}.abcm-amend-${randomUUID()}.tmp`;
+      const handle = await open(temporaryPath, "wx", 0o600);
+      try {
+        await handle.writeFile(content);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+
+      try {
+        throwIfAborted(signal);
+        if (headExists) await rename(head.absolutePath, archive.absolutePath);
+        try {
+          await rename(temporaryPath, head.absolutePath);
+        } catch (error) {
+          if (headExists) await rename(archive.absolutePath, head.absolutePath);
+          throw error;
+        }
+      } catch (error) {
+        await unlink(temporaryPath).catch(() => undefined);
+        throw error;
+      }
+
+      await this.#notify(workspaceId, [archive.relativePath, head.relativePath]);
+      const [headMetadata, archiveMetadata] = await Promise.all([stat(head.absolutePath), stat(archive.absolutePath)]);
+      return {
+        head: {
+          path: head.relativePath,
+          name: basename(head.relativePath),
+          kind: "file",
+          size: content.byteLength,
+          modifiedAt: headMetadata.mtime.toISOString(),
+          checksum: acceptedChecksum,
+        },
+        archive: {
+          path: archive.relativePath,
+          name: basename(archive.relativePath),
+          kind: "file",
+          size: archiveMetadata.size,
+          modifiedAt: archiveMetadata.mtime.toISOString(),
+          checksum: baseChecksum,
+        },
+      };
+    });
+  }
+
   async #write(
     workspaceId: string,
     path: string,

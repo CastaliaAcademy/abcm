@@ -1,5 +1,7 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 
+import { ABCM_AGENT_INSTRUCTIONS_VERSION } from "../src/agent-instructions/agent-instructions.js";
+
 const baseUrl = (process.env.ABCM_BASE_URL ?? "http://127.0.0.1:8787").replace(/\/$/, "");
 const token = process.env.ABCM_API_TOKEN;
 const workspaceId = process.env.ABCM_WORKSPACE_ID ?? "castalia-public";
@@ -136,7 +138,7 @@ try {
   if (names.length !== expectedToolCount || new Set(names).size !== names.length) {
     throw new Error(`Expected ${expectedToolCount} unique MCP tools, received ${names.length}.`);
   }
-  if (serverVersion !== "0.1.7" || instructionVersion !== "1.24.0") {
+  if (serverVersion !== "0.1.7" || instructionVersion !== ABCM_AGENT_INSTRUCTIONS_VERSION) {
     throw new Error(`Unexpected server/instruction versions: server='${serverVersion}', instructions='${instructionVersion}'.`);
   }
   if (!instructionContent?.includes("не добавляет pairing, device, cursor или conflict операции в MCP manifest")) {

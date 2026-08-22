@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { posix, relative, resolve, sep } from "node:path";
+import { parseDocument } from "yaml";
 import { z } from "zod/v4";
 
 import { AbcmError } from "../core/errors.js";
@@ -77,6 +78,64 @@ const reconciliationManifestSchema = z.object({
 
 function sha256(content: Uint8Array | string): string {
   return `sha256:${createHash("sha256").update(content).digest("hex")}`;
+}
+
+interface MarkdownParts {
+  body: string;
+  frontmatter?: string;
+  newline: "\n" | "\r\n";
+}
+
+function markdownParts(content: Uint8Array): MarkdownParts {
+  const text = new TextDecoder().decode(content);
+  const newline = text.includes("\r\n") ? "\r\n" : "\n";
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
+  return match === null
+    ? { body: text, newline }
+    : { body: text.slice(match[0].length), frontmatter: match[1] ?? "", newline };
+}
+
+function frontmatterRecord(source: string, side: "source" | "target"): Record<string, unknown> {
+  try {
+    const value = parseSafeYaml(source);
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  } catch (error) {
+    throw new AbcmError("DOCUMENTATION_RECONCILIATION_REQUIRED", `Adopted ${side} frontmatter is invalid.`, {
+      cause: error instanceof Error ? error.message : String(error),
+    });
+  }
+  throw new AbcmError("DOCUMENTATION_RECONCILIATION_REQUIRED", `Adopted ${side} frontmatter must be a YAML mapping.`);
+}
+
+/** Keeps ABCM-owned metadata while allowing the Git source to own tags and Markdown body. */
+function materializeAdoptedMarkdown(source: Uint8Array, target: Uint8Array): Uint8Array {
+  const targetParts = markdownParts(target);
+  if (targetParts.frontmatter === undefined) return source;
+  frontmatterRecord(targetParts.frontmatter, "target");
+  const sourceParts = markdownParts(source);
+  const sourceMetadata = sourceParts.frontmatter === undefined
+    ? undefined
+    : frontmatterRecord(sourceParts.frontmatter, "source");
+  const document = parseDocument(targetParts.frontmatter, {
+    schema: "core",
+    strict: true,
+    uniqueKeys: true,
+    merge: false,
+  });
+  if (document.errors.length > 0 || document.warnings.length > 0) {
+    throw new AbcmError("DOCUMENTATION_RECONCILIATION_REQUIRED", "Adopted target frontmatter is invalid.");
+  }
+  document.delete("tags");
+  if (sourceMetadata !== undefined && Object.hasOwn(sourceMetadata, "tags")) {
+    document.set("tags", sourceMetadata.tags);
+  }
+  const serialized = document.toString({ lineWidth: 0 }).trimEnd().replaceAll("\n", targetParts.newline);
+  return new TextEncoder().encode([
+    "---",
+    serialized,
+    "---",
+    sourceParts.body,
+  ].join(targetParts.newline));
 }
 
 function isWithinRoot(root: string, candidate: string): boolean {
@@ -363,6 +422,7 @@ export class DirectoryDocumentationSyncService {
             targetPath,
             sourceChecksum: file.checksum,
             targetChecksum: current.checksum,
+            ...(reconciliationEntry === undefined ? {} : { reconciliationDisposition: reconciliationEntry.disposition }),
           });
         }
       }
@@ -457,9 +517,11 @@ export class DirectoryDocumentationSyncService {
     for (const target of reservedTargets) this.#reservedTargets.add(target);
     try {
       const sourceFiles = new Map(snapshot.map(file => [file.sourcePath, file]));
+      const currentTargets = new Map<string, { checksum: string; content: Uint8Array }>();
       for (const operation of plan.operations) {
         throwIfAborted(signal);
         const target = await this.#readTarget(plan.workspaceId, operation.targetPath, signal);
+        if (target !== undefined) currentTargets.set(operation.targetPath, target);
         if (operation.operation === "create" && target !== undefined) {
           throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Documentation target changed after preview.", { path: operation.targetPath });
         }
@@ -485,6 +547,20 @@ export class DirectoryDocumentationSyncService {
             });
           }
         }
+      }
+
+      const materializedUpdates = new Map<string, { content: Uint8Array; checksum: string }>();
+      for (const operation of plan.operations) {
+        if (operation.operation !== "update") continue;
+        const file = sourceFiles.get(operation.sourcePath);
+        const target = currentTargets.get(operation.targetPath);
+        if (file === undefined || target === undefined) {
+          throw new AbcmError("DOCUMENTATION_IMPORT_STALE", "Planned documentation update is incomplete.");
+        }
+        const content = operation.reconciliationDisposition === "adopt-existing"
+          ? materializeAdoptedMarkdown(file.content, target.content)
+          : file.content;
+        materializedUpdates.set(operation.sourcePath, { content, checksum: sha256(content) });
       }
 
       // From this point the multi-file import is intentionally non-preemptible:
@@ -514,7 +590,9 @@ export class DirectoryDocumentationSyncService {
             sourcePath: operation.sourcePath,
             targetPath: operation.targetPath,
             sourceChecksum: file.checksum,
-            targetChecksum: operation.operation === "unchanged" ? operation.targetChecksum! : file.checksum,
+            targetChecksum: operation.operation === "unchanged"
+              ? operation.targetChecksum!
+              : materializedUpdates.get(operation.sourcePath)?.checksum ?? file.checksum,
             lastSynchronizedAt: synchronizedAt,
             active: true,
           });
@@ -577,7 +655,8 @@ export class DirectoryDocumentationSyncService {
                     throw new Error("Update checksum is unavailable.");
                   })()
                 : { ifMatch: operation.targetChecksum };
-          await this.#files.writeMirror(plan.workspaceId, operation.targetPath, file.content, preconditions);
+          const content = materializedUpdates.get(operation.sourcePath)?.content ?? file.content;
+          await this.#files.writeMirror(plan.workspaceId, operation.targetPath, content, preconditions);
         } else if (operation.operation === "move") {
           const file = sourceFiles.get(operation.sourcePath);
           if (
@@ -684,9 +763,7 @@ export class DirectoryDocumentationSyncService {
       const target = await this.#readTarget(source.workspaceId, record.targetPath, signal);
       const reconciliationEntry = reconciliation?.entries.get(record.sourcePath);
       const adoptedExisting = reconciliationEntry?.disposition === "adopt-existing"
-        && reconciliationEntry.targetPath === record.targetPath
-        && external?.checksum === reconciliationEntry.sourceChecksum
-        && target?.checksum === reconciliationEntry.targetChecksum;
+        && reconciliationEntry.targetPath === record.targetPath;
       if (
         external?.checksum !== record.sourceChecksum ||
         target?.checksum !== record.targetChecksum ||
@@ -917,10 +994,14 @@ export class DirectoryDocumentationSyncService {
     return sha256(JSON.stringify(snapshot.map(file => ({ sourcePath: file.sourcePath, checksum: file.checksum }))));
   }
 
-  async #readTarget(workspaceId: string, targetPath: string, signal?: AbortSignal): Promise<{ checksum: string } | undefined> {
+  async #readTarget(
+    workspaceId: string,
+    targetPath: string,
+    signal?: AbortSignal,
+  ): Promise<{ checksum: string; content: Uint8Array } | undefined> {
     try {
       const result = await this.#files.read(workspaceId, targetPath, signal);
-      return { checksum: result.entry.checksum };
+      return { checksum: result.entry.checksum, content: result.content };
     } catch (error) {
       if (error instanceof AbcmError && error.code === "FILE_NOT_FOUND") return undefined;
       throw error;

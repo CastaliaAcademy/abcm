@@ -641,6 +641,27 @@ export class ScopeMapService {
     paths: readonly string[],
     operation: FileMutationOperation,
   ): Promise<void> {
+    if (operation === "amend") {
+      const [headPath, archivePath] = paths;
+      let revision = this.#active.get(workspaceId);
+      if (revision === undefined) revision = await this.scan(workspaceId);
+      const artifact = revision.documents.find(document =>
+        document.relativePath === headPath &&
+        ["adr", "rfc"].includes(document.kind.toLocaleLowerCase("en-US")) &&
+        document.lifecycle.toLocaleLowerCase("en-US") === "accepted"
+      );
+      const expectedArchivePath = artifact?.artifactId === undefined || headPath === undefined
+        ? undefined
+        : posix.join(posix.dirname(headPath), "revisions", `${encodeURIComponent(artifact.artifactId)}.md`);
+      if (artifact === undefined || archivePath !== expectedArchivePath) {
+        throw new AbcmError(
+          "ACCEPTED_ARTIFACT_IMMUTABLE",
+          "Integrated amendment must archive the current accepted ADR/RFC revision at its deterministic revision path.",
+          { headPath, archivePath },
+        );
+      }
+      return;
+    }
     const protectedPaths = operation === "move" ? paths.slice(1) : paths;
     if (!protectedPaths.some(path => /(?:^|\/)artifacts\//.test(path))) return;
     let revision = this.#active.get(workspaceId);

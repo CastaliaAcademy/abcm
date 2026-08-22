@@ -40,6 +40,7 @@ export const artifactAmendmentReceiptSchema = z.object({
   previewDigest: checksum,
   lineageId: id,
   baseArtifactId: id,
+  baseChecksum: checksum.optional(),
   artifactId: id,
   supersedes: id,
   draftChecksum: checksum,

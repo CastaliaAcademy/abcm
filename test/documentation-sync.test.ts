@@ -189,6 +189,97 @@ describe("DirectoryDocumentationSyncService", () => {
     store.close();
   });
 
+  test("preserves adopted target frontmatter while synchronizing source tags and body", async () => {
+    const { workspaceRoot, sourceRoot, store, documentation } = await fixture(true);
+    const source = [
+      "---",
+      "tags:",
+      "  - legacy",
+      "---",
+      "# Legacy title",
+      "legacy body",
+      "",
+    ].join("\n");
+    const canonical = [
+      "---",
+      "id: ADR-NORMALIZED",
+      "kind: adr",
+      "title: Normalized decision",
+      "status: accepted",
+      "canonicalOwner: git",
+      "migrationStatus: staging",
+      "tags:",
+      "  - canonical-only",
+      "---",
+      "# Normalized title",
+      "normalized body",
+      "",
+    ].join("\n");
+    await writeFile(join(sourceRoot, "note.md"), source);
+    await writeFile(join(workspaceRoot, "artifacts/notes/note.md"), canonical);
+    await mkdir(join(workspaceRoot, "config", "documentation"), { recursive: true });
+    const reconciliationPath = join(workspaceRoot, "config/documentation/obsidian.yaml");
+    const reconciliation = (sourceChecksum: string) => [
+      "apiVersion: abcm/v1",
+      "kind: documentation-reconciliation",
+      "workspaceId: test",
+      "sourceId: obsidian",
+      "entries:",
+      "  - sourcePath: note.md",
+      "    targetPath: artifacts/notes/note.md",
+      `    sourceChecksum: ${sourceChecksum}`,
+      `    targetChecksum: ${checksum(canonical)}`,
+      "    disposition: adopt-existing",
+      "",
+    ].join("\n");
+    await writeFile(reconciliationPath, reconciliation(checksum(source)));
+    await documentation.apply((await documentation.preview("test", "obsidian")).importId);
+
+    const updatedSource = [
+      "---",
+      "tags:",
+      "  - abcm-context/t1",
+      "  - registry",
+      "---",
+      "# Legacy title",
+      "updated body with #inline-tag",
+      "",
+    ].join("\n");
+    await writeFile(join(sourceRoot, "note.md"), updatedSource);
+    await writeFile(reconciliationPath, reconciliation(checksum(updatedSource)));
+
+    const result = await documentation.sync("obsidian");
+    expect(result).toEqual(expect.objectContaining({ created: 0, updated: 1, deleted: 0, conflicts: 0 }));
+    const target = await readFile(join(workspaceRoot, "artifacts/notes/note.md"), "utf8");
+    expect(target).toContain("id: ADR-NORMALIZED");
+    expect(target).toContain("status: accepted");
+    expect(target).toContain("canonicalOwner: git");
+    expect(target).toContain("migrationStatus: staging");
+    expect(target).toContain("- abcm-context/t1");
+    expect(target).toContain("- registry");
+    expect(target).not.toContain("canonical-only");
+    expect(target).toContain("updated body with #inline-tag");
+    expect(target).not.toContain("normalized body");
+    expect(store.getActive("test")?.documents).toContainEqual(expect.objectContaining({
+      documentId: "ADR-NORMALIZED",
+      lifecycle: "accepted",
+      tags: ["abcm-context/t1", "inline-tag", "registry"],
+    }));
+    const provenance = store.listDocumentProvenance("test", "obsidian");
+    expect(provenance).toEqual([
+      expect.objectContaining({ sourceChecksum: checksum(updatedSource), targetChecksum: checksum(target), active: true }),
+    ]);
+    expect(provenance[0]?.targetChecksum).not.toBe(provenance[0]?.sourceChecksum);
+    expect((await documentation.preview("test", "obsidian")).operations).toEqual([
+      expect.objectContaining({ operation: "unchanged", targetChecksum: checksum(target) }),
+    ]);
+    await expect(documentation.cutover("obsidian", {
+      operatorApproved: true,
+      expectedSnapshotDigest: (await documentation.preview("test", "obsidian")).snapshotDigest,
+    })).resolves.toEqual(expect.objectContaining({ storageMode: "managed", documentCount: 1, status: "completed" }));
+    store.close();
+  });
+
   test("fails closed for unmapped and stale reconciliation entries", async () => {
     const { workspaceRoot, sourceRoot, store, documentation } = await fixture(true);
     const source = note("source bytes");
