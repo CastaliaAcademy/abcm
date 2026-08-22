@@ -134,11 +134,14 @@ describe("Obsidian accepted artifact amendments", () => {
       ));
       expect(response.status).toBe(200);
       const applied = await response.json() as { receipts: { status: string; checksum: string }[] };
-      expect(applied.receipts[0]?.status).toBe("applied");
-      expect(applied.receipts[0]?.checksum).not.toBe(changedChecksum);
+      const appliedReceipt = applied.receipts[0];
+      expect(appliedReceipt).toBeDefined();
+      if (appliedReceipt === undefined) throw new Error("Expected one applied amendment receipt.");
+      expect(appliedReceipt.status).toBe("applied");
+      expect(appliedReceipt.checksum).not.toBe(changedChecksum);
 
       const current = await readFile(acceptedPath, "utf8");
-      expect(checksum(current)).toBe(applied.receipts[0]?.checksum);
+      expect(checksum(current)).toBe(appliedReceipt.checksum);
       expect(current).toContain("status: accepted");
       expect(current).toContain("supersedes: ADR-0001");
       expect(current).toContain("control-plane");
@@ -160,7 +163,7 @@ describe("Obsidian accepted artifact amendments", () => {
       ));
       expect(duplicate.status).toBe(200);
       expect((await duplicate.json() as { receipts: { status: string; checksum: string }[] }).receipts[0]).toEqual({
-        ...applied.receipts[0],
+        ...appliedReceipt,
         status: "duplicate",
       });
       expect(await readFile(archivedPath, "utf8")).toBe(baseBytes);
