@@ -164,7 +164,13 @@ export function createAbcmRuntime(
     obsidianSync = new ObsidianSyncService(registry, files, {
       ...options.obsidianSync,
       artifactAmendments,
-      ...(options.documentationSources === undefined ? {} : { reservedReadOnlyMappings: options.documentationSources.map(source => ({ workspaceId: source.workspaceId, targetBasePath: source.targetBasePath })) }),
+      ...(options.documentationSources === undefined ? {} : {
+        reservedReadOnlyMappings: options.documentationSources.map(source => ({
+          workspaceId: source.workspaceId,
+          targetBasePath: source.targetBasePath,
+          isActive: () => documentationState?.getDocumentationSource(source.workspaceId, source.id)?.storageMode !== "managed",
+        })),
+      }),
       ...(options.observability === undefined ? {} : { observability: options.observability }),
     });
   }

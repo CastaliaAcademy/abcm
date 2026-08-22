@@ -40,7 +40,11 @@ export interface ObsidianSyncServiceOptions {
   previewTtlSeconds?: number;
   credentialTtlSeconds?: number;
   observability?: AbcmObservability;
-  reservedReadOnlyMappings?: readonly { workspaceId: string; targetBasePath: string }[];
+  reservedReadOnlyMappings?: readonly {
+    workspaceId: string;
+    targetBasePath: string;
+    isActive?: () => boolean;
+  }[];
   artifactAmendments?: ArtifactAmendmentService;
 }
 
@@ -116,7 +120,11 @@ export class ObsidianSyncService {
   readonly #clock: () => number;
   readonly #previewTtlSeconds: number;
   readonly #observability: AbcmObservability | undefined;
-  readonly #reservedReadOnlyMappings: readonly { workspaceId: string; targetBasePath: string }[];
+  readonly #reservedReadOnlyMappings: readonly {
+    workspaceId: string;
+    targetBasePath: string;
+    isActive?: () => boolean;
+  }[];
   readonly #artifactAmendments: ArtifactAmendmentService | undefined;
   readonly #journals = new Map<string, SqliteSyncJournal>();
   #captureSuppression = 0;
@@ -149,7 +157,8 @@ export class ObsidianSyncService {
     try {
       this.#registry.get(parsed.workspaceId);
       const prefix = syncPortablePathSchema.parse(parsed.projectPrefix ?? parsed.projectId);
-      const overlapsMirror = this.#reservedReadOnlyMappings.some(mapping => mapping.workspaceId === parsed.workspaceId
+      const overlapsMirror = this.#reservedReadOnlyMappings.some(mapping => (mapping.isActive?.() ?? true)
+        && mapping.workspaceId === parsed.workspaceId
         && (prefix === mapping.targetBasePath || prefix.startsWith(mapping.targetBasePath + "/") || mapping.targetBasePath.startsWith(prefix + "/")));
       if (overlapsMirror) throw new AbcmError("MIRROR_DOCUMENT_READ_ONLY", "Bidirectional synchronization cannot overlap an active read-only documentation mapping.", { workspaceId: parsed.workspaceId, projectId: parsed.projectId, projectPrefix: prefix });
       const result = this.#devices.createPairing(parsed);

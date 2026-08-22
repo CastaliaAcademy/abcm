@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { createAbcmRuntime } from "../src/app/create-runtime.js";
 
+const ADMIN_TOKEN = "admin-token-for-tests-0001";
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))));
 
@@ -12,7 +13,8 @@ describe("documentation sync REST contract", () => {
   test("previews, applies, syncs, and rejects mirror file writes through one runtime", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "abcm-sync-rest-workspace-"));
     const sourceRoot = await mkdtemp(join(tmpdir(), "abcm-sync-rest-source-"));
-    roots.push(workspaceRoot, sourceRoot);
+    const syncStateRoot = await mkdtemp(join(tmpdir(), "abcm-sync-rest-state-"));
+    roots.push(workspaceRoot, sourceRoot, syncStateRoot);
     await mkdir(join(workspaceRoot, "domain-language"));
     await mkdir(join(workspaceRoot, "artifacts", "notes"), { recursive: true });
     await writeFile(join(workspaceRoot, "scope.yaml"), "apiVersion: abcm/v1\nkind: workflow\nid: test\nname: Test\n");
@@ -21,12 +23,18 @@ describe("documentation sync REST contract", () => {
     const runtime = createAbcmRuntime(
       { id: "test", root: workspaceRoot },
       {
+        bearerToken: ADMIN_TOKEN,
         sqliteDerivedStoreEnabled: true,
         documentationSources: [{ id: "obsidian", workspaceId: "test", root: sourceRoot, targetBasePath: "artifacts/notes" }],
+        obsidianSync: { stateRoot: syncStateRoot },
       },
     );
     await runtime.scopeMap.scan("test");
-    const call = (path: string, init?: RequestInit) => runtime.restHandler(new Request(`http://localhost${path}`, init));
+    const call = (path: string, init: RequestInit = {}) => {
+      const headers = new Headers(init.headers);
+      headers.set("authorization", `Bearer ${ADMIN_TOKEN}`);
+      return runtime.restHandler(new Request(`http://localhost${path}`, { ...init, headers }));
+    };
     try {
       const previewResponse = await call("/v1/workspaces/test/documentation-sources/preview", {
         method: "POST",
@@ -60,6 +68,19 @@ describe("documentation sync REST contract", () => {
       expect(move.status).toBe(409);
       expect(await move.json()).toEqual(expect.objectContaining({ code: "MIRROR_DOCUMENT_READ_ONLY" }));
 
+      const blockedPairing = await call("/v1/obsidian/pairings", {
+        method: "POST",
+        headers: { "authorization": `Bearer ${ADMIN_TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: "test",
+          projectId: "notes",
+          projectPrefix: "artifacts/notes",
+          capabilities: ["read", "write"],
+        }),
+      });
+      expect(blockedPairing.status).toBe(409);
+      expect(await blockedPairing.json()).toEqual(expect.objectContaining({ code: "MIRROR_DOCUMENT_READ_ONLY" }));
+
       const sync = await call("/v1/documentation-sources/obsidian/sync", { method: "POST" });
       expect(sync.status).toBe(200);
       expect(await sync.json()).toEqual(expect.objectContaining({ status: "succeeded" }));
@@ -71,6 +92,21 @@ describe("documentation sync REST contract", () => {
       });
       expect(cutover.status).toBe(200);
       expect(await cutover.json()).toEqual(expect.objectContaining({ status: "completed", storageMode: "managed" }));
+
+      const managedPairing = await call("/v1/obsidian/pairings", {
+        method: "POST",
+        headers: { "authorization": `Bearer ${ADMIN_TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: "test",
+          projectId: "notes",
+          projectPrefix: "artifacts/notes",
+          capabilities: ["read", "write"],
+        }),
+      });
+      expect(managedPairing.status).toBe(201);
+      expect(await managedPairing.json()).toEqual(expect.objectContaining({
+        pairingCode: expect.stringMatching(/^pair_/),
+      }));
 
       const managedWrite = await call("/v1/workspaces/test/files/content?path=artifacts%2Fnotes%2Fnote.md", {
         method: "PUT",
